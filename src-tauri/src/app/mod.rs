@@ -36,7 +36,27 @@ impl AppState {
 pub fn get_db_path(app_handle: &AppHandle) -> Result<PathBuf, String> {
     let exe_dir = get_exe_dir(app_handle)?;
     let data_dir = exe_dir.join("data");
-    std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
+    
+    // Ensure the data directory exists with proper permissions
+    std::fs::create_dir_all(&data_dir).map_err(|e| {
+        format!("Failed to create data directory at {}: {}", data_dir.display(), e)
+    })?;
+    
+    // Verify the directory is writable
+    let test_file = data_dir.join(".write_test");
+    match std::fs::File::create(&test_file) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&test_file);
+        }
+        Err(e) => {
+            return Err(format!(
+                "Data directory {} is not writable: {}",
+                data_dir.display(),
+                e
+            ));
+        }
+    }
+    
     Ok(data_dir.join("catalog.db"))
 }
 

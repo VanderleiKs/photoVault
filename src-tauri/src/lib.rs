@@ -8,7 +8,6 @@ mod thumbnails;
 
 use std::fs::OpenOptions;
 use std::io::Write;
-use tauri::Manager;
 
 fn log_to_file(message: &str) {
     if let Ok(exe_path) = std::env::current_exe() {
@@ -59,6 +58,19 @@ pub fn run() {
             // Run migrations
             let db_path = app::get_db_path(app.handle())?;
             log_to_file(&format!("Database path: {}", db_path.display()));
+            
+            // Ensure data directory exists before opening the database
+            if let Some(parent) = db_path.parent() {
+                log_to_file(&format!("Creating data directory: {}", parent.display()));
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    log_to_file(&format!("Failed to create data directory: {}", e));
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Failed to create data directory: {}", e),
+                    )));
+                }
+                log_to_file(&format!("Data directory created: {}", parent.display()));
+            }
 
             match tauri::async_runtime::block_on(async {
                 catalog::init_database(&db_path).await
@@ -70,6 +82,7 @@ pub fn run() {
                 }
                 Err(e) => {
                     log_to_file(&format!("Database initialization failed: {}", e));
+                    log_to_file(&format!("Error details: {:?}", e));
                     Err(Box::new(e) as Box<dyn std::error::Error>)
                 }
             }
