@@ -3,41 +3,34 @@ name: Build
 on:
   push:
     branches: [main, master]
-  pull_request:
-    branches: [main, master]
   workflow_dispatch:
 
 permissions:
   contents: write
-
-env:
-  CARGO_TERM_COLOR: always
 
 jobs:
   build-windows:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: package-lock.json
 
-      - name: Install Node dependencies
-        run: npm install --legacy-peer-deps
+      - run: npm install --legacy-peer-deps
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+
+      - name: Check Rust code
+        run: cargo check --all-targets
+        working-directory: src-tauri
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
@@ -50,3 +43,9 @@ jobs:
           releaseBody: "Veja as alterações abaixo"
           releaseDraft: true
           prerelease: false
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: photovault-windows
+          path: src-tauri/target/release/photovault.exe
