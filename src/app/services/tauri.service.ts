@@ -37,6 +37,7 @@ export class TauriService implements OnDestroy {
     this.listenersRegistered = true;
 
     this.event.listen('scan_progress', (event: any) => {
+      console.log('[PhotoVault] scan_progress event:', JSON.stringify(event.payload));
       this.scanProgress.set(event.payload as ScanProgress);
     }).then((unlisten: () => void) => { this.unlistenProgress = unlisten; });
 

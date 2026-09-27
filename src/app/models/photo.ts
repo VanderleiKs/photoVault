@@ -32,7 +32,8 @@ export interface LibraryStats {
 export interface ScanProgress {
   processed: number;
   total: number;
-  current_path: string;
+  current_path?: string;
+  currentPath?: string;
 }
 
 export interface ScanComplete {

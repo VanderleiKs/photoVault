@@ -17,6 +17,7 @@ const SUPPORTED_IMAGE_EXTENSIONS: &[&str] = &[
 const SUPPORTED_VIDEO_EXTENSIONS: &[&str] = &["mp4", "mov", "mkv", "avi", "webm"];
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanProgress {
     pub processed: u64,
     pub total: u64,
