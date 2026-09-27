@@ -1,19 +1,97 @@
-@import "tailwindcss";
-
-@theme {
-  --color-primary: #3b82f6;
-  --color-primary-hover: #2563eb;
-  --color-surface: #18181b;
-  --color-surface-alt: #27272a;
-  --color-border: #3f3f46;
+:root {
+  --pv-bg: #0f172a;
+  --pv-surface: #1e293b;
+  --pv-surface-alt: #334155;
+  --pv-border: #475569;
+  --pv-accent: #3b82f6;
+  --pv-accent-hover: #2563eb;
+  --pv-text: #f1f5f9;
+  --pv-text-muted: #94a3b8;
 }
 
 * {
-  scrollbar-width: thin;
-  scrollbar-color: #3f3f46 transparent;
+  box-sizing: border-box;
 }
 
 body {
+  margin: 0;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--pv-bg);
+  color: var(--pv-text);
   overflow: hidden;
+}
+
+/* PrimeNG Overrides for Dark Theme */
+.p-component {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+.p-card {
+  background: var(--pv-surface) !important;
+  border: 1px solid var(--pv-border) !important;
+  border-radius: 12px !important;
+  color: var(--pv-text) !important;
+}
+
+.p-card .p-card-body {
+  padding: 1.5rem !important;
+}
+
+.p-button {
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+}
+
+.p-inputtext {
+  background: var(--pv-surface-alt) !important;
+  border: 1px solid var(--pv-border) !important;
+  color: var(--pv-text) !important;
+  border-radius: 8px !important;
+  padding: 0.75rem 1rem !important;
+}
+
+.p-inputtext:enabled:focus {
+  border-color: var(--pv-accent) !important;
+  box-shadow: 0 0 0 1px var(--pv-accent) !important;
+}
+
+.p-menu {
+  background: var(--pv-surface) !important;
+  border: 1px solid var(--pv-border) !important;
+  border-radius: 12px !important;
+}
+
+.p-menu .p-menuitem-link {
+  color: var(--pv-text) !important;
+}
+
+.p-menu .p-menuitem-link:hover {
+  background: var(--pv-surface-alt) !important;
+}
+
+.p-menu .p-menuitem-link .p-menuitem-text {
+  color: var(--pv-text) !important;
+}
+
+.p-menu .p-menuitem-link .p-menuitem-icon {
+  color: var(--pv-text-muted) !important;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--pv-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--pv-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--pv-text-muted);
 }

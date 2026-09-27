@@ -3,106 +3,120 @@ import { ActivatedRoute } from '@angular/router';
 import { TauriService } from '../../services/tauri.service';
 import { Photo, Library } from '../../models/photo';
 import { SidebarComponent } from '../sidebar/sidebar.component';
+import { ButtonModule } from 'primeng/button';
+import { CardModule } from 'primeng/card';
+import { ProgressBarModule } from 'primeng/progressbar';
 
 @Component({
   selector: 'app-gallery',
   standalone: true,
-  imports: [SidebarComponent],
+  imports: [SidebarComponent, ButtonModule, CardModule, ProgressBarModule],
   template: `
-    <div class="h-screen flex">
+    <div class="d-flex h-100">
       <!-- Sidebar -->
       <app-sidebar [library]="library()" />
 
       <!-- Main Content -->
-      <div class="flex-1 flex flex-col overflow-hidden">
+      <div class="flex-grow-1 d-flex flex-column" style="overflow: hidden;">
         <!-- Header -->
-        <header class="h-14 border-b border-zinc-800 flex items-center justify-between px-6 shrink-0">
-          <div class="flex items-center gap-4">
-            <h1 class="text-lg font-semibold">{{ library()?.name ?? 'PhotoVault' }}</h1>
+        <header class="d-flex align-items-center justify-content-between px-4 py-3" style="border-bottom: 1px solid var(--pv-border); flex-shrink: 0;">
+          <div class="d-flex align-items-center gap-3">
+            <h5 class="fw-semibold mb-0" style="color: var(--pv-text);">{{ library()?.name ?? 'PhotoVault' }}</h5>
             @if (stats()) {
-              <span class="text-sm text-zinc-400">
+              <span class="small" style="color: var(--pv-text-muted);">
                 {{ stats()!.total_photos }} fotos · {{ stats()!.total_videos }} vídeos
               </span>
             }
           </div>
 
-          <div class="flex items-center gap-3">
+          <div class="d-flex align-items-center gap-2">
             @if (isScanning()) {
-              <div class="flex items-center gap-3">
-                <span class="text-sm text-zinc-400">
+              <div class="d-flex align-items-center gap-2">
+                <span class="small" style="color: var(--pv-text-muted);">
                   Escaneado {{ scanProgress()?.processed ?? 0 }}/{{ scanProgress()?.total ?? '?' }}
                 </span>
                 <button
+                  pButton
+                  type="button"
+                  label="Cancelar"
+                  icon="pi pi-times"
+                  class="p-button-danger p-button-sm"
                   (click)="cancelScan()"
-                  class="px-3 py-1.5 text-sm bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded-lg transition"
-                >
-                  Cancelar
-                </button>
+                ></button>
               </div>
             } @else {
               <button
+                pButton
+                type="button"
+                label="Escanear"
+                icon="pi pi-refresh"
+                class="p-button-primary p-button-sm"
                 (click)="startScan()"
-                class="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 rounded-lg font-medium transition"
-              >
-                Escanear
-              </button>
+              ></button>
             }
           </div>
         </header>
 
         <!-- Progress Bar -->
         @if (isScanning() && scanProgress()) {
-          <div class="h-1 bg-zinc-800 shrink-0">
+          <div style="height: 2px; background: var(--pv-border); flex-shrink: 0;">
             <div
-              class="h-full bg-blue-500 transition-all duration-300"
+              style="height: 100%; background: var(--pv-accent); transition: width 0.3s;"
               [style.width.%]="scanProgress()!.total > 0 ? (scanProgress()!.processed / scanProgress()!.total) * 100 : 0"
             ></div>
           </div>
         }
 
         <!-- Gallery Grid -->
-        <div class="flex-1 overflow-y-auto p-6">
+        <div class="flex-grow-1 p-4" style="overflow-y: auto;">
           @if (photos().length === 0 && !isScanning()) {
-            <div class="h-full flex items-center justify-center">
-              <div class="text-center space-y-4">
-                <p class="text-zinc-400">Nenhuma foto encontrada.</p>
+            <div class="h-100 d-flex align-items-center justify-content-center">
+              <div class="text-center">
+                <i class="pi pi-images mb-3" style="font-size: 3rem; color: var(--pv-border);"></i>
+                <p class="mb-3" style="color: var(--pv-text-muted);">Nenhuma foto encontrada.</p>
                 <button
+                  pButton
+                  type="button"
+                  label="Escanear Biblioteca"
+                  icon="pi pi-refresh"
+                  class="p-button-primary"
                   (click)="startScan()"
-                  class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-medium transition"
-                >
-                  Escanear Biblioteca
-                </button>
+                ></button>
               </div>
             </div>
           } @else {
-            <div class="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-4">
+            <div class="row g-3">
               @for (photo of photos(); track photo.id) {
-                <div
-                  class="aspect-square bg-zinc-800 rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-500 transition group relative"
-                  (click)="openPhoto(photo)"
-                >
-                  @if (photo.media_type === 'image') {
-                    <img
-                      [src]="getThumbnailUrl(photo)"
-                      [alt]="photo.filename"
-                      class="w-full h-full object-cover"
-                      loading="lazy"
-                    />
-                  } @else {
-                    <div class="w-full h-full flex items-center justify-center">
-                      <svg class="w-12 h-12 text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
-                      </svg>
-                    </div>
-                  }
-
-                  <!-- Overlay -->
-                  <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition">
-                    <div class="absolute bottom-0 left-0 right-0 p-3">
-                      <p class="text-sm font-medium truncate">{{ photo.filename }}</p>
-                      @if (photo.captured_at) {
-                        <p class="text-xs text-zinc-300">{{ formatDate(photo.captured_at) }}</p>
-                      }
+                <div class="col-6 col-md-4 col-lg-3 col-xl-2">
+                  <div
+                    class="p-card shadow-sm"
+                    style="cursor: pointer; overflow: hidden; transition: transform 0.2s, box-shadow 0.2s;"
+                    (click)="openPhoto(photo)"
+                    (mouseenter)="photoHover = photo.id"
+                    (mouseleave)="photoHover = null"
+                    [style.transform]="photoHover === photo.id ? 'scale(1.02)' : 'scale(1)'"
+                    [style.box-shadow]="photoHover === photo.id ? '0 4px 12px rgba(0,0,0,0.3)' : 'none'"
+                  >
+                    <div class="p-card-body p-0">
+                      <div class="d-flex align-items-center justify-content-center" style="aspect-ratio: 1; background: var(--pv-surface-alt);">
+                        @if (photo.media_type === 'image') {
+                          <img
+                            [src]="getThumbnailUrl(photo)"
+                            [alt]="photo.filename"
+                            class="w-100 h-100"
+                            style="object-fit: cover;"
+                            loading="lazy"
+                          />
+                        } @else {
+                          <i class="pi pi-video" style="font-size: 2rem; color: var(--pv-border);"></i>
+                        }
+                      </div>
+                      <div class="p-2">
+                        <div class="small fw-medium text-truncate" style="color: var(--pv-text);">{{ photo.filename }}</div>
+                        @if (photo.captured_at) {
+                          <div class="small" style="color: var(--pv-text-muted); font-size: 0.7rem;">{{ formatDate(photo.captured_at) }}</div>
+                        }
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -123,6 +137,7 @@ export class GalleryComponent implements OnInit {
   stats = this.tauri.stats;
   isScanning = this.tauri.isScanning;
   scanProgress = this.tauri.scanProgress;
+  photoHover: string | null = '';
 
   private libraryId = '';
 
@@ -150,14 +165,10 @@ export class GalleryComponent implements OnInit {
   }
 
   openPhoto(photo: Photo) {
-    // TODO: Open photo viewer
     console.log('Open photo:', photo);
   }
 
   getThumbnailUrl(photo: Photo): string {
-    // In production, this would fetch the thumbnail path from Rust
-    // and use Tauri's convertFileSrc to create a valid URL
-    // For now, return a placeholder
     return `http://localhost:4200/assets/placeholder.svg`;
   }
 

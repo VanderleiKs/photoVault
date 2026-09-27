@@ -25,5 +25,6 @@ Thumbs.db
 *.log
 
 # PhotoVault runtime data
-data/
-logs/
+/src-tauri/data/
+/src-tauri/logs/
+/src-tauri/thumbnails/
