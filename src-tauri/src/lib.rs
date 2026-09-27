@@ -30,7 +30,7 @@ pub fn run() {
             // Run migrations
             let db_path = app::get_db_path(app.handle())?;
             tauri::async_runtime::block_on(async {
-                catalog::init_database(&db_path).await?;
+                catalog::init_database(&db_path).await
             })?;
 
             tracing::info!("PhotoVault initialized successfully");

@@ -2,9 +2,8 @@ use crate::app::{get_db_path, AppState};
 use crate::catalog::{self, Library, LibraryStats};
 use crate::scanner;
 use crate::thumbnails;
-use sqlx::SqlitePool;
-use tauri::Manager;
-use tauri::State;
+use sqlx::{Row, SqlitePool};
+use tauri::{Emitter, State};
 
 /// Create a new library
 #[tauri::command]

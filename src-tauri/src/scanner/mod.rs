@@ -5,7 +5,7 @@ use crate::thumbnails;
 use chrono::Utc;
 use sqlx::SqlitePool;
 use std::path::Path;
-use tauri::Manager;
+use tauri::Emitter;
 use tokio::sync::mpsc;
 use walkdir::WalkDir;
 use serde::Serialize;
