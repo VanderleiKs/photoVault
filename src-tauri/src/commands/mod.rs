@@ -1,7 +1,7 @@
+use std::sync::Arc;
 use crate::app::{get_db_path, AppState};
 use crate::catalog::{self, Library, LibraryStats};
 use crate::scanner;
-use crate::thumbnails;
 use sqlx::{Row, SqlitePool};
 use tauri::{Emitter, State};
 
@@ -77,7 +77,7 @@ pub async fn scan_library(
         .ok_or_else(|| "Library not found".to_string())?;
 
     // Clone the Arc<AppState> to move into the spawned task
-    let app_state = app_state.inner().clone();
+    let app_state: Arc<AppState> = app_state.inner().clone();
     let app_handle_clone = app_handle.clone();
 
     // Run scan in background

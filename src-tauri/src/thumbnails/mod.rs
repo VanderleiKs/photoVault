@@ -1,6 +1,5 @@
 use crate::app;
 use std::path::Path;
-use tauri::Manager;
 
 const THUMBNAIL_SIZE: u32 = 256;
 

@@ -88,12 +88,13 @@ pub async fn scan_library(
 
     // Channel for progress updates
     let (tx, mut rx) = mpsc::channel::<ScanProgress>(100);
-    let app_handle = app_state.app_handle.clone();
+    let scan_handle = app_state.app_handle.clone();
+    let progress_handle = scan_handle.clone();
 
     // Spawn progress reporter
-    let progress_handle = tokio::spawn(async move {
+    let progress_task = tokio::spawn(async move {
         while let Some(progress) = rx.recv().await {
-            let _ = app_handle.emit("scan_progress", progress);
+            let _ = progress_handle.emit("scan_progress", progress);
         }
     });
 
@@ -161,7 +162,7 @@ pub async fn scan_library(
                         new_count += 1;
                         // Generate thumbnail for images
                         if media_type == "image" {
-                            if let Err(e) = thumbnails::generate_thumbnail(&app_handle, &photo_id, &full_path).await {
+                            if let Err(e) = thumbnails::generate_thumbnail(&scan_handle, &photo_id, &full_path).await {
                                 tracing::warn!("Failed to generate thumbnail for {}: {}", relative_path, e);
                             }
                         }
@@ -183,7 +184,7 @@ pub async fn scan_library(
     };
     let _ = tx.send(final_progress).await;
     drop(tx);
-    let _ = progress_handle.await;
+    let _ = progress_task.await;
 
     // Update last scan timestamp
     catalog::update_last_scan(pool, library_id)
@@ -199,7 +200,7 @@ pub async fn scan_library(
     );
 
     // Emit scan complete event
-    let _ = app_handle.emit(
+    let _ = scan_handle.emit(
         "scan_complete",
         serde_json::json!({
             "library_id": library_id,
