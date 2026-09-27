@@ -23,6 +23,13 @@ Two halves that talk via Tauri IPC:
 | Frontend | `src/` | Angular 22 (standalone components, signals) |
 | Backend | `src-tauri/` | Rust (Tauri 2) |
 
+### Frontend stack
+- **CSS**: Bootstrap 5.3 (grid, utilities, components)
+- **Component library**: @openng/optimus-ui v2 (PrimeNG-based: Button, Card, InputText, Menu)
+- **Icons**: PrimeIcons (`pi pi-*`) — consistent with Optimus UI
+- **State**: Angular signals
+- **Routing**: Angular Router
+
 ### Frontend entrypoints
 - `src/app/services/tauri.service.ts` — **single** service wrapping every IPC call
 - `src/app/models/photo.ts` — TypeScript interfaces (`Photo`, `Library`, `ScanProgress`, …)
@@ -44,7 +51,7 @@ Two halves that talk via Tauri IPC:
   During dev this means `src-tauri/target/debug/data/`.
 
 - **Migrations auto-run at startup** via `catalog::init_database` in `lib.rs`.  
-  Never run `sqlx migrate` manually during dev.
+  Never run `sqlx migrate!` manually during dev.
 
 - **IPC uses raw `window.__TAURI_INTERNALS__`** (see `tauri.service.ts`), not `@tauri-apps/api`.  
   Argument shapes must match exactly — e.g. `page`/`limit` are wrapped as `{ value: n }`.
@@ -58,3 +65,7 @@ Two halves that talk via Tauri IPC:
 
 - **Scan cancellation** flows through `AppState.scan_cancelled` (`Arc<RwLock<bool>>`),  
   polled in the scanner loop and set by the `cancel_scan` command.
+
+- **Bootstrap CSS/JS must be in `angular.json`** — otherwise layout breaks silently.
+
+- **Optimus UI `p-card` ignores `max-width`** — use `style="width: 100% !important"` when needed.

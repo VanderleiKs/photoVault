@@ -77,7 +77,7 @@ import { CardModule } from '@openng/optimus-ui/card';
         }
 
         <!-- Gallery Grid -->
-        <div class="flex-grow-1 p-4" style="overflow-y: auto;">
+        <div class="flex-grow-1 p-4" style="overflow-y: auto;" (scroll)="onScroll($event)">
           @if (photos().length === 0 && !isScanning()) {
             <div class="h-100 d-flex align-items-center justify-content-center">
               <div class="text-center">
@@ -128,6 +128,27 @@ import { CardModule } from '@openng/optimus-ui/card';
                 </div>
               }
             </div>
+
+            <!-- Loading Skeleton -->
+            @if (isLoadingMore()) {
+              <div class="row g-3 mt-3">
+                @for (item of skeletonItems; track item) {
+                  <div class="col-6 col-md-4 col-lg-3 col-xl-2">
+                    <div class="p-card shadow-sm" style="opacity: 0.6;">
+                      <div class="p-card-body p-0">
+                        <div class="photo-thumbnail skeleton">
+                          <div class="skeleton-image"></div>
+                        </div>
+                        <div class="p-2">
+                          <div class="skeleton-text"></div>
+                          <div class="skeleton-text short"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                }
+              </div>
+            }
           }
         </div>
       </div>
@@ -152,6 +173,33 @@ import { CardModule } from '@openng/optimus-ui/card';
       aspect-ratio: 1;
       background: var(--pv-surface-alt);
     }
+
+    .skeleton {
+      background: linear-gradient(90deg, var(--pv-surface-alt) 25%, var(--pv-border) 50%, var(--pv-surface-alt) 75%);
+      background-size: 200% 100%;
+      animation: skeleton-loading 1.5s infinite;
+    }
+
+    .skeleton-image {
+      width: 100%;
+      height: 100%;
+    }
+
+    .skeleton-text {
+      height: 12px;
+      background: var(--pv-border);
+      border-radius: 4px;
+      margin-bottom: 6px;
+    }
+
+    .skeleton-text.short {
+      width: 60%;
+    }
+
+    @keyframes skeleton-loading {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
   `],
 })
 export class GalleryComponent implements OnInit, AfterViewInit, OnDestroy {
@@ -170,6 +218,12 @@ export class GalleryComponent implements OnInit, AfterViewInit, OnDestroy {
   private thumbnailCache = new Map<string, string>();
   private observer: IntersectionObserver | null = null;
   private loadingThumbnails = new Set<string>();
+  private currentPage = 1;
+  private pageSize = 50;
+  private isLoadingMore = signal(false);
+  private hasMore = true;
+
+  skeletonItems = Array(6).fill(0);
 
   async ngOnInit() {
     this.libraryId = this.route.snapshot.paramMap.get('id') || '';
@@ -184,7 +238,6 @@ export class GalleryComponent implements OnInit, AfterViewInit, OnDestroy {
     this.setupIntersectionObserver();
     this.observeCards();
 
-    // Re-observe when photos change
     this.photoCards.changes.subscribe(() => {
       this.observeCards();
     });
@@ -259,6 +312,35 @@ export class GalleryComponent implements OnInit, AfterViewInit, OnDestroy {
       console.error('Failed to load thumbnail:', err);
     } finally {
       this.loadingThumbnails.delete(photoId);
+    }
+  }
+
+  onScroll(event: Event) {
+    const target = event.target as HTMLElement;
+    const scrollTop = target.scrollTop;
+    const scrollHeight = target.scrollHeight;
+    const clientHeight = target.clientHeight;
+
+    if (scrollTop + clientHeight >= scrollHeight - 200 && !this.isLoadingMore() && this.hasMore) {
+      this.loadMore();
+    }
+  }
+
+  private async loadMore() {
+    this.isLoadingMore.set(true);
+    try {
+      this.currentPage++;
+      const previousCount = this.photos().length;
+      await this.tauri.loadPhotos(this.libraryId, this.currentPage, this.pageSize);
+      const newCount = this.photos().length - previousCount;
+      if (newCount < this.pageSize) {
+        this.hasMore = false;
+      }
+    } catch (err) {
+      console.error('Failed to load more photos:', err);
+      this.currentPage--;
+    } finally {
+      this.isLoadingMore.set(false);
     }
   }
 

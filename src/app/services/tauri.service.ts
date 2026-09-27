@@ -1,10 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 import type { Photo, Library, LibraryStats, ScanProgress, ScanComplete } from '../models/photo';
 
-/**
- * Service for communicating with the Rust backend via Tauri IPC.
- * All heavy operations (scanning, hashing, etc.) happen on the Rust side.
- */
 @Injectable({ providedIn: 'root' })
 export class TauriService {
   private readonly invoke = (window as any).__TAURI_INTERNALS__?.invoke;
@@ -16,6 +12,10 @@ export class TauriService {
   readonly stats = signal<LibraryStats | null>(null);
   readonly scanProgress = signal<ScanProgress | null>(null);
   readonly isScanning = signal(false);
+
+  private thumbnailQueue: string[] = [];
+  private activeThumbnailRequests = 0;
+  private readonly maxConcurrentThumbnails = 5;
 
   constructor() {
     this.checkAvailability();
@@ -69,7 +69,6 @@ export class TauriService {
     this.isScanning.set(true);
     this.scanProgress.set(null);
 
-    // Listen for progress events
     const unlisten = await this.event.listen(
       'scan_progress',
       (event: any) => {
@@ -116,10 +115,16 @@ export class TauriService {
         page: { value: page },
         limit: { value: limit },
       });
-      this.photos.set(photos);
+      if (page === 1) {
+        this.photos.set(photos);
+      } else {
+        this.photos.update(existing => [...existing, ...photos]);
+      }
     } catch (err) {
       console.error('Failed to load photos:', err);
-      this.photos.set([]);
+      if (page === 1) {
+        this.photos.set([]);
+      }
     }
   }
 
@@ -132,6 +137,36 @@ export class TauriService {
   }
 
   async getThumbnailDataUrl(photoId: string): Promise<string | null> {
-    return this.tauriInvoke<string | null>('get_thumbnail_data_url', { photoId });
+    return this.enqueueThumbnailRequest(photoId);
+  }
+
+  private async enqueueThumbnailRequest(photoId: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      this.thumbnailQueue.push(photoId);
+      this.processThumbnailQueue(resolve);
+    });
+  }
+
+  private async processThumbnailQueue(resolve: (value: string | null) => void) {
+    if (this.activeThumbnailRequests >= this.maxConcurrentThumbnails || this.thumbnailQueue.length === 0) {
+      return;
+    }
+
+    const photoId = this.thumbnailQueue.shift()!;
+    this.activeThumbnailRequests++;
+
+    try {
+      const dataUrl = await this.tauriInvoke<string | null>('get_thumbnail_data_url', { photoId });
+      resolve(dataUrl);
+    } catch (err) {
+      console.error('Failed to load thumbnail:', err);
+      resolve(null);
+    } finally {
+      this.activeThumbnailRequests--;
+      // Process next in queue
+      if (this.thumbnailQueue.length > 0) {
+        this.processThumbnailQueue(() => {});
+      }
+    }
   }
 }
