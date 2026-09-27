@@ -1,8 +1,8 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, OnDestroy } from '@angular/core';
 import type { Photo, Library, LibraryStats, ScanProgress, ScanComplete } from '../models/photo';
 
 @Injectable({ providedIn: 'root' })
-export class TauriService {
+export class TauriService implements OnDestroy {
   private readonly invoke = (window as any).__TAURI_INTERNALS__?.invoke;
   private readonly event = (window as any).__TAURI_INTERNALS__?.event;
 
@@ -16,15 +16,50 @@ export class TauriService {
   private thumbnailQueue: string[] = [];
   private activeThumbnailRequests = 0;
   private readonly maxConcurrentThumbnails = 5;
+  private unlistenProgress?: () => void;
+  private unlistenComplete?: () => void;
+  private unlistenError?: () => void;
+  private listenersRegistered = false;
 
   constructor() {
     this.checkAvailability();
+    this.registerEventListeners();
   }
 
   private checkAvailability() {
     if (!this.invoke) {
       console.warn('Tauri IPC not available - running in browser mode');
     }
+  }
+
+  private registerEventListeners() {
+    if (this.listenersRegistered || !this.event) return;
+    this.listenersRegistered = true;
+
+    this.event.listen('scan_progress', (event: any) => {
+      this.scanProgress.set(event.payload as ScanProgress);
+    }).then((unlisten: () => void) => { this.unlistenProgress = unlisten; });
+
+    this.event.listen('scan_complete', (event: any) => {
+      this.isScanning.set(false);
+      this.scanProgress.set(null);
+      const payload = event.payload as ScanComplete;
+      if (payload.library_id) {
+        this.getLibraryStats(payload.library_id);
+        this.loadPhotos(payload.library_id, 1);
+      }
+    }).then((unlisten: () => void) => { this.unlistenComplete = unlisten; });
+
+    this.event.listen('scan_error', (event: any) => {
+      console.error('Scan error:', event.payload);
+      this.isScanning.set(false);
+    }).then((unlisten: () => void) => { this.unlistenError = unlisten; });
+  }
+
+  ngOnDestroy() {
+    this.unlistenProgress?.();
+    this.unlistenComplete?.();
+    this.unlistenError?.();
   }
 
   private async tauriInvoke<T>(cmd: string, args?: Record<string, any>): Promise<T> {
@@ -68,39 +103,7 @@ export class TauriService {
   async scanLibrary(libraryId: string): Promise<void> {
     this.isScanning.set(true);
     this.scanProgress.set(null);
-
-    const unlisten = await this.event.listen(
-      'scan_progress',
-      (event: any) => {
-        this.scanProgress.set(event.payload as ScanProgress);
-      }
-    );
-
-    const unlistenComplete = await this.event.listen(
-      'scan_complete',
-      (event: any) => {
-        this.isScanning.set(false);
-        this.scanProgress.set(null);
-        this.getLibraryStats(libraryId);
-        this.loadPhotos(libraryId, 1);
-      }
-    );
-
-    const unlistenError = await this.event.listen(
-      'scan_error',
-      (event: any) => {
-        console.error('Scan error:', event.payload);
-        this.isScanning.set(false);
-      }
-    );
-
-    try {
-      await this.tauriInvoke('scan_library', { libraryId });
-    } finally {
-      unlisten();
-      unlistenComplete();
-      unlistenError();
-    }
+    await this.tauriInvoke('scan_library', { libraryId });
   }
 
   async cancelScan(): Promise<void> {
@@ -163,7 +166,6 @@ export class TauriService {
       resolve(null);
     } finally {
       this.activeThumbnailRequests--;
-      // Process next in queue
       if (this.thumbnailQueue.length > 0) {
         this.processThumbnailQueue(() => {});
       }

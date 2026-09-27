@@ -7,25 +7,40 @@ use uuid::Uuid;
 pub async fn init_database(db_path: &std::path::Path) -> Result<SqlitePool, sqlx::Error> {
     let db_url = format!("sqlite://{}", db_path.display());
 
-    let pool = SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect(&db_url)
-        .await?;
+    // Retry logic for intermittent "unable to open database file" errors
+    let mut last_err = None;
+    for attempt in 1..=5 {
+        match SqlitePoolOptions::new()
+            .max_connections(5)
+            .connect(&db_url)
+            .await
+        {
+            Ok(pool) => {
+                // Enable WAL mode for better concurrency
+                sqlx::query("PRAGMA journal_mode = WAL;")
+                    .execute(&pool)
+                    .await?;
 
-    // Enable WAL mode for better concurrency
-    sqlx::query("PRAGMA journal_mode = WAL;")
-        .execute(&pool)
-        .await?;
+                // Enable foreign keys
+                sqlx::query("PRAGMA foreign_keys = ON;")
+                    .execute(&pool)
+                    .await?;
 
-    // Enable foreign keys
-    sqlx::query("PRAGMA foreign_keys = ON;")
-        .execute(&pool)
-        .await?;
+                // Run migrations
+                sqlx::migrate!("./migrations").run(&pool).await?;
 
-    // Run migrations
-    sqlx::migrate!("./migrations").run(&pool).await?;
+                return Ok(pool);
+            }
+            Err(e) => {
+                last_err = Some(e);
+                if attempt < 5 {
+                    tokio::time::sleep(std::time::Duration::from_millis(100 * attempt as u64)).await;
+                }
+            }
+        }
+    }
 
-    Ok(pool)
+    Err(last_err.unwrap())
 }
 
 /// Create a new library
