@@ -67,7 +67,7 @@ import { CardModule } from "@openng/optimus-ui/card";
                 style="color: var(--pv-text-muted);"
                 >Pasta das fotos</label
               >
-              <div class="input-group">
+              <div class="input-group d-flex gap-2">
                 <input
                   type="text"
                   pInputText
