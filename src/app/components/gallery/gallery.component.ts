@@ -9,7 +9,7 @@ import {
   QueryList,
   ElementRef,
 } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { TauriService } from '../../services/tauri.service';
 import { Photo, Library } from '../../models/photo';
 import { SidebarComponent } from '../sidebar/sidebar.component';
@@ -204,6 +204,7 @@ import { CardModule } from '@openng/optimus-ui/card';
 })
 export class GalleryComponent implements OnInit, AfterViewInit, OnDestroy {
   private route = inject(ActivatedRoute);
+  private router = inject(Router);
   private tauri = inject(TauriService);
 
   library = signal<Library | null>(null);
@@ -286,8 +287,7 @@ export class GalleryComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   openPhoto(photo: Photo) {
-    // TODO: Implement photo viewer
-    console.log('Open photo:', photo);
+    this.router.navigate(['/library', this.libraryId, 'photo', photo.id]);
   }
 
   getThumbnailUrl(photo: Photo): string {
