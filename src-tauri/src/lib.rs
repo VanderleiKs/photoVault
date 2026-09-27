@@ -23,8 +23,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
-            // Initialize app state
-            let app_state = app::AppState::new(app.handle().clone())?;
+            // Initialize app state as Arc for sharing across spawned tasks
+            let app_state = std::sync::Arc::new(app::AppState::new(app.handle().clone())?);
             app.manage(app_state);
 
             // Run migrations

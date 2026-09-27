@@ -63,7 +63,7 @@ pub async fn get_library_stats(
 pub async fn scan_library(
     library_id: String,
     app_handle: tauri::AppHandle,
-    app_state: State<'_, AppState>,
+    app_state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
     let db_path = get_db_path(&app_handle)?;
     let db_url = format!("sqlite://{}", db_path.display());
@@ -77,7 +77,7 @@ pub async fn scan_library(
         .ok_or_else(|| "Library not found".to_string())?;
 
     // Clone the Arc<AppState> to move into the spawned task
-    let app_state: Arc<AppState> = app_state.inner().clone();
+    let app_state = app_state.inner().clone();
     let app_handle_clone = app_handle.clone();
 
     // Run scan in background
@@ -93,7 +93,7 @@ pub async fn scan_library(
 
 /// Cancel ongoing scan
 #[tauri::command]
-pub async fn cancel_scan(app_state: State<'_, AppState>) -> Result<(), String> {
+pub async fn cancel_scan(app_state: State<'_, Arc<AppState>>) -> Result<(), String> {
     app_state.cancel_scan().await;
     Ok(())
 }
