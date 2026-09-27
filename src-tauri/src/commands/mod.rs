@@ -76,12 +76,15 @@ pub async fn scan_library(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "Library not found".to_string())?;
 
-    // Run scan in background
+    // Clone the Arc<AppState> to move into the spawned task
     let app_state = app_state.inner().clone();
+    let app_handle_clone = app_handle.clone();
+
+    // Run scan in background
     tauri::async_runtime::spawn(async move {
         if let Err(e) = scanner::scan_library(&pool, &app_state, &library_id, &library.root_path).await {
             tracing::error!("Scan failed: {}", e);
-            let _ = app_handle.emit("scan_error", serde_json::json!({ "error": e }));
+            let _ = app_handle_clone.emit("scan_error", serde_json::json!({ "error": e }));
         }
     });
 
@@ -208,7 +211,7 @@ pub async fn get_thumbnail(
     photo_id: String,
     app_handle: tauri::AppHandle,
 ) -> Result<Option<String>, String> {
-    let thumb_path = thumbnails::get_thumbnail_path(&app_handle, &photo_id)?;
+    let thumb_path = crate::thumbnails::get_thumbnail_path(&app_handle, &photo_id)?;
 
     if thumb_path.exists() {
         Ok(Some(thumb_path.to_string_lossy().to_string()))
