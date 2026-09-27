@@ -70,7 +70,7 @@ pub fn run() {
                 }
                 Err(e) => {
                     log_to_file(&format!("Database initialization failed: {}", e));
-                    Err(e)
+                    Err(Box::new(e) as Box<dyn std::error::Error>)
                 }
             }
         })
