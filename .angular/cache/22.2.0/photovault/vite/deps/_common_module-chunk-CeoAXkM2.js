@@ -2853,4 +2853,4 @@ _defineProperty(CommonModule, "ɵinj", /*@__PURE__*/ ɵɵdefineInjector({}));
 	}], null, null);
 })();
 //#endregion
-export { HashLocationStrategy as n, NgTemplateOutlet as r, CommonModule as t };
+export { NgTemplateOutlet as i, HashLocationStrategy as n, NgStyle as r, CommonModule as t };

@@ -3,9 +3,9 @@ import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { TauriService } from '../../services/tauri.service';
 import { Library } from '../../models/photo';
-import { ButtonModule } from 'primeng/button';
-import { InputTextModule } from 'primeng/inputtext';
-import { CardModule } from 'primeng/card';
+import { ButtonModule } from '@openng/optimus-ui/button';
+import { InputTextModule } from '@openng/optimus-ui/inputtext';
+import { CardModule } from '@openng/optimus-ui/card';
 
 @Component({
   selector: 'app-library-selector',
@@ -55,6 +55,7 @@ import { CardModule } from 'primeng/card';
                   icon="pi pi-folder"
                   (click)="selectFolder()"
                   class="p-button-secondary"
+                  title="Selecionar pasta"
                 ></button>
               </div>
             </div>
@@ -122,7 +123,7 @@ export class LibrarySelectorComponent implements OnInit {
   libraryName = '';
   rootPath = '';
   isCreating = signal(false);
-  libHover: string | null = '';
+  libHover: string | null = null;
   libraries = this.tauri.libraries;
 
   async ngOnInit() {
@@ -130,9 +131,13 @@ export class LibrarySelectorComponent implements OnInit {
   }
 
   async selectFolder() {
-    const path = prompt('Digite o caminho da pasta:');
-    if (path) {
-      this.rootPath = path;
+    try {
+      const path = await this.tauri.pickFolder();
+      if (path) {
+        this.rootPath = path;
+      }
+    } catch (err) {
+      console.error('Failed to pick folder:', err);
     }
   }
 

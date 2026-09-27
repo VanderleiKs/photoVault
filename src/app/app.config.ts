@@ -1,8 +1,7 @@
 import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { provideAnimations } from '@angular/platform-browser/animations';
-import { providePrimeNG } from 'primeng/config';
-import Aura from '@primeng/themes/aura';
+import { provideOptimus } from '@openng/optimus-ui/config';
 import { routes } from './app.routes';
 
 export const appConfig: ApplicationConfig = {
@@ -10,9 +9,8 @@ export const appConfig: ApplicationConfig = {
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(routes),
     provideAnimations(),
-    providePrimeNG({
+    provideOptimus({
       theme: {
-        preset: Aura,
         options: {
           darkModeSelector: '.dark-mode',
         },

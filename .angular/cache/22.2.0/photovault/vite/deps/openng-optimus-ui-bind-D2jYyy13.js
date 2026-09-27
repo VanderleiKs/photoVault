@@ -1,23 +1,26 @@
 import { n as _defineProperty } from "./objectSpread2-weooBxVk.js";
-import { Bt as computed, Dl as signal, En as ElementRef, In as Input, Nl as ɵɵdefineInjector, Sa as ɵɵclassMap, Vs as ɵɵstyleMap, Wi as setClassMetadata, X as input, ao as ɵɵdefineNgModule, io as ɵɵdefineDirective, ir as Renderer2, ol as effect, pl as inject, qn as NgModule, wn as Directive } from "./core-C91JEChX.js";
-import { l as b } from "./dist-DWYgOqP_.js";
-//#region node_modules/@primeuix/utils/dist/classnames/index.mjs
-function c(...e) {
-	let t = [];
-	for (let s = 0; s < e.length; s++) {
-		let n = e[s];
-		if (!n) continue;
-		let r = typeof n;
-		if (r === "string" || r === "number") t.push(n);
-		else if (r === "object") {
-			let o = Array.isArray(n) ? [c(...n)] : Object.entries(n).map(([i, u]) => u ? i : void 0);
-			t = o.length ? t.concat(o.filter((i) => !!i)) : t;
+import { Bt as computed, Dl as signal, En as ElementRef, In as Input, Nl as ɵɵdefineInjector, Sa as ɵɵclassMap, Vs as ɵɵstyleMap, Wi as setClassMetadata, X as input, ao as ɵɵdefineNgModule, co as ɵɵdirectiveInject, fc as _objectWithoutProperties, io as ɵɵdefineDirective, ir as Renderer2, ol as effect, qn as NgModule, wn as Directive } from "./core-C91JEChX.js";
+import { p as s } from "./dist-CbKW6MfK.js";
+//#region node_modules/@openng/optimus-ui-utils/dist/classnames/index.mjs
+function e(...t) {
+	if (t) {
+		let n = [];
+		for (let r = 0; r < t.length; r++) {
+			let i = t[r];
+			if (!i) continue;
+			let a = typeof i;
+			if (a === `string` || a === `number`) n.push(i);
+			else if (a === `object`) {
+				let t = Array.isArray(i) ? [e(...i)] : Object.entries(i).map(([e, t]) => t ? e : void 0);
+				n = t.length ? n.concat(t.filter((e) => !!e)) : n;
+			}
 		}
+		return n.join(` `).trim();
 	}
-	return t.join(" ").trim();
 }
 //#endregion
-//#region node_modules/primeng/fesm2022/primeng-bind.mjs
+//#region node_modules/@openng/optimus-ui/fesm2022/openng-optimus-ui-bind.mjs
+var _excluded = ["style", "class"];
 var _Bind;
 var _BindModule;
 /**
@@ -25,7 +28,9 @@ var _BindModule;
 * @group Components
 */
 var Bind = class {
-	constructor() {
+	constructor(el, renderer) {
+		_defineProperty(this, "el", void 0);
+		_defineProperty(this, "renderer", void 0);
 		_defineProperty(
 			this,
 			/**
@@ -43,14 +48,13 @@ var Bind = class {
 		}, ...ngDevMode ? [{ debugName: "styles" }] : /* istanbul ignore next */ []));
 		_defineProperty(this, "classes", computed(() => {
 			var _this$attrs2;
-			return c((_this$attrs2 = this.attrs()) === null || _this$attrs2 === void 0 ? void 0 : _this$attrs2.class);
+			return e((_this$attrs2 = this.attrs()) === null || _this$attrs2 === void 0 ? void 0 : _this$attrs2.class);
 		}, ...ngDevMode ? [{ debugName: "classes" }] : /* istanbul ignore next */ []));
 		_defineProperty(this, "listeners", []);
-		_defineProperty(this, "el", inject(ElementRef));
-		_defineProperty(this, "renderer", inject(Renderer2));
+		this.el = el;
+		this.renderer = renderer;
 		effect(() => {
-			const attrs = this.attrs() || {};
-			const rest = Object.fromEntries(Object.entries(attrs).filter(([key]) => key !== "style" && key !== "class"));
+			const _ref = this.attrs() || {}, { style, class: className } = _ref, rest = _objectWithoutProperties(_ref, _excluded);
 			for (const [key, value] of Object.entries(rest)) if (key.startsWith("on") && typeof value === "function") {
 				const eventName = key.slice(2).toLowerCase();
 				if (!this.listeners.some((l) => l.eventName === eventName)) {
@@ -71,7 +75,7 @@ var Bind = class {
 		this.clearListeners();
 	}
 	setAttrs(attrs) {
-		if (!b(this._attrs(), attrs)) this._attrs.set(attrs);
+		if (!s(this._attrs(), attrs)) this._attrs.set(attrs);
 	}
 	clearListeners() {
 		this.listeners.forEach(({ unlisten }) => unlisten());
@@ -80,7 +84,7 @@ var Bind = class {
 };
 _Bind = Bind;
 _defineProperty(Bind, "ɵfac", function Bind_Factory(__ngFactoryType__) {
-	return new (__ngFactoryType__ || _Bind)();
+	return new (__ngFactoryType__ || _Bind)(ɵɵdirectiveInject(ElementRef), ɵɵdirectiveInject(Renderer2));
 });
 _defineProperty(Bind, "ɵdir", /*@__PURE__*/ ɵɵdefineDirective({
 	type: _Bind,
@@ -109,7 +113,7 @@ _defineProperty(Bind, "ɵdir", /*@__PURE__*/ ɵɵdefineDirective({
 				"[class]": "classes()"
 			}
 		}]
-	}], () => [], { pBind: [{
+	}], () => [{ type: ElementRef }, { type: Renderer2 }], { pBind: [{
 		type: Input,
 		args: [{
 			isSignal: true,
@@ -139,4 +143,4 @@ _defineProperty(BindModule, "ɵinj", /*@__PURE__*/ ɵɵdefineInjector({}));
 	}], null, null);
 })();
 //#endregion
-export { BindModule as n, c as r, Bind as t };
+export { BindModule as n, e as r, Bind as t };

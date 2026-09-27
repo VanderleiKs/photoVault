@@ -1,7 +1,7 @@
 import { n as _defineProperty, t as _objectSpread2 } from "./objectSpread2-weooBxVk.js";
 import { Bc as NgZone, Ei as performanceMarkFeature, Fn as Injectable, Il as ɵɵinject, Jc as RuntimeError, Ml as ɵɵdefineInjectable, Nl as ɵɵdefineInjector, Pn as Inject, Wi as setClassMetadata, ao as ɵɵdefineNgModule, ar as RendererFactory2, fc as _objectWithoutProperties, mc as ANIMATION_MODULE_TYPE, pl as inject, qn as NgModule, yc as DOCUMENT } from "./core-C91JEChX.js";
 import "./common-C2OsAfsp.js";
-import { d as DomRendererFactory2, r as BrowserModule } from "./_browser-chunk-Bw-ozMnS.js";
+import { d as DomRendererFactory2, r as BrowserModule } from "./_browser-chunk-D5Lj7u1-.js";
 //#region node_modules/@angular/animations/fesm2022/_private_export-chunk.mjs
 /**
 * @license Angular v22.2.0

@@ -98,6 +98,8 @@ pub fn run() {
             commands::get_photo,
             commands::get_thumbnail,
             commands::delete_library,
+            commands::pick_folder,
+            commands::get_thumbnail_data_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

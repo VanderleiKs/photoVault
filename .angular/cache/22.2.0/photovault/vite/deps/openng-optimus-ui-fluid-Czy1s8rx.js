@@ -1,11 +1,9 @@
 import { n as _defineProperty } from "./objectSpread2-weooBxVk.js";
 import { Dr as ViewEncapsulation, Fn as Injectable, Ml as ɵɵdefineInjectable, Nl as ɵɵdefineInjector, Sa as ɵɵclassMap, Wi as setClassMetadata, an as ChangeDetectionStrategy, ao as ɵɵdefineNgModule, ca as ɵɵInheritDefinitionFeature, cn as Component, cs as ɵɵprojectionDef, jc as InjectionToken, jo as ɵɵgetInheritedFactory, pl as inject, qn as NgModule, ro as ɵɵdefineComponent, sa as ɵɵHostDirectivesFeature, ss as ɵɵprojection, ua as ɵɵProvidersFeature } from "./core-C91JEChX.js";
-import "./common-C2OsAfsp.js";
-import { t as CommonModule } from "./_common_module-chunk-BJJFMmtK.js";
-import { t as Bind } from "./primeng-bind-lNQcJjFS.js";
-import { o as BaseStyle } from "./primeng-config-E0BbIPgU.js";
-import { n as PARENT_INSTANCE, t as BaseComponent } from "./primeng-basecomponent-CBJdRorB.js";
-//#region node_modules/primeng/fesm2022/primeng-fluid.mjs
+import { t as Bind } from "./openng-optimus-ui-bind-D2jYyy13.js";
+import { a as BaseStyle } from "./openng-optimus-ui-config-BMpCoNuW.js";
+import { n as PARENT_INSTANCE, t as BaseComponent } from "./openng-optimus-ui-basecomponent-BY4sBzp9.js";
+//#region node_modules/@openng/optimus-ui/fesm2022/openng-optimus-ui-fluid.mjs
 var _FluidStyle;
 var _Fluid;
 var _FluidModule;
@@ -35,7 +33,7 @@ _defineProperty(FluidStyle, "ɵprov", /*@__PURE__*/ ɵɵdefineInjectable({
 *
 * Fluid is a layout component to make descendant components span full width of their container.
 *
-* [Live Demo](https://www.primeng.org/fluid/)
+* [Live Demo](https://optimus.openng.org/fluid/)
 *
 * @module fluidstyle
 *
@@ -107,7 +105,6 @@ _defineProperty(Fluid, "ɵcmp", (function() {
 				ɵɵprojection(0);
 			}
 		},
-		dependencies: [CommonModule],
 		encapsulation: 2
 	});
 })());
@@ -118,7 +115,7 @@ _defineProperty(Fluid, "ɵcmp", (function() {
 			selector: "p-fluid",
 			template: ` <ng-content></ng-content> `,
 			standalone: true,
-			imports: [CommonModule],
+			imports: [],
 			changeDetection: ChangeDetectionStrategy.OnPush,
 			encapsulation: ViewEncapsulation.None,
 			providers: [
@@ -147,7 +144,7 @@ _defineProperty(FluidModule, "ɵmod", /*@__PURE__*/ ɵɵdefineNgModule({
 	imports: [Fluid],
 	exports: [Fluid]
 }));
-_defineProperty(FluidModule, "ɵinj", /*@__PURE__*/ ɵɵdefineInjector({ imports: [Fluid] }));
+_defineProperty(FluidModule, "ɵinj", /*@__PURE__*/ ɵɵdefineInjector({}));
 (() => {
 	(typeof ngDevMode === "undefined" || ngDevMode) && setClassMetadata(FluidModule, [{
 		type: NgModule,

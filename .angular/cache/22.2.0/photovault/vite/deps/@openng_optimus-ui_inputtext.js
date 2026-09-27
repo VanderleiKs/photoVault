@@ -1,18 +1,18 @@
 import { n as _defineProperty, t as _objectSpread2 } from "./objectSpread2-weooBxVk.js";
-import { Bt as computed, Dl as signal, Fn as Injectable, In as Input, Ml as ɵɵdefineInjectable, Nl as ɵɵdefineInjector, O as booleanAttribute, Qo as ɵɵlistener, Sa as ɵɵclassMap, Wi as setClassMetadata, X as input, ao as ɵɵdefineNgModule, ca as ɵɵInheritDefinitionFeature, io as ɵɵdefineDirective, jc as InjectionToken, jo as ɵɵgetInheritedFactory, ol as effect, pl as inject, qn as NgModule, sa as ɵɵHostDirectivesFeature, ua as ɵɵProvidersFeature, wn as Directive, ya as ɵɵattribute } from "./core-C91JEChX.js";
+import { Bt as computed, Dl as signal, Fn as Injectable, In as Input, Ml as ɵɵdefineInjectable, Nl as ɵɵdefineInjector, O as booleanAttribute, Qo as ɵɵlistener, Sa as ɵɵclassMap, Wi as setClassMetadata, X as input, ao as ɵɵdefineNgModule, ca as ɵɵInheritDefinitionFeature, io as ɵɵdefineDirective, jc as InjectionToken, jo as ɵɵgetInheritedFactory, kn as HostListener, ol as effect, pl as inject, qn as NgModule, sa as ɵɵHostDirectivesFeature, ua as ɵɵProvidersFeature, wn as Directive, ya as ɵɵattribute } from "./core-C91JEChX.js";
 import { N as NgControl } from "./forms-Bjuwkoys.js";
-import { t as Bind } from "./primeng-bind-lNQcJjFS.js";
-import { m as l } from "./dist-DWYgOqP_.js";
-import { o as BaseStyle } from "./primeng-config-E0BbIPgU.js";
-import { n as PARENT_INSTANCE, t as BaseComponent } from "./primeng-basecomponent-CBJdRorB.js";
-import { t as Fluid } from "./primeng-fluid-CRw-L1Qu.js";
-//#region node_modules/primeng/fesm2022/primeng-basemodelholder.mjs
+import { t as Bind } from "./openng-optimus-ui-bind-D2jYyy13.js";
+import { s as a } from "./dist-CbKW6MfK.js";
+import { a as BaseStyle } from "./openng-optimus-ui-config-BMpCoNuW.js";
+import { n as PARENT_INSTANCE, t as BaseComponent } from "./openng-optimus-ui-basecomponent-BY4sBzp9.js";
+import { t as Fluid } from "./openng-optimus-ui-fluid-Czy1s8rx.js";
+//#region node_modules/@openng/optimus-ui/fesm2022/openng-optimus-ui-basemodelholder.mjs
 var _BaseModelHolder;
 var BaseModelHolder = class extends BaseComponent {
 	constructor(..._args) {
 		super(..._args);
 		_defineProperty(this, "modelValue", signal(void 0, ...ngDevMode ? [{ debugName: "modelValue" }] : /* istanbul ignore next */ []));
-		_defineProperty(this, "$filled", computed(() => l(this.modelValue()), ...ngDevMode ? [{ debugName: "$filled" }] : /* istanbul ignore next */ []));
+		_defineProperty(this, "$filled", computed(() => a(this.modelValue()), ...ngDevMode ? [{ debugName: "$filled" }] : /* istanbul ignore next */ []));
 	}
 	writeModelValue(value) {
 		this.modelValue.set(value);
@@ -36,17 +36,107 @@ _defineProperty(BaseModelHolder, "ɵdir", /*@__PURE__*/ ɵɵdefineDirective({
 	}], null, null);
 })();
 //#endregion
-//#region node_modules/@primeuix/styles/dist/inputtext/index.mjs
-var style = "\n    .p-inputtext {\n        font-weight: dt('inputtext.font.weight');\n        font-size: dt('inputtext.font.size');\n        color: dt('inputtext.color');\n        background: dt('inputtext.background');\n        padding-block: dt('inputtext.padding.y');\n        padding-inline: dt('inputtext.padding.x');\n        border: 1px solid dt('inputtext.border.color');\n        transition:\n            background dt('inputtext.transition.duration'),\n            color dt('inputtext.transition.duration'),\n            border-color dt('inputtext.transition.duration'),\n            outline-color dt('inputtext.transition.duration'),\n            box-shadow dt('inputtext.transition.duration');\n        appearance: none;\n        border-radius: dt('inputtext.border.radius');\n        outline-color: transparent;\n        box-shadow: dt('inputtext.shadow');\n    }\n\n    .p-inputtext:enabled:hover {\n        border-color: dt('inputtext.hover.border.color');\n    }\n\n    .p-inputtext:enabled:focus {\n        border-color: dt('inputtext.focus.border.color');\n        box-shadow: dt('inputtext.focus.ring.shadow');\n        outline: dt('inputtext.focus.ring.width') dt('inputtext.focus.ring.style') dt('inputtext.focus.ring.color');\n        outline-offset: dt('inputtext.focus.ring.offset');\n    }\n\n    .p-inputtext.p-invalid {\n        border-color: dt('inputtext.invalid.border.color');\n    }\n\n    .p-inputtext.p-variant-filled {\n        background: dt('inputtext.filled.background');\n    }\n\n    .p-inputtext.p-variant-filled:enabled:hover {\n        background: dt('inputtext.filled.hover.background');\n    }\n\n    .p-inputtext.p-variant-filled:enabled:focus {\n        background: dt('inputtext.filled.focus.background');\n    }\n\n    .p-inputtext:disabled {\n        opacity: 1;\n        background: dt('inputtext.disabled.background');\n        color: dt('inputtext.disabled.color');\n    }\n\n    .p-inputtext::placeholder {\n        color: dt('inputtext.placeholder.color');\n    }\n\n    .p-inputtext.p-invalid::placeholder {\n        color: dt('inputtext.invalid.placeholder.color');\n    }\n\n    .p-inputtext-sm {\n        font-size: dt('inputtext.sm.font.size');\n        padding-block: dt('inputtext.sm.padding.y');\n        padding-inline: dt('inputtext.sm.padding.x');\n    }\n\n    .p-inputtext-lg {\n        font-size: dt('inputtext.lg.font.size');\n        padding-block: dt('inputtext.lg.padding.y');\n        padding-inline: dt('inputtext.lg.padding.x');\n    }\n\n    .p-inputtext-fluid {\n        width: 100%;\n    }\n";
+//#region node_modules/@openng/optimus-ui-styles/dist/inputtext/index.mjs
+var style$1 = `
+    .p-inputtext {
+        font-family: inherit;
+        font-feature-settings: inherit;
+        font-size: 1rem;
+        color: dt('inputtext.color');
+        background: dt('inputtext.background');
+        padding-block: dt('inputtext.padding.y');
+        padding-inline: dt('inputtext.padding.x');
+        border: 1px solid dt('inputtext.border.color');
+        transition:
+            background dt('inputtext.transition.duration'),
+            color dt('inputtext.transition.duration'),
+            border-color dt('inputtext.transition.duration'),
+            outline-color dt('inputtext.transition.duration'),
+            box-shadow dt('inputtext.transition.duration');
+        appearance: none;
+        border-radius: dt('inputtext.border.radius');
+        outline-color: transparent;
+        box-shadow: dt('inputtext.shadow');
+    }
+
+    .p-inputtext:enabled:hover {
+        border-color: dt('inputtext.hover.border.color');
+    }
+
+    .p-inputtext:enabled:focus {
+        border-color: dt('inputtext.focus.border.color');
+        box-shadow: dt('inputtext.focus.ring.shadow');
+        outline: dt('inputtext.focus.ring.width') dt('inputtext.focus.ring.style') dt('inputtext.focus.ring.color');
+        outline-offset: dt('inputtext.focus.ring.offset');
+    }
+
+    .p-inputtext.p-invalid {
+        border-color: dt('inputtext.invalid.border.color');
+    }
+
+    .p-inputtext.p-variant-filled {
+        background: dt('inputtext.filled.background');
+    }
+
+    .p-inputtext.p-variant-filled:enabled:hover {
+        background: dt('inputtext.filled.hover.background');
+    }
+
+    .p-inputtext.p-variant-filled:enabled:focus {
+        background: dt('inputtext.filled.focus.background');
+    }
+
+    .p-inputtext:disabled {
+        opacity: 1;
+        background: dt('inputtext.disabled.background');
+        color: dt('inputtext.disabled.color');
+    }
+
+    .p-inputtext::placeholder {
+        color: dt('inputtext.placeholder.color');
+    }
+
+    .p-inputtext.p-invalid::placeholder {
+        color: dt('inputtext.invalid.placeholder.color');
+    }
+
+    .p-inputtext-sm {
+        font-size: dt('inputtext.sm.font.size');
+        padding-block: dt('inputtext.sm.padding.y');
+        padding-inline: dt('inputtext.sm.padding.x');
+    }
+
+    .p-inputtext-lg {
+        font-size: dt('inputtext.lg.font.size');
+        padding-block: dt('inputtext.lg.padding.y');
+        padding-inline: dt('inputtext.lg.padding.x');
+    }
+
+    .p-inputtext-fluid {
+        width: 100%;
+    }
+`;
 //#endregion
-//#region node_modules/primeng/fesm2022/primeng-inputtext.mjs
+//#region node_modules/@openng/optimus-ui/fesm2022/openng-optimus-ui-inputtext.mjs
 var _InputTextStyle;
 var _InputText;
 var _InputTextModule;
+var style = `
+    ${style$1}
+
+    /* For Optimus */
+   .p-inputtext.ng-invalid.ng-dirty {
+        border-color: dt('inputtext.invalid.border.color');
+    }
+
+    .p-inputtext.ng-invalid.ng-dirty::placeholder {
+        color: dt('inputtext.invalid.placeholder.color');
+    }
+`;
 var classes = { root: ({ instance }) => ["p-inputtext p-component", {
 	"p-filled": instance.$filled(),
-	"p-inputtext-sm": instance.pSize() === "small",
-	"p-inputtext-lg": instance.pSize() === "large",
+	"p-inputtext-sm": instance.pSize === "small",
+	"p-inputtext-lg": instance.pSize === "large",
 	"p-invalid": instance.invalid(),
 	"p-variant-filled": instance.$variant() === "filled",
 	"p-inputtext-fluid": instance.hasFluid
@@ -77,7 +167,7 @@ _defineProperty(InputTextStyle, "ɵprov", /*@__PURE__*/ ɵɵdefineInjectable({
 *
 * InputText renders a text field to enter data.
 *
-* [Live Demo](https://www.primeng.org/inputtext/)
+* [Live Demo](https://optimus.openng.org/inputtext/)
 *
 * @module inputtextstyle
 *
@@ -95,15 +185,22 @@ var INPUTTEXT_INSTANCE = new InjectionToken("INPUTTEXT_INSTANCE");
 * @group Components
 */
 var InputText = class extends BaseModelHolder {
-	get hasFluid() {
-		var _this$fluid;
-		return (_this$fluid = this.fluid()) !== null && _this$fluid !== void 0 ? _this$fluid : !!this.pcFluid;
-	}
 	constructor() {
 		var _inject;
 		super();
 		_defineProperty(this, "componentName", "InputText");
-		_defineProperty(this, "hostName", input("", ...ngDevMode ? [{ debugName: "hostName" }] : /* istanbul ignore next */ []));
+		_defineProperty(this, "hostName", "");
+		_defineProperty(
+			this,
+			/**
+			* Used to pass attributes to DOM elements inside the InputText component.
+			* @defaultValue undefined
+			* @deprecated use pInputTextPT instead.
+			* @group Props
+			*/
+			"ptInputText",
+			input(...ngDevMode ? [void 0, { debugName: "ptInputText" }] : /* istanbul ignore next */ [])
+		);
 		_defineProperty(
 			this,
 			/**
@@ -145,7 +242,7 @@ var InputText = class extends BaseModelHolder {
 			* @group Props
 			*/
 			"pSize",
-			input(...ngDevMode ? [void 0, { debugName: "pSize" }] : /* istanbul ignore next */ [])
+			void 0
 		);
 		_defineProperty(
 			this,
@@ -177,20 +274,14 @@ var InputText = class extends BaseModelHolder {
 			"invalid",
 			input(void 0, _objectSpread2(_objectSpread2({}, ngDevMode ? { debugName: "invalid" } : /* istanbul ignore next */ {}), {}, { transform: booleanAttribute }))
 		);
-		_defineProperty(this, "$variant", computed(() => this.variant() || this.config.inputVariant() || void 0, ...ngDevMode ? [{ debugName: "$variant" }] : /* istanbul ignore next */ []));
+		_defineProperty(this, "$variant", computed(() => this.variant() || this.config.inputStyle() || this.config.inputVariant(), ...ngDevMode ? [{ debugName: "$variant" }] : /* istanbul ignore next */ []));
 		_defineProperty(this, "_componentStyle", inject(InputTextStyle));
-		_defineProperty(this, "dataP", computed(() => this.cn({
-			invalid: this.invalid(),
-			fluid: this.hasFluid,
-			filled: this.$variant() === "filled",
-			[this.pSize()]: this.pSize()
-		}), ...ngDevMode ? [{ debugName: "dataP" }] : /* istanbul ignore next */ []));
 		effect(() => {
-			const pt = this.pInputTextPT();
-			if (pt) this.directivePT.set(pt);
+			const pt = this.ptInputText() || this.pInputTextPT();
+			pt && this.directivePT.set(pt);
 		});
 		effect(() => {
-			if (this.pInputTextUnstyled()) this.directiveUnstyled.set(this.pInputTextUnstyled());
+			this.pInputTextUnstyled() && this.directiveUnstyled.set(this.pInputTextUnstyled());
 		});
 	}
 	onAfterViewInit() {
@@ -208,6 +299,18 @@ var InputText = class extends BaseModelHolder {
 	onInput() {
 		var _this$ngControl$value3, _this$ngControl3;
 		this.writeModelValue((_this$ngControl$value3 = (_this$ngControl3 = this.ngControl) === null || _this$ngControl3 === void 0 ? void 0 : _this$ngControl3.value) !== null && _this$ngControl$value3 !== void 0 ? _this$ngControl$value3 : this.el.nativeElement.value);
+	}
+	get hasFluid() {
+		var _this$fluid;
+		return (_this$fluid = this.fluid()) !== null && _this$fluid !== void 0 ? _this$fluid : !!this.pcFluid;
+	}
+	get dataP() {
+		return this.cn({
+			invalid: this.invalid(),
+			fluid: this.hasFluid,
+			filled: this.$variant() === "filled",
+			[this.pSize]: this.pSize
+		});
 	}
 };
 _InputText = InputText;
@@ -227,15 +330,16 @@ _defineProperty(InputText, "ɵdir", /*@__PURE__*/ ɵɵdefineDirective({
 			return ctx.onInput();
 		});
 		if (rf & 2) {
-			ɵɵattribute("data-p", ctx.dataP());
+			ɵɵattribute("data-p", ctx.dataP);
 			ɵɵclassMap(ctx.cx("root"));
 		}
 	},
 	inputs: {
-		hostName: [1, "hostName"],
+		hostName: "hostName",
+		ptInputText: [1, "ptInputText"],
 		pInputTextPT: [1, "pInputTextPT"],
 		pInputTextUnstyled: [1, "pInputTextUnstyled"],
-		pSize: [1, "pSize"],
+		pSize: "pSize",
 		variant: [1, "variant"],
 		fluid: [1, "fluid"],
 		invalid: [1, "invalid"]
@@ -264,8 +368,7 @@ _defineProperty(InputText, "ɵdir", /*@__PURE__*/ ɵɵdefineDirective({
 			standalone: true,
 			host: {
 				"[class]": "cx('root')",
-				"[attr.data-p]": "dataP()",
-				"(input)": "onInput()"
+				"[attr.data-p]": "dataP"
 			},
 			providers: [
 				InputTextStyle,
@@ -281,11 +384,12 @@ _defineProperty(InputText, "ɵdir", /*@__PURE__*/ ɵɵdefineDirective({
 			hostDirectives: [Bind]
 		}]
 	}], () => [], {
-		hostName: [{
+		hostName: [{ type: Input }],
+		ptInputText: [{
 			type: Input,
 			args: [{
 				isSignal: true,
-				alias: "hostName",
+				alias: "ptInputText",
 				required: false
 			}]
 		}],
@@ -307,11 +411,7 @@ _defineProperty(InputText, "ɵdir", /*@__PURE__*/ ɵɵdefineDirective({
 		}],
 		pSize: [{
 			type: Input,
-			args: [{
-				isSignal: true,
-				alias: "pSize",
-				required: false
-			}]
+			args: ["pSize"]
 		}],
 		variant: [{
 			type: Input,
@@ -336,6 +436,10 @@ _defineProperty(InputText, "ɵdir", /*@__PURE__*/ ɵɵdefineDirective({
 				alias: "invalid",
 				required: false
 			}]
+		}],
+		onInput: [{
+			type: HostListener,
+			args: ["input"]
 		}]
 	});
 })();

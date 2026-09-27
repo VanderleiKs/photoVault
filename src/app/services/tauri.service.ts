@@ -53,6 +53,10 @@ export class TauriService {
     await this.loadLibraries();
   }
 
+  async pickFolder(): Promise<string | null> {
+    return this.tauriInvoke<string | null>('pick_folder');
+  }
+
   async getLibraryStats(libraryId: string): Promise<LibraryStats> {
     const stats = await this.tauriInvoke<LibraryStats>('get_library_stats', {
       libraryId,
@@ -106,12 +110,17 @@ export class TauriService {
   }
 
   async loadPhotos(libraryId: string, page: number = 1, limit: number = 50): Promise<void> {
-    const photos = await this.tauriInvoke<Photo[]>('get_photos', {
-      libraryId,
-      page: { value: page },
-      limit: { value: limit },
-    });
-    this.photos.set(photos);
+    try {
+      const photos = await this.tauriInvoke<Photo[]>('get_photos', {
+        libraryId,
+        page: { value: page },
+        limit: { value: limit },
+      });
+      this.photos.set(photos);
+    } catch (err) {
+      console.error('Failed to load photos:', err);
+      this.photos.set([]);
+    }
   }
 
   async getPhoto(photoId: string): Promise<Photo | null> {
@@ -120,5 +129,9 @@ export class TauriService {
 
   async getThumbnailPath(photoId: string): Promise<string | null> {
     return this.tauriInvoke<string | null>('get_thumbnail', { photoId });
+  }
+
+  async getThumbnailDataUrl(photoId: string): Promise<string | null> {
+    return this.tauriInvoke<string | null>('get_thumbnail_data_url', { photoId });
   }
 }

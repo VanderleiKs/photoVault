@@ -4,6 +4,7 @@ use crate::catalog::{self, Library, LibraryStats};
 use crate::scanner;
 use sqlx::{Row, SqlitePool};
 use tauri::{Emitter, State};
+use tauri_plugin_dialog::DialogExt;
 
 /// Create a new library
 #[tauri::command]
@@ -234,4 +235,34 @@ pub async fn delete_library(
     catalog::delete_library(&pool, &library_id)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Open the native folder picker dialog and return the selected path
+#[tauri::command]
+pub async fn pick_folder(app_handle: tauri::AppHandle) -> Result<Option<String>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+
+    app_handle.dialog().file().pick_folder(move |path| {
+        let _ = tx.send(path.and_then(|p| p.into_path().ok()));
+    });
+
+    match rx.await {
+        Ok(Some(path)) => Ok(Some(path.to_string_lossy().to_string())),
+        Ok(None) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Get thumbnail as base64 data URL for direct use in <img> tags
+#[tauri::command]
+pub async fn get_thumbnail_data_url(photo_id: String, app_handle: tauri::AppHandle) -> Result<Option<String>, String> {
+    let thumb_path = crate::thumbnails::get_thumbnail_path(&app_handle, &photo_id)?;
+
+    if !thumb_path.exists() {
+        return Ok(None);
+    }
+
+    let data = std::fs::read(&thumb_path).map_err(|e| e.to_string())?;
+    let base64 = base64::encode(&data);
+    Ok(Some(format!("data:image/webp;base64,{}", base64)))
 }

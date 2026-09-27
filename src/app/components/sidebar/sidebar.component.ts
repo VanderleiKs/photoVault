@@ -7,39 +7,29 @@ import { Library } from '../../models/photo';
   standalone: true,
   imports: [RouterLink, RouterLinkActive],
   template: `
-    <aside class="d-flex flex-column h-100" style="width: 256px; background: var(--pv-surface); border-right: 1px solid var(--pv-border);">
+    <aside class="d-flex flex-column h-100 sidebar">
       <!-- Logo -->
-      <div class="d-flex align-items-center px-4 py-3" style="border-bottom: 1px solid var(--pv-border);">
-        <i class="pi pi-images me-2" style="color: var(--pv-accent); font-size: 1.25rem;"></i>
-        <span class="fw-bold" style="color: var(--pv-text);">PhotoVault</span>
+      <div class="d-flex align-items-center px-4 py-3 sidebar-header">
+        <i class="pi pi-images me-2 sidebar-logo-icon"></i>
+        <span class="fw-bold sidebar-logo-text">PhotoVault</span>
       </div>
 
       <!-- Navigation -->
       <nav class="flex-grow-1 p-3">
         <a
           routerLink="/"
-          class="d-flex align-items-center gap-3 px-3 py-2 rounded-2 mb-1 text-decoration-none"
-          style="color: var(--pv-text-muted);"
-          (mouseenter)="navHover = 'home'" (mouseleave)="navHover = ''"
-          [style.background]="navHover === 'home' ? 'var(--pv-surface-alt)' : 'transparent'"
-          [style.color]="navHover === 'home' ? 'var(--pv-text)' : 'var(--pv-text-muted)'"
+          class="nav-link"
         >
           <i class="pi pi-home"></i>
           <span>Biblioteca</span>
         </a>
 
-        <div class="mt-3 mb-2 px-3">
-          <span class="small fw-semibold text-uppercase" style="color: var(--pv-text-muted); font-size: 0.7rem; letter-spacing: 0.05em;">Navegação</span>
-        </div>
+        <div class="nav-section-title">Navegação</div>
 
         <a
           [routerLink]="['/library', library()?.id]"
           routerLinkActive="active"
-          class="d-flex align-items-center gap-3 px-3 py-2 rounded-2 mb-1 text-decoration-none"
-          style="color: var(--pv-text-muted);"
-          (mouseenter)="navHover = 'all'" (mouseleave)="navHover = ''"
-          [style.background]="navHover === 'all' ? 'var(--pv-surface-alt)' : 'transparent'"
-          [style.color]="navHover === 'all' ? 'var(--pv-text)' : 'var(--pv-text-muted)'"
+          class="nav-link"
         >
           <i class="pi pi-images"></i>
           <span>Todas</span>
@@ -47,11 +37,7 @@ import { Library } from '../../models/photo';
 
         <a
           [routerLink]="['/library', library()?.id]"
-          class="d-flex align-items-center gap-3 px-3 py-2 rounded-2 mb-1 text-decoration-none"
-          style="color: var(--pv-text-muted);"
-          (mouseenter)="navHover = 'timeline'" (mouseleave)="navHover = ''"
-          [style.background]="navHover === 'timeline' ? 'var(--pv-surface-alt)' : 'transparent'"
-          [style.color]="navHover === 'timeline' ? 'var(--pv-text)' : 'var(--pv-text-muted)'"
+          class="nav-link"
         >
           <i class="pi pi-calendar"></i>
           <span>Timeline</span>
@@ -59,27 +45,17 @@ import { Library } from '../../models/photo';
 
         <a
           [routerLink]="['/library', library()?.id]"
-          class="d-flex align-items-center gap-3 px-3 py-2 rounded-2 mb-1 text-decoration-none"
-          style="color: var(--pv-text-muted);"
-          (mouseenter)="navHover = 'trips'" (mouseleave)="navHover = ''"
-          [style.background]="navHover === 'trips' ? 'var(--pv-surface-alt)' : 'transparent'"
-          [style.color]="navHover === 'trips' ? 'var(--pv-text)' : 'var(--pv-text-muted)'"
+          class="nav-link"
         >
           <i class="pi pi-map-marker"></i>
           <span>Viagens</span>
         </a>
 
-        <div class="mt-3 mb-2 px-3">
-          <span class="small fw-semibold text-uppercase" style="color: var(--pv-text-muted); font-size: 0.7rem; letter-spacing: 0.05em;">Organizar</span>
-        </div>
+        <div class="nav-section-title">Organizar</div>
 
         <a
           [routerLink]="['/library', library()?.id]"
-          class="d-flex align-items-center gap-3 px-3 py-2 rounded-2 mb-1 text-decoration-none"
-          style="color: var(--pv-text-muted);"
-          (mouseenter)="navHover = 'duplicates'" (mouseleave)="navHover = ''"
-          [style.background]="navHover === 'duplicates' ? 'var(--pv-surface-alt)' : 'transparent'"
-          [style.color]="navHover === 'duplicates' ? 'var(--pv-text)' : 'var(--pv-text-muted)'"
+          class="nav-link"
         >
           <i class="pi pi-copy"></i>
           <span>Duplicatas</span>
@@ -87,11 +63,7 @@ import { Library } from '../../models/photo';
 
         <a
           [routerLink]="['/library', library()?.id]"
-          class="d-flex align-items-center gap-3 px-3 py-2 rounded-2 mb-1 text-decoration-none"
-          style="color: var(--pv-text-muted);"
-          (mouseenter)="navHover = 'review'" (mouseleave)="navHover = ''"
-          [style.background]="navHover === 'review' ? 'var(--pv-surface-alt)' : 'transparent'"
-          [style.color]="navHover === 'review' ? 'var(--pv-text)' : 'var(--pv-text-muted)'"
+          class="nav-link"
         >
           <i class="pi pi-check-circle"></i>
           <span>Revisão</span>
@@ -99,16 +71,73 @@ import { Library } from '../../models/photo';
       </nav>
 
       <!-- Footer -->
-      <div class="p-3" style="border-top: 1px solid var(--pv-border);">
-        <div class="small" style="color: var(--pv-text-muted);">
+      <div class="p-3 sidebar-footer">
+        <div class="small">
           <div>PhotoVault v0.1.0</div>
           <div class="mt-1">Local-first · Privacy-first</div>
         </div>
       </div>
     </aside>
   `,
+  styles: [`
+    .sidebar {
+      width: 256px;
+      background: var(--pv-surface);
+      border-right: 1px solid var(--pv-border);
+    }
+
+    .sidebar-header {
+      border-bottom: 1px solid var(--pv-border);
+    }
+
+    .sidebar-logo-icon {
+      color: var(--pv-accent);
+      font-size: 1.25rem;
+    }
+
+    .sidebar-logo-text {
+      color: var(--pv-text);
+    }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.5rem 0.75rem;
+      border-radius: 0.5rem;
+      margin-bottom: 0.25rem;
+      text-decoration: none;
+      color: var(--pv-text-muted);
+      transition: background-color 0.15s, color 0.15s;
+    }
+
+    .nav-link:hover {
+      background: var(--pv-surface-alt);
+      color: var(--pv-text);
+    }
+
+    .nav-link.active {
+      background: var(--pv-surface-alt);
+      color: var(--pv-text);
+    }
+
+    .nav-section-title {
+      margin-top: 0.75rem;
+      margin-bottom: 0.5rem;
+      padding: 0 0.75rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--pv-text-muted);
+      letter-spacing: 0.05em;
+    }
+
+    .sidebar-footer {
+      border-top: 1px solid var(--pv-border);
+      color: var(--pv-text-muted);
+    }
+  `],
 })
 export class SidebarComponent {
   library = input.required<Library | null>();
-  navHover = '';
 }

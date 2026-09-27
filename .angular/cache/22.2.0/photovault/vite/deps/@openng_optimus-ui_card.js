@@ -1,18 +1,57 @@
-import { n as _defineProperty, t as _objectSpread2 } from "./objectSpread2-weooBxVk.js";
-import { A as contentChild, Bt as computed, Co as ɵɵelementStart, Da as ɵɵconditionalCreate, Dr as ViewEncapsulation, Fn as Injectable, Gs as ɵɵtemplate, In as Input, Ml as ɵɵdefineInjectable, Nl as ɵɵdefineInjector, Sa as ɵɵclassMap, So as ɵɵelementEnd, Ta as ɵɵconditional, Wi as setClassMetadata, X as input, Ys as ɵɵtextInterpolate1, an as ChangeDetectionStrategy, ao as ɵɵdefineNgModule, bs as ɵɵqueryAdvance, ca as ɵɵInheritDefinitionFeature, cl as forwardRef, cn as Component, cs as ɵɵprojectionDef, da as ɵɵadvance, es as ɵɵnextContext, i as ContentChild, jc as InjectionToken, jo as ɵɵgetInheritedFactory, ka as ɵɵcontentQuerySignal, ls as ɵɵproperty, pl as inject, qn as NgModule, qs as ɵɵtext, ro as ɵɵdefineComponent, sa as ɵɵHostDirectivesFeature, ss as ɵɵprojection, ua as ɵɵProvidersFeature, yo as ɵɵelementContainer } from "./core-C91JEChX.js";
+import { n as _defineProperty } from "./objectSpread2-weooBxVk.js";
+import { $o as ɵɵloadQuery, Co as ɵɵelementStart, Da as ɵɵconditionalCreate, Dl as signal, Dr as ViewEncapsulation, Fn as Injectable, Gs as ɵɵtemplate, In as Input, Ml as ɵɵdefineInjectable, Nl as ɵɵdefineInjector, Oa as ɵɵcontentQuery, Sa as ɵɵclassMap, So as ɵɵelementEnd, Ta as ɵɵconditional, Vs as ɵɵstyleMap, Wi as setClassMetadata, Ys as ɵɵtextInterpolate1, a as ContentChildren, an as ChangeDetectionStrategy, ao as ɵɵdefineNgModule, ca as ɵɵInheritDefinitionFeature, cn as Component, cs as ɵɵprojectionDef, da as ɵɵadvance, es as ɵɵnextContext, i as ContentChild, jc as InjectionToken, jo as ɵɵgetInheritedFactory, ls as ɵɵproperty, pl as inject, qn as NgModule, qs as ɵɵtext, ro as ɵɵdefineComponent, sa as ɵɵHostDirectivesFeature, ss as ɵɵprojection, ua as ɵɵProvidersFeature, xs as ɵɵqueryRefresh, yo as ɵɵelementContainer } from "./core-C91JEChX.js";
 import "./common-C2OsAfsp.js";
-import { r as NgTemplateOutlet } from "./_common_module-chunk-BJJFMmtK.js";
-import { n as BindModule, t as Bind } from "./primeng-bind-lNQcJjFS.js";
-import { o as BaseStyle } from "./primeng-config-E0BbIPgU.js";
-import { n as PARENT_INSTANCE, t as BaseComponent } from "./primeng-basecomponent-CBJdRorB.js";
-import { Footer, Header, SharedModule } from "./primeng_api.js";
-//#region node_modules/@primeuix/styles/dist/card/index.mjs
-var style = "\n    .p-card {\n        display: block;\n        background: dt('card.background');\n        color: dt('card.color');\n        box-shadow: dt('card.shadow');\n        border-radius: dt('card.border.radius');\n        display: flex;\n        flex-direction: column;\n    }\n\n    .p-card-caption {\n        display: flex;\n        flex-direction: column;\n        gap: dt('card.caption.gap');\n    }\n\n    .p-card-body {\n        padding: dt('card.body.padding');\n        display: flex;\n        flex-direction: column;\n        gap: dt('card.body.gap');\n    }\n\n    .p-card-title {\n        font-size: dt('card.title.font.size');\n        font-weight: dt('card.title.font.weight');\n    }\n\n    .p-card-subtitle {\n        color: dt('card.subtitle.color');\n        font-size: dt('card.subtitle.font.size');\n        font-weight: dt('card.subtitle.font.weight');\n    }\n";
+import { i as NgTemplateOutlet, t as CommonModule } from "./_common_module-chunk-CeoAXkM2.js";
+import { n as BindModule, t as Bind } from "./openng-optimus-ui-bind-D2jYyy13.js";
+import { p as s } from "./dist-CbKW6MfK.js";
+import { a as BaseStyle } from "./openng-optimus-ui-config-BMpCoNuW.js";
+import { n as PARENT_INSTANCE, t as BaseComponent } from "./openng-optimus-ui-basecomponent-BY4sBzp9.js";
+import { Footer, Header, PrimeTemplate, SharedModule } from "./@openng_optimus-ui_api.js";
+//#region node_modules/@openng/optimus-ui-styles/dist/card/index.mjs
+var style$1 = `
+    .p-card {
+        background: dt('card.background');
+        color: dt('card.color');
+        box-shadow: dt('card.shadow');
+        border-radius: dt('card.border.radius');
+        display: flex;
+        flex-direction: column;
+    }
+
+    .p-card-caption {
+        display: flex;
+        flex-direction: column;
+        gap: dt('card.caption.gap');
+    }
+
+    .p-card-body {
+        padding: dt('card.body.padding');
+        display: flex;
+        flex-direction: column;
+        gap: dt('card.body.gap');
+    }
+
+    .p-card-title {
+        font-size: dt('card.title.font.size');
+        font-weight: dt('card.title.font.weight');
+    }
+
+    .p-card-subtitle {
+        color: dt('card.subtitle.color');
+    }
+`;
 //#endregion
-//#region node_modules/primeng/fesm2022/primeng-card.mjs
+//#region node_modules/@openng/optimus-ui/fesm2022/openng-optimus-ui-card.mjs
 var _CardStyle;
 var _Card;
 var _CardModule;
+var style = `
+    ${style$1}
+
+    .p-card {
+        display: block;
+    }
+`;
 var classes = {
 	root: "p-card p-component",
 	header: "p-card-header",
@@ -49,7 +88,7 @@ _defineProperty(CardStyle, "ɵprov", /*@__PURE__*/ ɵɵdefineInjectable({
 *
 * Card is a flexible container component.
 *
-* [Live Demo](https://www.primeng.org/card/)
+* [Live Demo](https://optimus.openng.org/card/)
 *
 * @module cardstyle
 *
@@ -112,7 +151,7 @@ var Card = class extends BaseComponent {
 			* @group Props
 			*/
 			"header",
-			input(...ngDevMode ? [void 0, { debugName: "header" }] : /* istanbul ignore next */ [])
+			void 0
 		);
 		_defineProperty(
 			this,
@@ -121,10 +160,20 @@ var Card = class extends BaseComponent {
 			* @group Props
 			*/
 			"subheader",
-			input(...ngDevMode ? [void 0, { debugName: "subheader" }] : /* istanbul ignore next */ [])
+			void 0
 		);
-		_defineProperty(this, "headerFacet", contentChild(Header, _objectSpread2(_objectSpread2({}, ngDevMode ? { debugName: "headerFacet" } : /* istanbul ignore next */ {}), {}, { descendants: false })));
-		_defineProperty(this, "footerFacet", contentChild(Footer, _objectSpread2(_objectSpread2({}, ngDevMode ? { debugName: "footerFacet" } : /* istanbul ignore next */ {}), {}, { descendants: false })));
+		_defineProperty(
+			this,
+			/**
+			* Class of the element.
+			* @deprecated since v20.0.0, use `class` instead.
+			* @group Props
+			*/
+			"styleClass",
+			void 0
+		);
+		_defineProperty(this, "headerFacet", void 0);
+		_defineProperty(this, "footerFacet", void 0);
 		_defineProperty(
 			this,
 			/**
@@ -132,7 +181,7 @@ var Card = class extends BaseComponent {
 			* @group Templates
 			*/
 			"headerTemplate",
-			contentChild("header", _objectSpread2(_objectSpread2({}, ngDevMode ? { debugName: "headerTemplate" } : /* istanbul ignore next */ {}), {}, { descendants: false }))
+			void 0
 		);
 		_defineProperty(
 			this,
@@ -141,7 +190,7 @@ var Card = class extends BaseComponent {
 			* @group Templates
 			*/
 			"titleTemplate",
-			contentChild("title", _objectSpread2(_objectSpread2({}, ngDevMode ? { debugName: "titleTemplate" } : /* istanbul ignore next */ {}), {}, { descendants: false }))
+			void 0
 		);
 		_defineProperty(
 			this,
@@ -150,7 +199,7 @@ var Card = class extends BaseComponent {
 			* @group Templates
 			*/
 			"subtitleTemplate",
-			contentChild("subtitle", _objectSpread2(_objectSpread2({}, ngDevMode ? { debugName: "subtitleTemplate" } : /* istanbul ignore next */ {}), {}, { descendants: false }))
+			void 0
 		);
 		_defineProperty(
 			this,
@@ -159,7 +208,7 @@ var Card = class extends BaseComponent {
 			* @group Templates
 			*/
 			"contentTemplate",
-			contentChild("content", _objectSpread2(_objectSpread2({}, ngDevMode ? { debugName: "contentTemplate" } : /* istanbul ignore next */ {}), {}, { descendants: false }))
+			void 0
 		);
 		_defineProperty(
 			this,
@@ -168,20 +217,61 @@ var Card = class extends BaseComponent {
 			* @group Templates
 			*/
 			"footerTemplate",
-			contentChild("footer", _objectSpread2(_objectSpread2({}, ngDevMode ? { debugName: "footerTemplate" } : /* istanbul ignore next */ {}), {}, { descendants: false }))
+			void 0
 		);
-		_defineProperty(this, "hasHeader", computed(() => !!(this.headerFacet() || this.headerTemplate()), ...ngDevMode ? [{ debugName: "hasHeader" }] : /* istanbul ignore next */ []));
-		_defineProperty(this, "hasTitle", computed(() => !!(this.header() || this.titleTemplate()), ...ngDevMode ? [{ debugName: "hasTitle" }] : /* istanbul ignore next */ []));
-		_defineProperty(this, "hasSubtitle", computed(() => !!(this.subheader() || this.subtitleTemplate()), ...ngDevMode ? [{ debugName: "hasSubtitle" }] : /* istanbul ignore next */ []));
-		_defineProperty(this, "hasFooter", computed(() => !!(this.footerFacet() || this.footerTemplate()), ...ngDevMode ? [{ debugName: "hasFooter" }] : /* istanbul ignore next */ []));
-		_defineProperty(this, "showHeaderText", computed(() => this.header() && !this.titleTemplate(), ...ngDevMode ? [{ debugName: "showHeaderText" }] : /* istanbul ignore next */ []));
-		_defineProperty(this, "showSubheaderText", computed(() => this.subheader() && !this.subtitleTemplate(), ...ngDevMode ? [{ debugName: "showSubheaderText" }] : /* istanbul ignore next */ []));
+		_defineProperty(this, "_headerTemplate", void 0);
+		_defineProperty(this, "_titleTemplate", void 0);
+		_defineProperty(this, "_subtitleTemplate", void 0);
+		_defineProperty(this, "_contentTemplate", void 0);
+		_defineProperty(this, "_footerTemplate", void 0);
+		_defineProperty(this, "_style", signal(null, ...ngDevMode ? [{ debugName: "_style" }] : /* istanbul ignore next */ []));
+		_defineProperty(this, "templates", void 0);
 	}
 	onAfterViewChecked() {
 		this.bindDirectiveInstance.setAttrs(this.ptms(["host", "root"]));
 	}
+	/**
+	* Inline style of the element.
+	* @group Props
+	*/
+	set style(value) {
+		if (!s(this._style(), value)) {
+			var _this$el;
+			this._style.set(value);
+			if ((_this$el = this.el) === null || _this$el === void 0 ? void 0 : _this$el.nativeElement) {
+				if (value) Object.keys(value).forEach((key) => {
+					this.el.nativeElement.style[key] = value[key];
+				});
+			}
+		}
+	}
+	get style() {
+		return this._style();
+	}
 	getBlockableElement() {
 		return this.el.nativeElement;
+	}
+	onAfterContentInit() {
+		this.templates.forEach((item) => {
+			switch (item.getType()) {
+				case "header":
+					this._headerTemplate = item.template;
+					break;
+				case "title":
+					this._titleTemplate = item.template;
+					break;
+				case "subtitle":
+					this._subtitleTemplate = item.template;
+					break;
+				case "content":
+					this._contentTemplate = item.template;
+					break;
+				case "footer":
+					this._footerTemplate = item.template;
+					break;
+				default: this._contentTemplate = item.template;
+			}
+		});
 	}
 };
 _Card = Card;
@@ -222,14 +312,14 @@ _defineProperty(Card, "ɵcmp", (function() {
 			ɵɵclassMap(ctx_r0.cx("header"));
 			ɵɵproperty("pBind", ctx_r0.ptm("header"));
 			ɵɵadvance(2);
-			ɵɵproperty("ngTemplateOutlet", ctx_r0.headerTemplate());
+			ɵɵproperty("ngTemplateOutlet", ctx_r0.headerTemplate || ctx_r0._headerTemplate);
 		}
 	}
 	function Card_Conditional_2_Conditional_1_Template(rf, ctx) {
 		if (rf & 1) ɵɵtext(0);
 		if (rf & 2) {
 			const ctx_r0 = ɵɵnextContext(2);
-			ɵɵtextInterpolate1(" ", ctx_r0.header(), " ");
+			ɵɵtextInterpolate1(" ", ctx_r0.header, " ");
 		}
 	}
 	function Card_Conditional_2_ng_container_2_Template(rf, ctx) {
@@ -247,16 +337,16 @@ _defineProperty(Card, "ɵcmp", (function() {
 			ɵɵclassMap(ctx_r0.cx("title"));
 			ɵɵproperty("pBind", ctx_r0.ptm("title"));
 			ɵɵadvance();
-			ɵɵconditional(ctx_r0.showHeaderText() ? 1 : -1);
+			ɵɵconditional(ctx_r0.header && !ctx_r0._titleTemplate && !ctx_r0.titleTemplate ? 1 : -1);
 			ɵɵadvance();
-			ɵɵproperty("ngTemplateOutlet", ctx_r0.titleTemplate());
+			ɵɵproperty("ngTemplateOutlet", ctx_r0.titleTemplate || ctx_r0._titleTemplate);
 		}
 	}
 	function Card_Conditional_3_Conditional_1_Template(rf, ctx) {
 		if (rf & 1) ɵɵtext(0);
 		if (rf & 2) {
 			const ctx_r0 = ɵɵnextContext(2);
-			ɵɵtextInterpolate1(" ", ctx_r0.subheader(), " ");
+			ɵɵtextInterpolate1(" ", ctx_r0.subheader, " ");
 		}
 	}
 	function Card_Conditional_3_ng_container_2_Template(rf, ctx) {
@@ -274,9 +364,9 @@ _defineProperty(Card, "ɵcmp", (function() {
 			ɵɵclassMap(ctx_r0.cx("subtitle"));
 			ɵɵproperty("pBind", ctx_r0.ptm("subtitle"));
 			ɵɵadvance();
-			ɵɵconditional(ctx_r0.showSubheaderText() ? 1 : -1);
+			ɵɵconditional(ctx_r0.subheader && !ctx_r0._subtitleTemplate && !ctx_r0.subtitleTemplate ? 1 : -1);
 			ɵɵadvance();
-			ɵɵproperty("ngTemplateOutlet", ctx_r0.subtitleTemplate());
+			ɵɵproperty("ngTemplateOutlet", ctx_r0.subtitleTemplate || ctx_r0._subtitleTemplate);
 		}
 	}
 	function Card_ng_container_6_Template(rf, ctx) {
@@ -297,23 +387,38 @@ _defineProperty(Card, "ɵcmp", (function() {
 			ɵɵclassMap(ctx_r0.cx("footer"));
 			ɵɵproperty("pBind", ctx_r0.ptm("footer"));
 			ɵɵadvance(2);
-			ɵɵproperty("ngTemplateOutlet", ctx_r0.footerTemplate());
+			ɵɵproperty("ngTemplateOutlet", ctx_r0.footerTemplate || ctx_r0._footerTemplate);
 		}
 	}
 	return /*@__PURE__*/ ɵɵdefineComponent({
 		type: _Card,
 		selectors: [["p-card"]],
 		contentQueries: function Card_ContentQueries(rf, ctx, dirIndex) {
-			if (rf & 1) ɵɵcontentQuerySignal(dirIndex, ctx.headerFacet, Header, 4)(dirIndex, ctx.footerFacet, Footer, 4)(dirIndex, ctx.headerTemplate, _c0, 4)(dirIndex, ctx.titleTemplate, _c1, 4)(dirIndex, ctx.subtitleTemplate, _c2, 4)(dirIndex, ctx.contentTemplate, _c3, 4)(dirIndex, ctx.footerTemplate, _c4, 4);
-			if (rf & 2) ɵɵqueryAdvance(7);
+			if (rf & 1) ɵɵcontentQuery(dirIndex, Header, 5)(dirIndex, Footer, 5)(dirIndex, _c0, 4)(dirIndex, _c1, 4)(dirIndex, _c2, 4)(dirIndex, _c3, 4)(dirIndex, _c4, 4)(dirIndex, PrimeTemplate, 4);
+			if (rf & 2) {
+				let _t = void 0;
+				ɵɵqueryRefresh(_t = ɵɵloadQuery()) && (ctx.headerFacet = _t.first);
+				ɵɵqueryRefresh(_t = ɵɵloadQuery()) && (ctx.footerFacet = _t.first);
+				ɵɵqueryRefresh(_t = ɵɵloadQuery()) && (ctx.headerTemplate = _t.first);
+				ɵɵqueryRefresh(_t = ɵɵloadQuery()) && (ctx.titleTemplate = _t.first);
+				ɵɵqueryRefresh(_t = ɵɵloadQuery()) && (ctx.subtitleTemplate = _t.first);
+				ɵɵqueryRefresh(_t = ɵɵloadQuery()) && (ctx.contentTemplate = _t.first);
+				ɵɵqueryRefresh(_t = ɵɵloadQuery()) && (ctx.footerTemplate = _t.first);
+				ɵɵqueryRefresh(_t = ɵɵloadQuery()) && (ctx.templates = _t);
+			}
 		},
-		hostVars: 2,
+		hostVars: 4,
 		hostBindings: function Card_HostBindings(rf, ctx) {
-			if (rf & 2) ɵɵclassMap(ctx.cx("root"));
+			if (rf & 2) {
+				ɵɵstyleMap(ctx._style());
+				ɵɵclassMap(ctx.cn(ctx.cx("root"), ctx.styleClass));
+			}
 		},
 		inputs: {
-			header: [1, "header"],
-			subheader: [1, "subheader"]
+			header: "header",
+			subheader: "subheader",
+			style: "style",
+			styleClass: "styleClass"
 		},
 		features: [
 			ɵɵProvidersFeature([
@@ -357,24 +462,25 @@ _defineProperty(Card, "ɵcmp", (function() {
 				ɵɵelementEnd();
 			}
 			if (rf & 2) {
-				ɵɵconditional(ctx.hasHeader() ? 0 : -1);
+				ɵɵconditional(ctx.headerFacet || ctx.headerTemplate || ctx._headerTemplate ? 0 : -1);
 				ɵɵadvance();
 				ɵɵclassMap(ctx.cx("body"));
 				ɵɵproperty("pBind", ctx.ptm("body"));
 				ɵɵadvance();
-				ɵɵconditional(ctx.hasTitle() ? 2 : -1);
+				ɵɵconditional(ctx.header || ctx.titleTemplate || ctx._titleTemplate ? 2 : -1);
 				ɵɵadvance();
-				ɵɵconditional(ctx.hasSubtitle() ? 3 : -1);
+				ɵɵconditional(ctx.subheader || ctx.subtitleTemplate || ctx._subtitleTemplate ? 3 : -1);
 				ɵɵadvance();
 				ɵɵclassMap(ctx.cx("content"));
 				ɵɵproperty("pBind", ctx.ptm("content"));
 				ɵɵadvance(2);
-				ɵɵproperty("ngTemplateOutlet", ctx.contentTemplate());
+				ɵɵproperty("ngTemplateOutlet", ctx.contentTemplate || ctx._contentTemplate);
 				ɵɵadvance();
-				ɵɵconditional(ctx.hasFooter() ? 7 : -1);
+				ɵɵconditional(ctx.footerFacet || ctx.footerTemplate || ctx._footerTemplate ? 7 : -1);
 			}
 		},
 		dependencies: [
+			CommonModule,
 			NgTemplateOutlet,
 			SharedModule,
 			BindModule,
@@ -390,42 +496,42 @@ _defineProperty(Card, "ɵcmp", (function() {
 			selector: "p-card",
 			standalone: true,
 			imports: [
-				NgTemplateOutlet,
+				CommonModule,
 				SharedModule,
 				BindModule
 			],
 			template: `
-        @if (hasHeader()) {
+        @if (headerFacet || headerTemplate || _headerTemplate) {
             <div [pBind]="ptm('header')" [class]="cx('header')">
                 <ng-content select="p-header"></ng-content>
-                <ng-container *ngTemplateOutlet="headerTemplate()"></ng-container>
+                <ng-container *ngTemplateOutlet="headerTemplate || _headerTemplate"></ng-container>
             </div>
         }
         <div [pBind]="ptm('body')" [class]="cx('body')">
-            @if (hasTitle()) {
+            @if (header || titleTemplate || _titleTemplate) {
                 <div [pBind]="ptm('title')" [class]="cx('title')">
-                    @if (showHeaderText()) {
-                        {{ header() }}
+                    @if (header && !_titleTemplate && !titleTemplate) {
+                        {{ header }}
                     }
-                    <ng-container *ngTemplateOutlet="titleTemplate()"></ng-container>
+                    <ng-container *ngTemplateOutlet="titleTemplate || _titleTemplate"></ng-container>
                 </div>
             }
-            @if (hasSubtitle()) {
+            @if (subheader || subtitleTemplate || _subtitleTemplate) {
                 <div [pBind]="ptm('subtitle')" [class]="cx('subtitle')">
-                    @if (showSubheaderText()) {
-                        {{ subheader() }}
+                    @if (subheader && !_subtitleTemplate && !subtitleTemplate) {
+                        {{ subheader }}
                     }
-                    <ng-container *ngTemplateOutlet="subtitleTemplate()"></ng-container>
+                    <ng-container *ngTemplateOutlet="subtitleTemplate || _subtitleTemplate"></ng-container>
                 </div>
             }
             <div [pBind]="ptm('content')" [class]="cx('content')">
                 <ng-content></ng-content>
-                <ng-container *ngTemplateOutlet="contentTemplate()"></ng-container>
+                <ng-container *ngTemplateOutlet="contentTemplate || _contentTemplate"></ng-container>
             </div>
-            @if (hasFooter()) {
+            @if (footerFacet || footerTemplate || _footerTemplate) {
                 <div [pBind]="ptm('footer')" [class]="cx('footer')">
                     <ng-content select="p-footer"></ng-content>
-                    <ng-container *ngTemplateOutlet="footerTemplate()"></ng-container>
+                    <ng-container *ngTemplateOutlet="footerTemplate || _footerTemplate"></ng-container>
                 </div>
             }
         </div>
@@ -443,53 +549,48 @@ _defineProperty(Card, "ɵcmp", (function() {
 					useExisting: Card
 				}
 			],
-			host: { "[class]": "cx('root')" },
+			host: {
+				"[class]": "cn(cx('root'), styleClass)",
+				"[style]": "_style()"
+			},
 			hostDirectives: [Bind]
 		}]
 	}], null, {
-		header: [{
-			type: Input,
-			args: [{
-				isSignal: true,
-				alias: "header",
-				required: false
-			}]
-		}],
-		subheader: [{
-			type: Input,
-			args: [{
-				isSignal: true,
-				alias: "subheader",
-				required: false
-			}]
-		}],
+		header: [{ type: Input }],
+		subheader: [{ type: Input }],
+		style: [{ type: Input }],
+		styleClass: [{ type: Input }],
 		headerFacet: [{
 			type: ContentChild,
-			args: [forwardRef(() => Header), _objectSpread2(_objectSpread2({}, { descendants: false }), {}, { isSignal: true })]
+			args: [Header]
 		}],
 		footerFacet: [{
 			type: ContentChild,
-			args: [forwardRef(() => Footer), _objectSpread2(_objectSpread2({}, { descendants: false }), {}, { isSignal: true })]
+			args: [Footer]
 		}],
 		headerTemplate: [{
 			type: ContentChild,
-			args: ["header", _objectSpread2(_objectSpread2({}, { descendants: false }), {}, { isSignal: true })]
+			args: ["header", { descendants: false }]
 		}],
 		titleTemplate: [{
 			type: ContentChild,
-			args: ["title", _objectSpread2(_objectSpread2({}, { descendants: false }), {}, { isSignal: true })]
+			args: ["title", { descendants: false }]
 		}],
 		subtitleTemplate: [{
 			type: ContentChild,
-			args: ["subtitle", _objectSpread2(_objectSpread2({}, { descendants: false }), {}, { isSignal: true })]
+			args: ["subtitle", { descendants: false }]
 		}],
 		contentTemplate: [{
 			type: ContentChild,
-			args: ["content", _objectSpread2(_objectSpread2({}, { descendants: false }), {}, { isSignal: true })]
+			args: ["content", { descendants: false }]
 		}],
 		footerTemplate: [{
 			type: ContentChild,
-			args: ["footer", _objectSpread2(_objectSpread2({}, { descendants: false }), {}, { isSignal: true })]
+			args: ["footer", { descendants: false }]
+		}],
+		templates: [{
+			type: ContentChildren,
+			args: [PrimeTemplate]
 		}]
 	});
 })();

@@ -1,16 +1,25 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import {
+  Component,
+  OnInit,
+  inject,
+  signal,
+  AfterViewInit,
+  OnDestroy,
+  ViewChildren,
+  QueryList,
+  ElementRef,
+} from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { TauriService } from '../../services/tauri.service';
 import { Photo, Library } from '../../models/photo';
 import { SidebarComponent } from '../sidebar/sidebar.component';
-import { ButtonModule } from 'primeng/button';
-import { CardModule } from 'primeng/card';
-import { ProgressBarModule } from 'primeng/progressbar';
+import { ButtonModule } from '@openng/optimus-ui/button';
+import { CardModule } from '@openng/optimus-ui/card';
 
 @Component({
   selector: 'app-gallery',
   standalone: true,
-  imports: [SidebarComponent, ButtonModule, CardModule, ProgressBarModule],
+  imports: [SidebarComponent, ButtonModule, CardModule],
   template: `
     <div class="d-flex h-100">
       <!-- Sidebar -->
@@ -89,16 +98,13 @@ import { ProgressBarModule } from 'primeng/progressbar';
               @for (photo of photos(); track photo.id) {
                 <div class="col-6 col-md-4 col-lg-3 col-xl-2">
                   <div
-                    class="p-card shadow-sm"
-                    style="cursor: pointer; overflow: hidden; transition: transform 0.2s, box-shadow 0.2s;"
+                    class="p-card shadow-sm photo-card"
+                    #photoCard
+                    [attr.data-photo-id]="photo.id"
                     (click)="openPhoto(photo)"
-                    (mouseenter)="photoHover = photo.id"
-                    (mouseleave)="photoHover = null"
-                    [style.transform]="photoHover === photo.id ? 'scale(1.02)' : 'scale(1)'"
-                    [style.box-shadow]="photoHover === photo.id ? '0 4px 12px rgba(0,0,0,0.3)' : 'none'"
                   >
                     <div class="p-card-body p-0">
-                      <div class="d-flex align-items-center justify-content-center" style="aspect-ratio: 1; background: var(--pv-surface-alt);">
+                      <div class="photo-thumbnail">
                         @if (photo.media_type === 'image') {
                           <img
                             [src]="getThumbnailUrl(photo)"
@@ -127,8 +133,28 @@ import { ProgressBarModule } from 'primeng/progressbar';
       </div>
     </div>
   `,
+  styles: [`
+    .photo-card {
+      cursor: pointer;
+      overflow: hidden;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .photo-card:hover {
+      transform: scale(1.02);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .photo-thumbnail {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      aspect-ratio: 1;
+      background: var(--pv-surface-alt);
+    }
+  `],
 })
-export class GalleryComponent implements OnInit {
+export class GalleryComponent implements OnInit, AfterViewInit, OnDestroy {
   private route = inject(ActivatedRoute);
   private tauri = inject(TauriService);
 
@@ -137,9 +163,13 @@ export class GalleryComponent implements OnInit {
   stats = this.tauri.stats;
   isScanning = this.tauri.isScanning;
   scanProgress = this.tauri.scanProgress;
-  photoHover: string | null = '';
+
+  @ViewChildren('photoCard') photoCards!: QueryList<ElementRef>;
 
   private libraryId = '';
+  private thumbnailCache = new Map<string, string>();
+  private observer: IntersectionObserver | null = null;
+  private loadingThumbnails = new Set<string>();
 
   async ngOnInit() {
     this.libraryId = this.route.snapshot.paramMap.get('id') || '';
@@ -148,6 +178,44 @@ export class GalleryComponent implements OnInit {
       await this.tauri.getLibraryStats(this.libraryId);
       await this.tauri.loadPhotos(this.libraryId);
     }
+  }
+
+  ngAfterViewInit() {
+    this.setupIntersectionObserver();
+    this.observeCards();
+
+    // Re-observe when photos change
+    this.photoCards.changes.subscribe(() => {
+      this.observeCards();
+    });
+  }
+
+  ngOnDestroy() {
+    if (this.observer) {
+      this.observer.disconnect();
+    }
+  }
+
+  private setupIntersectionObserver() {
+    this.observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const photoId = entry.target.getAttribute('data-photo-id');
+            if (photoId) {
+              this.loadThumbnail(photoId);
+            }
+          }
+        }
+      },
+      { root: null, rootMargin: '200px', threshold: 0.1 }
+    );
+  }
+
+  private observeCards() {
+    if (!this.observer) return;
+    const cards = this.photoCards?.toArray() ?? [];
+    cards.forEach((card) => this.observer!.observe(card.nativeElement));
   }
 
   private async loadLibrary() {
@@ -165,11 +233,33 @@ export class GalleryComponent implements OnInit {
   }
 
   openPhoto(photo: Photo) {
+    // TODO: Implement photo viewer
     console.log('Open photo:', photo);
   }
 
   getThumbnailUrl(photo: Photo): string {
-    return `http://localhost:4200/assets/placeholder.svg`;
+    const cached = this.thumbnailCache.get(photo.id);
+    if (cached) {
+      return cached;
+    }
+    return 'assets/placeholder.svg';
+  }
+
+  private async loadThumbnail(photoId: string) {
+    if (this.loadingThumbnails.has(photoId)) return;
+    this.loadingThumbnails.add(photoId);
+
+    try {
+      const dataUrl = await this.tauri.getThumbnailDataUrl(photoId);
+      if (dataUrl) {
+        this.thumbnailCache.set(photoId, dataUrl);
+        this.photos.update(p => [...p]);
+      }
+    } catch (err) {
+      console.error('Failed to load thumbnail:', err);
+    } finally {
+      this.loadingThumbnails.delete(photoId);
+    }
   }
 
   formatDate(dateStr: string): string {
