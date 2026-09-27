@@ -1,35 +1,57 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
-import { Router } from '@angular/router';
-import { FormsModule } from '@angular/forms';
-import { TauriService } from '../../services/tauri.service';
-import { Library } from '../../models/photo';
-import { ButtonModule } from '@openng/optimus-ui/button';
-import { InputTextModule } from '@openng/optimus-ui/inputtext';
-import { CardModule } from '@openng/optimus-ui/card';
+import { Component, OnInit, inject, signal } from "@angular/core";
+import { Router } from "@angular/router";
+import { FormsModule } from "@angular/forms";
+import { TauriService } from "../../services/tauri.service";
+import { Library } from "../../models/photo";
+import { ButtonModule } from "@openng/optimus-ui/button";
+import { InputTextModule } from "@openng/optimus-ui/inputtext";
+import { CardModule } from "@openng/optimus-ui/card";
 
 @Component({
-  selector: 'app-library-selector',
+  selector: "app-library-selector",
   standalone: true,
   imports: [FormsModule, ButtonModule, InputTextModule, CardModule],
   template: `
-    <div class="min-h-screen d-flex align-items-center justify-content-center p-4" style="background-color: var(--pv-bg);">
-      <div class="w-100" style="max-width: 480px;">
+    <div
+      class="d-flex align-items-center justify-content-center p-4"
+      style="min-height: 100vh; background-color: var(--pv-bg);"
+    >
+      <div style="width: 100%; max-width: 480px;">
         <!-- Header -->
         <div class="text-center mb-4">
-          <div class="d-inline-flex align-items-center justify-content-center rounded-3 mb-3" style="width: 64px; height: 64px; background: rgba(59, 130, 246, 0.15);">
-            <i class="pi pi-images" style="font-size: 1.75rem; color: var(--pv-accent);"></i>
+          <div
+            class="d-inline-flex align-items-center justify-content-center mb-3"
+            style="width: 64px; height: 64px; background: rgba(59, 130, 246, 0.15); border-radius: 1rem;"
+          >
+            <i
+              class="pi pi-images"
+              style="font-size: 1.75rem; color: var(--pv-accent);"
+            ></i>
           </div>
-          <h1 class="fw-bold mb-1" style="color: var(--pv-text);">PhotoVault</h1>
-          <p class="mb-0" style="color: var(--pv-text-muted);">Organize suas fotos de forma inteligente</p>
+          <h1 class="fw-bold mb-1" style="color: var(--pv-text);">
+            PhotoVault
+          </h1>
+          <p class="mb-0" style="color: var(--pv-text-muted);">
+            Organize suas fotos de forma inteligente
+          </p>
         </div>
 
         <!-- Create Library Form -->
-        <div class="p-card shadow">
+        <div
+          class="p-card"
+          style="width: 100% !important; max-width: 100% !important;"
+        >
           <div class="p-card-body">
-            <h5 class="fw-semibold mb-3" style="color: var(--pv-text);">Nova Biblioteca</h5>
+            <h5 class="fw-semibold mb-3" style="color: var(--pv-text);">
+              Nova Biblioteca
+            </h5>
 
             <div class="mb-3">
-              <label class="form-label small fw-medium" style="color: var(--pv-text-muted);">Nome da biblioteca</label>
+              <label
+                class="form-label small fw-medium"
+                style="color: var(--pv-text-muted);"
+                >Nome da biblioteca</label
+              >
               <input
                 type="text"
                 pInputText
@@ -40,7 +62,11 @@ import { CardModule } from '@openng/optimus-ui/card';
             </div>
 
             <div class="mb-3">
-              <label class="form-label small fw-medium" style="color: var(--pv-text-muted);">Pasta das fotos</label>
+              <label
+                class="form-label small fw-medium"
+                style="color: var(--pv-text-muted);"
+                >Pasta das fotos</label
+              >
               <div class="input-group">
                 <input
                   type="text"
@@ -56,7 +82,9 @@ import { CardModule } from '@openng/optimus-ui/card';
                   (click)="selectFolder()"
                   class="p-button-secondary"
                   title="Selecionar pasta"
-                ></button>
+                >
+                  Selecionar
+                </button>
               </div>
             </div>
 
@@ -65,7 +93,9 @@ import { CardModule } from '@openng/optimus-ui/card';
               type="button"
               label="Criar Biblioteca"
               icon="pi pi-plus"
-              [disabled]="!libraryName.trim() || !rootPath.trim() || isCreating()"
+              [disabled]="
+                !libraryName.trim() || !rootPath.trim() || isCreating()
+              "
               (click)="createLibrary()"
               class="w-100 p-button-primary"
             ></button>
@@ -75,30 +105,64 @@ import { CardModule } from '@openng/optimus-ui/card';
         <!-- Existing Libraries -->
         @if (libraries().length > 0) {
           <div class="mt-4">
-            <h6 class="fw-semibold mb-2 text-uppercase" style="color: var(--pv-text-muted); font-size: 0.75rem; letter-spacing: 0.05em;">Bibliotecas</h6>
+            <h6
+              class="fw-semibold mb-2 text-uppercase"
+              style="color: var(--pv-text-muted); font-size: 0.75rem; letter-spacing: 0.05em;"
+            >
+              Bibliotecas
+            </h6>
             <div class="d-flex flex-column gap-2">
               @for (lib of libraries(); track lib.id) {
                 <div
-                  class="p-card shadow-sm"
+                  class="p-card"
                   (click)="openLibrary(lib)"
-                  style="cursor: pointer; transition: border-color 0.2s;"
+                  style="cursor: pointer; transition: border-color 0.2s; width: 100% !important; max-width: 100% !important;"
                   (mouseenter)="libHover = lib.id"
                   (mouseleave)="libHover = null"
-                  [style.border-color]="libHover === lib.id ? 'var(--pv-accent)' : 'var(--pv-border)'"
+                  [style.border-color]="
+                    libHover === lib.id
+                      ? 'var(--pv-accent)'
+                      : 'var(--pv-border)'
+                  "
                 >
                   <div class="p-card-body py-3">
-                    <div class="d-flex align-items-center justify-content-between">
+                    <div
+                      class="d-flex align-items-center justify-content-between"
+                    >
                       <div class="d-flex align-items-center gap-3">
-                        <div class="d-flex align-items-center justify-content-center rounded-2" style="width: 40px; height: 40px; background: rgba(59, 130, 246, 0.15);">
-                          <i class="pi pi-folder" style="color: var(--pv-accent);"></i>
+                        <div
+                          class="d-flex align-items-center justify-content-center"
+                          style="width: 40px; height: 40px; background: rgba(59, 130, 246, 0.15); border-radius: 0.5rem;"
+                        >
+                          <i
+                            class="pi pi-folder"
+                            style="color: var(--pv-accent);"
+                          ></i>
                         </div>
                         <div>
-                          <div class="fw-medium" style="color: var(--pv-text);">{{ lib.name }}</div>
-                          <div class="small text-truncate" style="color: var(--pv-text-muted); max-width: 200px;">{{ lib.root_path }}</div>
+                          <div class="fw-medium" style="color: var(--pv-text);">
+                            {{ lib.name }}
+                          </div>
+                          <div
+                            class="small text-truncate"
+                            style="color: var(--pv-text-muted); max-width: 200px;"
+                          >
+                            {{ lib.root_path }}
+                          </div>
                         </div>
                       </div>
-                      <span class="badge" [style.background]="lib.last_scan_at ? 'var(--pv-accent)' : 'var(--pv-surface-alt)'" [style.color]="lib.last_scan_at ? 'white' : 'var(--pv-text-muted)'">
-                        {{ lib.last_scan_at ? 'Escaneado' : 'Nunca escaneado' }}
+                      <span
+                        class="badge"
+                        [style.background]="
+                          lib.last_scan_at
+                            ? 'var(--pv-accent)'
+                            : 'var(--pv-surface-alt)'
+                        "
+                        [style.color]="
+                          lib.last_scan_at ? 'white' : 'var(--pv-text-muted)'
+                        "
+                      >
+                        {{ lib.last_scan_at ? "Escaneado" : "Nunca escaneado" }}
                       </span>
                     </div>
                   </div>
@@ -109,7 +173,10 @@ import { CardModule } from '@openng/optimus-ui/card';
         }
 
         <!-- Footer -->
-        <p class="text-center mt-4 mb-0" style="color: var(--pv-text-muted); font-size: 0.75rem;">
+        <p
+          class="text-center mt-4 mb-0"
+          style="color: var(--pv-text-muted); font-size: 0.75rem;"
+        >
           Local-first · Privacy-first
         </p>
       </div>
@@ -120,8 +187,8 @@ export class LibrarySelectorComponent implements OnInit {
   private tauri = inject(TauriService);
   private router = inject(Router);
 
-  libraryName = '';
-  rootPath = '';
+  libraryName = "";
+  rootPath = "";
   isCreating = signal(false);
   libHover: string | null = null;
   libraries = this.tauri.libraries;
@@ -137,7 +204,7 @@ export class LibrarySelectorComponent implements OnInit {
         this.rootPath = path;
       }
     } catch (err) {
-      console.error('Failed to pick folder:', err);
+      console.error("Failed to pick folder:", err);
     }
   }
 
@@ -148,18 +215,18 @@ export class LibrarySelectorComponent implements OnInit {
     try {
       const lib = await this.tauri.createLibrary(
         this.libraryName.trim(),
-        this.rootPath.trim()
+        this.rootPath.trim(),
       );
-      this.router.navigate(['/library', lib.id]);
+      this.router.navigate(["/library", lib.id]);
     } catch (err) {
-      console.error('Failed to create library:', err);
-      alert('Erro ao criar biblioteca. Verifique o caminho e tente novamente.');
+      console.error("Failed to create library:", err);
+      alert("Erro ao criar biblioteca. Verifique o caminho e tente novamente.");
     } finally {
       this.isCreating.set(false);
     }
   }
 
   openLibrary(lib: Library) {
-    this.router.navigate(['/library', lib.id]);
+    this.router.navigate(["/library", lib.id]);
   }
 }
