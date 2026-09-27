@@ -1,0 +1,30 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Angular
+/node_modules
+/dist
+/tmp
+/out-tsc
+
+# Tauri
+/src-tauri/target
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# PhotoVault runtime data
+data/
+thumbnails/
+logs/
