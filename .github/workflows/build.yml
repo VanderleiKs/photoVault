@@ -45,7 +45,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           release: true
-          releaseName: PhotoVault v__VERSION__
+          tagName: photovault-v__VERSION__
+          releaseName: "PhotoVault v__VERSION__"
           releaseBody: "Veja as alterações abaixo"
           releaseDraft: true
           prerelease: false
