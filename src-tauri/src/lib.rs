@@ -8,6 +8,7 @@ mod thumbnails;
 
 use std::fs::OpenOptions;
 use std::io::Write;
+use tauri::Manager;
 
 fn log_to_file(message: &str) {
     if let Ok(exe_path) = std::env::current_exe() {
