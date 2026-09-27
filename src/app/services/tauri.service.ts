@@ -33,15 +33,23 @@ export class TauriService implements OnDestroy {
   }
 
   private registerEventListeners() {
-    if (this.listenersRegistered || !this.event) return;
+    if (this.listenersRegistered || !this.event) {
+      console.warn('[PhotoVault] Cannot register listeners - already registered or no event API');
+      return;
+    }
     this.listenersRegistered = true;
+    console.log('[PhotoVault] Registering event listeners...');
 
     this.event.listen('scan_progress', (event: any) => {
-      console.log('[PhotoVault] scan_progress event:', JSON.stringify(event.payload));
+      console.log('[PhotoVault] scan_progress event received:', JSON.stringify(event.payload));
       this.scanProgress.set(event.payload as ScanProgress);
-    }).then((unlisten: () => void) => { this.unlistenProgress = unlisten; });
+    }).then((unlisten: () => void) => {
+      this.unlistenProgress = unlisten;
+      console.log('[PhotoVault] scan_progress listener registered');
+    });
 
     this.event.listen('scan_complete', (event: any) => {
+      console.log('[PhotoVault] scan_complete event received:', JSON.stringify(event.payload));
       this.isScanning.set(false);
       this.scanProgress.set(null);
       const payload = event.payload as ScanComplete;
@@ -49,12 +57,18 @@ export class TauriService implements OnDestroy {
         this.getLibraryStats(payload.library_id);
         this.loadPhotos(payload.library_id, 1);
       }
-    }).then((unlisten: () => void) => { this.unlistenComplete = unlisten; });
+    }).then((unlisten: () => void) => {
+      this.unlistenComplete = unlisten;
+      console.log('[PhotoVault] scan_complete listener registered');
+    });
 
     this.event.listen('scan_error', (event: any) => {
-      console.error('Scan error:', event.payload);
+      console.error('[PhotoVault] scan_error event:', event.payload);
       this.isScanning.set(false);
-    }).then((unlisten: () => void) => { this.unlistenError = unlisten; });
+    }).then((unlisten: () => void) => {
+      this.unlistenError = unlisten;
+      console.log('[PhotoVault] scan_error listener registered');
+    });
   }
 
   ngOnDestroy() {
@@ -134,6 +148,10 @@ export class TauriService implements OnDestroy {
 
   async getPhoto(photoId: string): Promise<Photo | null> {
     return this.tauriInvoke<Photo | null>('get_photo', { photoId });
+  }
+
+  async getPhotoNavigation(photoId: string): Promise<{ prev_id: string | null; next_id: string | null }> {
+    return this.tauriInvoke('get_photo_navigation', { photoId });
   }
 
   async getThumbnailPath(photoId: string): Promise<string | null> {

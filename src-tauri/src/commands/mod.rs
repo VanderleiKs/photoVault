@@ -159,6 +159,55 @@ pub async fn get_photos(
     Ok(result)
 }
 
+/// Get previous and next photo IDs for navigation
+#[tauri::command]
+pub async fn get_photo_navigation(
+    photo_id: String,
+    app_handle: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
+    let db_path = get_db_path(&app_handle)?;
+    let db_url = format!("sqlite://{}", db_path.display());
+
+    let pool = SqlitePool::connect(&db_url).await.map_err(|e| e.to_string())?;
+
+    // Get current photo's captured_at to determine ordering
+    let current: Option<(String,)> = sqlx::query_as(
+        "SELECT captured_at FROM photos WHERE id = ?1"
+    )
+    .bind(&photo_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let current_date = match current {
+        Some((date,)) => date,
+        None => return Ok(serde_json::json!({ "prev_id": null, "next_id": null })),
+    };
+
+    // Get previous photo (older)
+    let prev: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM photos WHERE captured_at < ?1 ORDER BY captured_at DESC LIMIT 1"
+    )
+    .bind(&current_date)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Get next photo (newer)
+    let next: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM photos WHERE captured_at > ?1 ORDER BY captured_at ASC LIMIT 1"
+    )
+    .bind(&current_date)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(serde_json::json!({
+        "prev_id": prev.map(|(id,)| id),
+        "next_id": next.map(|(id,)| id),
+    }))
+}
+
 /// Get a single photo by ID
 #[tauri::command]
 pub async fn get_photo(

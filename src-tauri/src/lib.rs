@@ -96,6 +96,7 @@ pub fn run() {
             commands::cancel_scan,
             commands::get_photos,
             commands::get_photo,
+            commands::get_photo_navigation,
             commands::get_thumbnail,
             commands::delete_library,
             commands::pick_folder,

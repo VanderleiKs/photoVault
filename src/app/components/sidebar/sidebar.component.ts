@@ -16,55 +16,36 @@ import { Library } from '../../models/photo';
 
       <!-- Navigation -->
       <nav class="flex-grow-1 p-3">
-        <a
-          routerLink="/"
-          class="nav-link"
-        >
+        <a routerLink="/" class="nav-link">
           <i class="pi pi-home"></i>
           <span>Biblioteca</span>
         </a>
 
         <div class="nav-section-title">Navegação</div>
 
-        <a
-          [routerLink]="['/library', library()?.id]"
-          routerLinkActive="active"
-          class="nav-link"
-        >
+        <a [routerLink]="['/library', library()?.id]" routerLinkActive="active" class="nav-link">
           <i class="pi pi-images"></i>
           <span>Todas</span>
         </a>
 
-        <a
-          [routerLink]="['/library', library()?.id]"
-          class="nav-link"
-        >
+        <a [routerLink]="['/library', library()?.id, 'timeline']" routerLinkActive="active" class="nav-link">
           <i class="pi pi-calendar"></i>
           <span>Timeline</span>
         </a>
 
-        <a
-          [routerLink]="['/library', library()?.id]"
-          class="nav-link"
-        >
+        <a [routerLink]="['/library', library()?.id]" class="nav-link">
           <i class="pi pi-map-marker"></i>
           <span>Viagens</span>
         </a>
 
         <div class="nav-section-title">Organizar</div>
 
-        <a
-          [routerLink]="['/library', library()?.id]"
-          class="nav-link"
-        >
+        <a [routerLink]="['/library', library()?.id, 'duplicates']" routerLinkActive="active" class="nav-link">
           <i class="pi pi-copy"></i>
           <span>Duplicatas</span>
         </a>
 
-        <a
-          [routerLink]="['/library', library()?.id]"
-          class="nav-link"
-        >
+        <a [routerLink]="['/library', library()?.id]" class="nav-link">
           <i class="pi pi-check-circle"></i>
           <span>Revisão</span>
         </a>
