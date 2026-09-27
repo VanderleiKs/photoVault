@@ -1,95 +1,51 @@
 name: Build
-on: [push, pull_request]
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-      - name: Install libpcap
-        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
-      - name: Build
-        run: cargo build --release
-      - name: Format
-        run: cargo fmt --check
-      - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
-      - name: Test
-        run: cargo test
-
-  windows:
+  build-windows:
     runs-on: windows-latest
+
     steps:
-      - uses: actions/checkout@v6
-      - name: Install Rust
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Node dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
         with:
-          components: clippy, rustfmt
+          workspaces: src-tauri
 
-      # O crate `pcap` liga contra `wpcap.lib` via `#[link(name = "wpcap")]`.
-      # Sem o SDK do Npcap no LIB, o build falha na linkagem — e era
-      # exatamente por isso que este job não produzia nada de útil.
-      #
-      # Só o `LIB` é necessário. O `build.rs` do crate, ao não encontrar a
-      # wpcap.dll, assume a API mais recente em vez de falhar, então não
-      # precisamos instalar o Npcap em runtime só para compilar.
-      # O caminho precisa ser o da arquitetura: Lib\x64, não Lib.
-      - name: Baixar o Npcap SDK
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          # A URL do SDK carrega a versão; a do instalador é separada.
-          Invoke-WebRequest -Uri 'https://npcap.com/dist/npcap-sdk-1.16.zip' -OutFile npcap-sdk.zip
-          Expand-Archive -LiteralPath npcap-sdk.zip -DestinationPath npcap-sdk
-          $libs = Get-ChildItem -Path npcap-sdk -Recurse -Filter 'wpcap.lib' |
-                  Select-Object -ExpandProperty FullName
-          $libs | ForEach-Object { Write-Host "encontrado: $_" }
-          if (-not $libs) { throw 'wpcap.lib não está no SDK — verifique a URL' }
-          "LIB=$env:GITHUB_WORKSPACE\npcap-sdk\Lib\x64" >> $env:GITHUB_ENV
-
-      - name: Build
-        run: cargo build --release
-
-      - name: Format
-        run: cargo fmt --check
-
-      - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
-
-      # `cargo test` linkaria o binário de teste contra wpcap.lib e abriria uma
-      # captura real, o que não faz sentido no CI. `check --all-targets` valida
-      # que o código dos testes compila; a execução fica no job do Linux.
-      - name: Check dos testes
-        run: cargo check --all-targets
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: network-monitor-windows
-          path: target/release/network-monitor.exe
-
-  instalador:
-    runs-on: windows-latest
-    needs: windows
-    steps:
-      - uses: actions/checkout@v4
-      # Só o executável: o instalador não precisa do Npcap SDK, ele apenas
-      # verifica (e opcionalmente baixa) o Npcap em tempo de instalação.
-      - name: Baixar o executável
-        uses: actions/download-artifact@v4
-        with:
-          name: network-monitor-windows
-          path: target/release
-      - name: Instalar Inno Setup
-        run: choco install innosetup --no-progress -y
-      - name: Gerar instalador
-        run: iscc installer\network-monitor.iss
-      - name: Upload instalador
-        uses: actions/upload-artifact@v4
-        with:
-          name: network-monitor-installer
-          path: dist/*.exe
+          release: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          releaseName: PhotoVault v__VERSION__
+          releaseBody: "Veja as alterações abaixo"
+          releaseDraft: true
+          prerelease: false
