@@ -45,7 +45,14 @@ pub async fn save_settings(
     settings: AppSettings,
     state: AppStateRef<'_>,
 ) -> ApiResult<AppSettings> {
-    Ok(settings::save(&state.pool, &settings).await?)
+    let before = settings::get(&state.pool).await?;
+    let saved = settings::save(&state.pool, &settings).await?;
+    // New thresholds: recompute flags and groups (no photo is re-read).
+    if before.analysis != saved.analysis {
+        photovault_core::analysis::store::mark_all_dirty(&state.pool).await?;
+        state.jobs.wake();
+    }
+    Ok(saved)
 }
 
 /// Volume containing `path` (free/total space for the sidebar footer).

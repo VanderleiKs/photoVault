@@ -6,7 +6,6 @@ use crate::catalog::MediaType;
 use crate::thumbnails::{GRID_SIZE, PREVIEW_SIZE};
 use fast_image_resize::{IntoImageView, ResizeAlg, ResizeOptions, Resizer, images::Image};
 use image::{DynamicImage, ImageDecoder, ImageReader};
-use image_hasher::{HashAlg, HasherConfig};
 use sha2::{Digest, Sha256};
 use std::io::{Cursor, Read};
 use std::path::Path;
@@ -22,7 +21,6 @@ pub type Thumbnails = Vec<(u32, Vec<u8>)>;
 #[derive(Debug, Default)]
 pub struct Processed {
     pub sha256: String,
-    pub phash: Option<String>,
     pub capture: CaptureInfo,
     /// Displayed (orientation-corrected) size.
     pub width: Option<u32>,
@@ -56,10 +54,7 @@ pub fn process_image(bytes: &[u8], file: &SourceFile<'_>) -> Processed {
             out.width = Some(img.width());
             out.height = Some(img.height());
             match make_thumbnails(img) {
-                Ok((thumbs, grid)) => {
-                    out.phash = Some(perceptual_hash(&grid));
-                    out.thumbnails = thumbs;
-                }
+                Ok((thumbs, _grid)) => out.thumbnails = thumbs,
                 Err(e) => out.decode_error = Some(e),
             }
         }
@@ -187,21 +182,6 @@ fn encode_webp(img: &DynamicImage) -> Result<Vec<u8>, String> {
     Ok(encoded.to_vec())
 }
 
-/// 64-bit gradient hash (hex). Hamming distance ≤ 4 ≈ same picture (PRD §11).
-fn perceptual_hash(img: &DynamicImage) -> String {
-    let hasher = HasherConfig::new()
-        .hash_alg(HashAlg::Gradient)
-        .hash_size(8, 8)
-        .to_hasher();
-    hex(hasher.hash_image(img).as_bytes())
-}
-
-/// Hamming distance between two hex pHashes.
-pub fn phash_distance(a: &str, b: &str) -> Option<u32> {
-    let parse = |s: &str| u64::from_str_radix(s, 16).ok();
-    Some((parse(a)? ^ parse(b)?).count_ones())
-}
-
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -258,15 +238,6 @@ mod tests {
         let (thumbs, grid) = make_thumbnails(big).unwrap();
         assert_eq!(webp_size(&thumbs[0].1), (1024, 683));
         assert_eq!((grid.width(), grid.height()), (256, 171));
-    }
-
-    #[test]
-    fn perceptual_hash_matches_resized_copy() {
-        let a = process_image(&fixture("similar_a.jpg"), &source("similar_a.jpg"));
-        let b = process_image(&fixture("similar_b.jpg"), &source("similar_b.jpg"));
-        assert_ne!(a.sha256, b.sha256, "different bytes");
-        let distance = phash_distance(a.phash.as_deref().unwrap(), b.phash.as_deref().unwrap());
-        assert!(distance.unwrap() <= 4, "distance {distance:?}");
     }
 
     #[test]

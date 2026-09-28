@@ -10,12 +10,13 @@ import { SelectionStore } from '../core/stores/selection.store';
 import { UiStore } from '../core/stores/ui.store';
 import { ViewerContext } from '../core/stores/viewer-context';
 import { AlbumPicker } from '../shared/album-picker.component';
+import { MediaAnalysisComponent } from '../shared/media-analysis.component';
 import { MediaDetailsComponent } from '../shared/media-details.component';
 
 /** Right-hand "Informações" panel for the focused item (PRD §23.1). */
 @Component({
   selector: 'app-info-panel',
-  imports: [RouterLink, ButtonModule, MediaDetailsComponent],
+  imports: [RouterLink, ButtonModule, MediaAnalysisComponent, MediaDetailsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'w-80 shrink-0 flex-col overflow-y-auto border-l border-line bg-panel' },
   template: `
@@ -45,6 +46,7 @@ import { MediaDetailsComponent } from '../shared/media-details.component';
         </div>
 
         <app-media-details class="mt-4" [item]="item" />
+        <app-media-analysis class="mt-5" [item]="item" />
 
         @if (albums().length) {
           <h4 class="mb-2 mt-5 text-sm font-semibold">Álbuns</h4>

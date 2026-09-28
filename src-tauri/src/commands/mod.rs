@@ -5,6 +5,7 @@ pub mod albums;
 pub mod jobs;
 pub mod libraries;
 pub mod media;
+pub mod organize;
 pub mod scan;
 pub mod system;
 

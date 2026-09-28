@@ -381,6 +381,13 @@ pub async fn set_favorite(
     ids: &[String],
     favorite: bool,
 ) -> Result<Vec<MediaItem>> {
+    let mut libraries: Vec<String> = get_many(pool, ids)
+        .await?
+        .into_iter()
+        .map(|m| m.library_id)
+        .collect();
+    libraries.sort();
+    libraries.dedup();
     let mut tx = pool.begin().await?;
     for chunk in ids.chunks(500) {
         let mut qb = QueryBuilder::<Sqlite>::new("UPDATE media SET is_favorite = ");
@@ -394,6 +401,10 @@ pub async fn set_favorite(
         }
         qb.push(")");
         qb.build().execute(&mut *tx).await?;
+    }
+    // Favorites win ties for "best candidate" in duplicate groups.
+    for library_id in &libraries {
+        crate::analysis::store::mark_dirty(&mut *tx, library_id).await?;
     }
     tx.commit().await?;
     get_many(pool, ids).await

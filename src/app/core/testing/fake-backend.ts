@@ -29,6 +29,7 @@ export function fakeBackend(commands: Record<string, (...args: never[]) => unkno
         scanErrorEvent: { listen },
         jobProgressEvent: { listen },
         mediaUpdatedEvent: { listen },
+        analysisUpdatedEvent: { listen },
       },
     },
   };

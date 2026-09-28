@@ -58,7 +58,10 @@ pub async fn set_favorite(
     favorite: bool,
     state: AppStateRef<'_>,
 ) -> ApiResult<Vec<MediaItem>> {
-    Ok(media::set_favorite(&state.pool, &media_ids, favorite).await?)
+    let items = media::set_favorite(&state.pool, &media_ids, favorite).await?;
+    // Favorites break ties for "best candidate": regroup soon.
+    state.jobs.wake();
+    Ok(items)
 }
 
 /// Manual albums containing the item.

@@ -317,7 +317,7 @@ async fn pause_stops_a_batch_midway() {
     // the job running + the one that grabbed the slot right after). Nothing is
     // left "running", and the rest waits in the queue.
     let counts: std::collections::HashMap<String, i64> =
-        sqlx::query_as("SELECT status, COUNT(*) FROM jobs GROUP BY status")
+        sqlx::query_as("SELECT status, COUNT(*) FROM jobs WHERE stage = 'ingest' GROUP BY status")
             .fetch_all(&w.pool)
             .await
             .unwrap()
@@ -329,5 +329,260 @@ async fn pause_stops_a_batch_midway() {
     );
     assert!((1..=2).contains(&done), "{counts:?}");
     assert_eq!(done + queued, 5, "{counts:?}");
-    assert_eq!(runner.progress().await.unwrap().queued, queued as u32);
+    // Every item still has work pending (ingest, or the analysis ingest queued).
+    assert_eq!(runner.progress().await.unwrap().queued, 5);
+}
+
+mod analysis_pipeline {
+    use super::*;
+    use crate::analysis::metrics::tests::photo;
+    use crate::catalog::organize::{self, GroupKind};
+    use crate::catalog::query::MomentaryFilter;
+    use crate::catalog::{MediaFilter, MediaQuery};
+    use image::{DynamicImage, Rgb, RgbImage};
+
+    fn save(img: &DynamicImage, path: &Path) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        img.save(path).unwrap();
+    }
+
+    fn screenshot() -> DynamicImage {
+        // Flat "app UI": bars and buttons in a few colours, phone resolution.
+        DynamicImage::ImageRgb8(RgbImage::from_fn(1080, 2400, |x, y| match (x, y) {
+            (_, 0..=180) => Rgb([33, 150, 243]),
+            (60..=1020, 400..=520) | (60..=1020, 700..=820) => Rgb([240, 240, 240]),
+            (100..=500, 2200..=2300) => Rgb([76, 175, 80]),
+            _ => Rgb([255, 255, 255]),
+        }))
+    }
+
+    fn document() -> DynamicImage {
+        // White page with rows of dark "text" strokes, A4 proportions.
+        DynamicImage::ImageRgb8(RgbImage::from_fn(1240, 1754, |x, y| {
+            let line = (y / 30) % 2 == 0 && (100..1140).contains(&x) && (120..1650).contains(&y);
+            let glyph = (x / 7) % 3 != 0;
+            if line && glyph && y % 30 < 14 {
+                Rgb([30, 30, 30])
+            } else {
+                Rgb([235, 235, 232])
+            }
+        }))
+    }
+
+    async fn ids(w: &World, filter: MediaFilter) -> Vec<String> {
+        let page = crate::catalog::media::list(
+            &w.pool,
+            &w.library.id,
+            &MediaQuery {
+                filter,
+                ..Default::default()
+            },
+            None,
+            100,
+        )
+        .await
+        .unwrap();
+        let mut names: Vec<String> = page.items.into_iter().map(|m| m.filename).collect();
+        names.sort();
+        names
+    }
+
+    #[tokio::test]
+    async fn analysis_end_to_end() {
+        let w = world().await;
+        let base = photo(1600, 1200);
+        save(&base, &w.root.join("viagem/a.jpg"));
+        std::fs::create_dir_all(w.root.join("backup")).unwrap();
+        std::fs::copy(w.root.join("viagem/a.jpg"), w.root.join("backup/a (1).jpg")).unwrap();
+        save(
+            &base.resize_exact(800, 600, image::imageops::FilterType::Triangle),
+            &w.root.join("whatsapp/IMG-20250712-WA0001.jpg"),
+        );
+        save(&base.blur(6.0), &w.root.join("viagem/tremida.jpg"));
+        save(
+            &DynamicImage::ImageRgb8(RgbImage::from_fn(1600, 1200, |x, y| {
+                Rgb([(x % 13) as u8, (y % 11) as u8, 6])
+            })),
+            &w.root.join("viagem/escura.jpg"),
+        );
+        save(
+            &screenshot(),
+            &w.root.join("Screenshot_20250712-143201.png"),
+        );
+        save(&document(), &w.root.join("recibo.jpg"));
+        let original = snapshot(&w.root);
+
+        w.scan().await;
+        let recorder = Arc::new(Recorder::default());
+        w.runner(recorder).await.drain().await.unwrap();
+
+        let c = organize::counts(&w.pool, &w.library.id).await.unwrap();
+        assert_eq!((c.exact_groups, c.exact_extra), (1, 1), "{c:?}");
+        assert_eq!(c.visual_groups, 1, "{c:?}");
+        assert_eq!(c.screenshots, 1, "{c:?}");
+        assert_eq!(c.pending, 0);
+        assert_eq!(c.analyzed, 7);
+
+        // Visual duplicate: the full-resolution original wins over the WhatsApp copy.
+        let visual = organize::groups(&w.pool, &w.library.id, GroupKind::VisualDuplicate, 0, 10)
+            .await
+            .unwrap();
+        let names: Vec<&str> = visual.groups[0]
+            .members
+            .iter()
+            .map(|m| m.item.filename.as_str())
+            .collect();
+        assert!(
+            names.contains(&"IMG-20250712-WA0001.jpg") && names[0] != "IMG-20250712-WA0001.jpg",
+            "{names:?}"
+        );
+
+        let low = ids(
+            &w,
+            MediaFilter {
+                quality: Some(crate::analysis::classify::QualityLevel::Low),
+                ..Default::default()
+            },
+        )
+        .await;
+        assert!(
+            low.contains(&"tremida.jpg".to_string()) && low.contains(&"escura.jpg".to_string()),
+            "{low:?}"
+        );
+        assert!(!low.contains(&"a.jpg".to_string()), "{low:?}");
+        assert_eq!(
+            ids(
+                &w,
+                MediaFilter {
+                    screenshot: Some(true),
+                    ..Default::default()
+                }
+            )
+            .await,
+            ["Screenshot_20250712-143201.png"]
+        );
+        // Screenshots get no quality verdict (a white UI is not "overexposed").
+        let shot = w.item("Screenshot_20250712-143201.png").await;
+        let shot = organize::media_analysis(&w.pool, &shot.id).await.unwrap();
+        assert!(
+            shot.analyzed && shot.quality.is_none() && shot.flags.is_empty(),
+            "{shot:?}"
+        );
+        assert_eq!(
+            ids(
+                &w,
+                MediaFilter {
+                    momentary: Some(MomentaryFilter::Document),
+                    ..Default::default()
+                }
+            )
+            .await,
+            ["recibo.jpg"]
+        );
+
+        // Per-item analysis for the info panel.
+        let wa = w.item("whatsapp/IMG-20250712-WA0001.jpg").await;
+        let info = organize::media_analysis(&w.pool, &wa.id).await.unwrap();
+        assert!(info.analyzed);
+        assert!(info.labels.iter().any(|l| l.value == "whatsapp"));
+        assert!(
+            info.groups
+                .iter()
+                .any(|g| g.kind == GroupKind::VisualDuplicate && !g.is_best)
+        );
+
+        // Manual tags: filter and search ("captura" finds the screenshot too).
+        organize::add_tag(&w.pool, std::slice::from_ref(&wa.id), "  Família  ")
+            .await
+            .unwrap();
+        assert_eq!(
+            ids(
+                &w,
+                MediaFilter {
+                    tag: Some("família".into()),
+                    ..Default::default()
+                }
+            )
+            .await,
+            ["IMG-20250712-WA0001.jpg"]
+        );
+        assert_eq!(
+            ids(
+                &w,
+                MediaFilter {
+                    text: Some("familia".into()),
+                    ..Default::default()
+                }
+            )
+            .await,
+            ["IMG-20250712-WA0001.jpg"]
+        );
+        assert_eq!(
+            ids(
+                &w,
+                MediaFilter {
+                    text: Some("captura".into()),
+                    ..Default::default()
+                }
+            )
+            .await,
+            ["Screenshot_20250712-143201.png"]
+        );
+        assert_eq!(
+            organize::tags(&w.pool, &w.library.id).await.unwrap()[0].tag,
+            "família"
+        );
+        organize::remove_tag(&w.pool, std::slice::from_ref(&wa.id), "família")
+            .await
+            .unwrap();
+        assert!(
+            ids(
+                &w,
+                MediaFilter {
+                    tag: Some("família".into()),
+                    ..Default::default()
+                }
+            )
+            .await
+            .is_empty()
+        );
+
+        // New thresholds apply without re-reading any photo.
+        let jobs_before: i64 = sqlx::query_scalar("SELECT SUM(attempts) FROM jobs")
+            .fetch_one(&w.pool)
+            .await
+            .unwrap();
+        let mut s = settings::get(&w.pool).await.unwrap();
+        s.analysis.momentary_threshold = 1.0;
+        s.analysis.blur_threshold = 0.0;
+        settings::save(&w.pool, &s).await.unwrap();
+        crate::analysis::store::mark_all_dirty(&w.pool)
+            .await
+            .unwrap();
+        w.runner(Arc::new(Recorder::default()))
+            .await
+            .drain()
+            .await
+            .unwrap();
+        let c = organize::counts(&w.pool, &w.library.id).await.unwrap();
+        assert_eq!((c.momentary, c.screenshots), (0, 1), "{c:?}");
+        assert!(
+            !ids(
+                &w,
+                MediaFilter {
+                    quality_flag: Some(crate::analysis::classify::QualityFlag::Blurry),
+                    ..Default::default()
+                }
+            )
+            .await
+            .contains(&"tremida.jpg".to_string())
+        );
+        let jobs_after: i64 = sqlx::query_scalar("SELECT SUM(attempts) FROM jobs")
+            .fetch_one(&w.pool)
+            .await
+            .unwrap();
+        assert_eq!(jobs_before, jobs_after, "no job re-ran");
+
+        assert_eq!(snapshot(&w.root), original, "analysis modified the library");
+    }
 }

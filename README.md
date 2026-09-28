@@ -53,25 +53,26 @@ PhotoVault/
 
 Sem o `portable.flag`, os dados vão para a pasta de dados do sistema. O CI gera os dois pacotes automaticamente a cada tag `v*` (`.github/workflows/release.yml`).
 
-## Estado atual (v0.5, Fase 3)
+## Estado atual (v0.7, Fase 4)
 
 Funciona hoje:
 
-- **Início** com foto de destaque, totais, anos e fotos recentes
-- **Todas as fotos** com grade rápida mesmo com dezenas de milhares de itens, filtros (tipo, favoritas, ano, mês, local, câmera), ordenação e **busca (Ctrl+K)** por nome, pasta, local, álbum ou data ("julho 2025")
-- **Seleção múltipla** (círculo na miniatura, Shift/Ctrl+clique) com ações em lote
-- **Favoritos** em qualquer lugar (coração, tecla F, em lote)
-- **Álbuns** manuais e inteligentes (salve os filtros atuais como álbum que se atualiza sozinho)
-- **Timeline** por ano, mês e dia, com navegação rápida por ano
-- **Visualizador** com contador no contexto, tira de miniaturas, zoom, teclado e vídeo
-- Várias bibliotecas, scan incremental e análise em segundo plano (EXIF, local, miniaturas, hashes)
-- Modo portátil real no Windows e no Linux
+- **Início**, **Todas as fotos** (filtros, ordenação e busca Ctrl+K), **Timeline**, **Favoritos**, **Álbuns** manuais e inteligentes, **visualizador**
+- **Organizar**, com contadores no menu:
+  - possíveis duplicatas (cópias exatas e visuais), com a melhor candidata destacada;
+  - fotos semelhantes e sequências em rajada;
+  - baixa qualidade (borradas, escuras, estouradas, sem informação, baixa resolução);
+  - fotos momentâneas (documentos, fotos acidentais) e screenshots.
+- **Tags** manuais, buscáveis e filtráveis; classificação de cada foto no painel de informações
+- Limiares da organização ajustáveis em Configurações (recalcula em segundos, sem reler as fotos)
+- Várias bibliotecas, scan incremental, análise em segundo plano, modo portátil no Windows e no Linux
+
+Nada é apagado automaticamente: a organização só sugere.
 
 Ainda não funciona:
 
 - Miniaturas de HEIC (os metadados já são lidos) e de vídeo
-- Duplicatas, fotos semelhantes e qualidade (Fase 4)
-- Lixeira e revisão (Fase 5), viagens (Fase 6), pessoas (Fase 7)
+- Revisão das sugestões e lixeira (Fase 5), viagens (Fase 6), pessoas e IA local (Fase 7)
 
 Veja o [plano](docs/PLANO.md).
 

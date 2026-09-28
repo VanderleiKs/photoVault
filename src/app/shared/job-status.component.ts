@@ -12,7 +12,11 @@ import { JobStore } from '../core/stores/job.store';
   host: { class: 'contents' },
   template: `
     @if (jobs.progress(); as p) {
-      @if (p.queued > 0) {
+      @if (p.grouping && p.queued === 0) {
+        <div class="flex items-center gap-2 rounded-full border border-line bg-panel px-3 py-1 text-xs" role="status">
+          <i class="pi pi-spin pi-spinner text-primary"></i>Agrupando duplicatas e semelhantes…
+        </div>
+      } @else if (p.queued > 0) {
         <div class="flex items-center gap-1 rounded-full border border-line bg-panel py-0.5 pl-3 pr-0.5 text-xs" role="status">
           @if (p.paused) {
             <i class="pi pi-pause text-muted"></i>

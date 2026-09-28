@@ -1,15 +1,26 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from '@openng/optimus-ui/button';
 import { InputNumberModule } from '@openng/optimus-ui/inputnumber';
 import { SelectButtonModule } from '@openng/optimus-ui/selectbutton';
 import { TagModule } from '@openng/optimus-ui/tag';
 import { Backend } from '../../core/ipc/backend';
-import { unwrap, type Theme } from '../../core/ipc/ipc';
+import { unwrap, type AnalysisSettings, type Theme } from '../../core/ipc/ipc';
 import { NotifyService } from '../../core/notify.service';
-import { AppStore } from '../../core/stores/app.store';
+import { AppStore, DEFAULT_ANALYSIS } from '../../core/stores/app.store';
 import { JobStore } from '../../core/stores/job.store';
 import { formatCount, formatEta } from '../../core/format';
+
+interface ThresholdField {
+  key: Exclude<keyof AnalysisSettings, 'sequenceMinSize' | 'overexposedFraction'>;
+  label: string;
+  hint: string;
+  min: number;
+  max: number;
+  step: number;
+  decimals: number;
+  suffix?: string;
+}
 
 @Component({
   selector: 'app-settings-page',
@@ -50,6 +61,33 @@ import { formatCount, formatEta } from '../../core/format';
             <span class="text-sm">Núcleos de CPU (0 = automático)</span>
             <p-inputnumber [ngModel]="app.settings().cpuConcurrency" (ngModelChange)="save({ cpuConcurrency: $event })" [min]="0" [max]="64" [showButtons]="true" />
           </label>
+        </div>
+      </section>
+
+      <section class="rounded-card border border-line bg-panel p-5">
+        <div class="flex flex-wrap items-center gap-3">
+          <h2 class="flex-1 font-semibold">Limiares da organização</h2>
+          <p-button label="Restaurar padrões" icon="pi pi-undo" size="small" [text]="true" severity="secondary" [disabled]="isDefault()" (onClick)="resetThresholds()" />
+        </div>
+        <p class="mt-1 text-sm text-muted">Ajustam duplicatas, semelhantes, qualidade e screenshots. Mudar um valor recalcula os grupos em segundos, sem reler as fotos.</p>
+        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+          @for (field of thresholdFields; track field.key) {
+            <label class="flex flex-col gap-1.5">
+              <span class="text-sm">{{ field.label }}</span>
+              <p-inputnumber
+                [ngModel]="thresholds()[field.key]"
+                (ngModelChange)="setThreshold(field.key, $event)"
+                [min]="field.min"
+                [max]="field.max"
+                [step]="field.step"
+                [minFractionDigits]="field.decimals"
+                [maxFractionDigits]="field.decimals"
+                [showButtons]="true"
+                [suffix]="field.suffix ?? ''"
+              />
+              <span class="text-[11px] text-muted">{{ field.hint }}</span>
+            </label>
+          }
         </div>
       </section>
 
@@ -124,6 +162,43 @@ import { formatCount, formatEta } from '../../core/format';
 export class SettingsPage {
   protected readonly app = inject(AppStore);
   protected readonly jobs = inject(JobStore);
+
+  protected readonly thresholds = computed(() => this.draft() ?? this.app.settings().analysis ?? DEFAULT_ANALYSIS);
+  protected readonly isDefault = computed(() => JSON.stringify(this.thresholds()) === JSON.stringify(DEFAULT_ANALYSIS));
+  private readonly draft = signal<AnalysisSettings | null>(null);
+  private thresholdTimer: ReturnType<typeof setTimeout> | undefined;
+
+  protected readonly thresholdFields: ThresholdField[] = [
+    { key: 'visualDistance', label: 'Duplicata visual: diferença máxima', hint: 'Bits de diferença no pHash (0–16). Menor = mais rígido. Padrão 4.', min: 0, max: 16, step: 1, decimals: 0 },
+    { key: 'similarDistance', label: 'Semelhantes: diferença máxima', hint: 'Mesma cena com variações (padrão 12).', min: 0, max: 24, step: 1, decimals: 0 },
+    { key: 'similarWindowMinutes', label: 'Semelhantes: intervalo de tempo', hint: 'Fotos parecidas só se agrupam se tiradas dentro deste intervalo.', min: 1, max: 1440, step: 5, decimals: 0, suffix: ' min' },
+    { key: 'sequenceGapSeconds', label: 'Sequência: intervalo entre fotos', hint: 'Rajadas: fotos da mesma câmera com no máximo este intervalo.', min: 1, max: 60, step: 1, decimals: 0, suffix: ' s' },
+    { key: 'blurThreshold', label: 'Borrada abaixo de', hint: 'Nitidez local (padrão 0,075). Maior = mais fotos marcadas.', min: 0, max: 1, step: 0.005, decimals: 3 },
+    { key: 'darkThreshold', label: 'Escura abaixo de', hint: 'Brilho médio de 0 a 255.', min: 0, max: 255, step: 5, decimals: 0 },
+    { key: 'minMegapixels', label: 'Baixa resolução abaixo de', hint: 'Megapixels.', min: 0, max: 50, step: 0.5, decimals: 1, suffix: ' MP' },
+    { key: 'screenshotThreshold', label: 'Screenshot: confiança mínima', hint: 'De 0 a 1 (padrão 0,6).', min: 0, max: 1, step: 0.05, decimals: 2 },
+    { key: 'momentaryThreshold', label: 'Foto momentânea: confiança mínima', hint: 'De 0 a 1 (padrão 0,6).', min: 0, max: 1, step: 0.05, decimals: 2 },
+  ];
+
+  protected setThreshold(key: ThresholdField['key'], value: number | null) {
+    if (value === null || value === undefined) return;
+    const next = { ...this.thresholds(), [key]: value };
+    this.draft.set(next);
+    // Each save recomputes every library: wait until the user stops clicking.
+    clearTimeout(this.thresholdTimer);
+    this.thresholdTimer = setTimeout(() => void this.saveThresholds(next), 800);
+  }
+
+  protected resetThresholds() {
+    clearTimeout(this.thresholdTimer);
+    this.draft.set(DEFAULT_ANALYSIS);
+    void this.saveThresholds(DEFAULT_ANALYSIS);
+  }
+
+  private async saveThresholds(analysis: AnalysisSettings) {
+    await this.app.updateSettings({ analysis }).catch(() => {});
+    this.draft.set(null);
+  }
 
   protected readonly jobSummary = computed(() => {
     const p = this.jobs.progress();
