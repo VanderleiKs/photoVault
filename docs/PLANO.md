@@ -238,18 +238,42 @@ catálogo v0.x arquivado com as 3 bibliotecas mantidas; onboarding numa instala�
 
 ---
 
-### Fase 4 — Análise (≈ 3 semanas) → `v0.7`
+### Fase 4 — Análise (≈ 3 semanas) → `v0.7` ✅ implementada (branch `fase-4-analise`)
 
-- [ ] Qualidade: Laplaciano, histograma, resolução, imagem vazia, `level`, flags
-- [ ] Similaridade: BK-tree sobre o pHash, grupos `exact_duplicate` / `visual_duplicate` / `similar`, melhor candidata
-- [ ] Sequências: agrupamento temporal por câmera, melhor candidata (nitidez, exposição)
-- [ ] Classificação multidimensional: labels automáticas e manuais, tags
-- [ ] Screenshots e fotos momentâneas (heurísticas do PRD 14) com score
-- [ ] Execução incremental dos estágios globais
-- [ ] Limiares ajustáveis em Configurações
-- [ ] Testes com um conjunto rotulado (~200 imagens) para medir precisão e recall de cada heurística
+- [x] Qualidade (estágio `analyze`, sobre o preview de 1024): nitidez local (p90, em 8×8 blocos com textura, da variância do Laplaciano normalizada pela variância de luminância), histograma (média, p99, % estourada), entropia/contraste (vazia), resolução; `level` e flags (`blurry`, `dark`, `overexposed`, `low_res`, `empty`). Screenshots não recebem nível
+- [x] Similaridade: pHash DCT + mediana (calculado no `analyze`), BK-tree, grupos `exact_duplicate` (SHA-256) / `visual_duplicate` (≤ 4) / `similar` (≤ 12, até 30 min, e < 1 km quando há GPS) e melhor candidata (resolução → nitidez → exposição → favorita → arquivo mais antigo). Hashes degenerados e imagens vazias ficam de fora
+- [x] Sequências: mesma câmera, ≤ 3 s entre fotos consecutivas, ≥ 3 fotos **e** consecutivas visualmente semelhantes (evita "rajadas" de câmeras com relógio desconfigurado)
+- [x] Classificação multidimensional: rótulos automáticos com score (`category:screenshot`, `category:whatsapp`, `momentary:document`, `momentary:accidental`) e tags manuais (painel, visualizador, filtro `tag`, busca); FTS recriado com coluna `labels` ("captura de tela", "documento"…)
+- [x] Screenshots (nome, pasta, tamanho de tela sem EXIF de câmera + interface/formato sem perda) e momentâneas (documento: papel claro, sem cor, muitas bordas de texto; acidental: câmera + quase preta ou borrada demais) com score
+- [x] Execução incremental: estágio global só para bibliotecas "sujas" (`analysis_state`), quando as filas esvaziam; recalcula flags, rótulos e grupos a partir das métricas guardadas
+- [x] Limiares ajustáveis em Configurações ("Limiares da organização", com restaurar padrões); mudar um valor recalcula em segundos, sem reler fotos
+- [x] Conjunto rotulado: `tests/labeled/generate.py` (190 imagens a partir de 20 fotos reais + screenshots e documentos sintéticos) e `examples/analysis_eval.rs` (precisão/recall)
+- [x] Interface: badges no menu Organizar; telas Possíveis duplicatas (Exatas/Visuais) e Fotos semelhantes (Semelhantes/Sequências) em cards com a melhor candidata, "Selecionar as outras" e visualizador navegando dentro do grupo; Baixa qualidade, Fotos momentâneas e Screenshots como galerias com subfiltros; bloco "Classificação" + tags no painel e no visualizador; "Agrupando…" no indicador
+- [ ] Foto de tela (moiré/retângulo luminoso) e "acidental por inclinação/exposição em sequência" (PRD 14): ficam para a IA local (Fase 7)
 
-**Aceite:** contadores de Organizar preenchidos; com o conjunto rotulado, duplicata exata atinge 100 %, duplicata visual ≥ 95 % de precisão e screenshots ≥ 90 % de precisão.
+**Aceite:** contadores de Organizar preenchidos; com o conjunto rotulado, duplicata exata atinge 100 %, duplicata visual ≥ 95 % de precisão e screenshots ≥ 90 % de precisão. ✅
+
+**Resultado no conjunto rotulado (2026-09-28, `analysis_eval`, limiares padrão):**
+
+| Heurística | Precisão | Recall | Observação |
+|---|---|---|---|
+| Duplicata exata | 100 % | 100 % | |
+| Duplicata visual | 96 % | 80 % | perdas: recortes de 3 % nas bordas; com distância 6 o recall vai a 90 %, mas a precisão cai para 87 % |
+| Screenshot | 100 % | 100 % | 5 papéis de parede sem EXIF no tamanho de tela como negativos difíceis |
+| Borrada | 71 % | 80 % | falsos positivos são fundos em bokeh e céus/nuvens suaves (ambíguos) |
+| Escura | 100 % | 100 % | subexposta = escura **e** sem altas luzes (cenas noturnas não entram) |
+| Documento | 100 % | 100 % | documentos sintéticos; validar com fotos reais de recibos |
+
+**Como a calibração foi feita:** a primeira medição tinha screenshot com 85 % de precisão (papéis de parede), borrada com 43 %, escura com 53 % e documento com 71 %. As métricas foram medidas por categoria antes de mudar as regras.
+- **pHash:** o hash de gradiente e o DCT + média degeneravam em imagens lisas, agrupando fotos escuras sem relação. Em 40 fotos reais, o DCT + mediana separou melhor as fotos diferentes (5º percentil de distância 24, contra 17 do gradiente), com cópias reduzidas e recomprimidas a no máximo 4.
+- **Nitidez:** a variância global do Laplaciano penalizava céus e fotos escuras; a versão local normalizada é independente da exposição.
+
+**Validação no app:** ✅ catálogo v0.5 migrado e analisado (464 itens em ~2 s); conjunto rotulado como biblioteca (190 itens analisados em 25 s pela UI); badges, as 5 telas, painel com qualidade/grupos/tags, mudança de limiar pela UI recalculando sem reprocessar (Baixa qualidade 50 → 36).
+**Bugs encontrados e corrigidos:** hash degenerado agrupando fotos lisas/escuras sem relação; screenshots marcados como "estourados"; câmera com relógio desconfigurado gerando "sequência" de 37 fotos diferentes; favoritar só reagrupava na verificação ociosa seguinte (até 30 s).
+
+**Achados / limites:**
+- O conjunto rotulado usa papéis de parede e imagens sintéticas; os números devem ser revalidados com fotos pessoais reais (celular) antes da v1.0, principalmente borrada e documento.
+- A duplicata visual é sensível a recortes: uma foto recortada em mais de ~3 % por lado aparece como "semelhante" (se estiver no intervalo de tempo), não como duplicata.
 
 ---
 
@@ -327,6 +351,6 @@ catálogo v0.x arquivado com as 3 bibliotecas mantidas; onboarding numa instala�
 
 ## 6. Próximo passo imediato
 
-1. Validar as Fases 0–3 no Windows 11 (zip do `release.yml`), incluindo um HD USB real para o aceite de 50 mil arquivos da Fase 2.
+1. Validar as Fases 0–4 no Windows 11 (zip do `release.yml`) e num HD USB real; revalidar o `analysis_eval` com fotos reais de celular.
 2. Decidir o empacotamento da libheif (HEIC) e do ffmpeg (miniaturas de vídeo), pendentes da Fase 2.
-3. Iniciar a **Fase 4** (análise: duplicatas exatas e visuais com os hashes já calculados, qualidade técnica, screenshots e fotos momentâneas).
+3. Iniciar a **Fase 5** (revisão e lixeira: `review_candidates` a partir dos grupos e flags desta fase, lixeira reversível dentro da biblioteca).

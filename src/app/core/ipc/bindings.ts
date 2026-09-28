@@ -80,6 +80,17 @@ export const commands = {
 	 *  matched against file name, folder, place and album names.
 	 */
 	text?: string | null,
+	/**  Technical quality level (phase 4). */
+	quality?: QualityLevel | null,
+	qualityFlag?: QualityFlag | null,
+	/**  `true` = screenshots only (score above the configured threshold). */
+	screenshot?: boolean | null,
+	momentary?: MomentaryFilter | null,
+	/**  Manual tag. */
+	tag?: string | null,
+	/**  Members of a duplicate/similar group or of a burst (viewer navigation). */
+	groupId?: string | null,
+	sequenceId?: string | null,
 } | null) => typedError<Album, ApiError>(__TAURI_INVOKE("create_album", { libraryId, name, rule })),
 	renameAlbum: (albumId: string, name: string) => typedError<Album, ApiError>(__TAURI_INVOKE("rename_album", { albumId, name })),
 	updateAlbumRule: (albumId: string, rule: MediaFilter) => typedError<Album, ApiError>(__TAURI_INVOKE("update_album_rule", { albumId, rule })),
@@ -90,6 +101,16 @@ export const commands = {
 	removeFromAlbum: (albumId: string, mediaIds: string[]) => typedError<number, ApiError>(__TAURI_INVOKE("remove_from_album", { albumId, mediaIds })),
 	/**  `mediaId` null = automatic cover (newest photo). */
 	setAlbumCover: (albumId: string, mediaId: string | null) => typedError<Album, ApiError>(__TAURI_INVOKE("set_album_cover", { albumId, mediaId })),
+	/**  Counters of the "Organizar" menu. */
+	getOrganizeCounts: (libraryId: string) => typedError<OrganizeCounts, ApiError>(__TAURI_INVOKE("get_organize_counts", { libraryId })),
+	/**  Duplicate/similar groups or bursts, best candidate first in each. */
+	listGroups: (libraryId: string, kind: GroupKind, offset: number, limit: number) => typedError<GroupPage, ApiError>(__TAURI_INVOKE("list_groups", { libraryId, kind, offset, limit })),
+	/**  Quality, labels and groups of one item (info panel / viewer). */
+	getMediaAnalysis: (mediaId: string) => typedError<MediaAnalysis, ApiError>(__TAURI_INVOKE("get_media_analysis", { mediaId })),
+	/**  Returns the normalized tag. */
+	addTag: (mediaIds: string[], tag: string) => typedError<string, ApiError>(__TAURI_INVOKE("add_tag", { mediaIds, tag })),
+	removeTag: (mediaIds: string[], tag: string) => typedError<null, ApiError>(__TAURI_INVOKE("remove_tag", { mediaIds, tag })),
+	listTags: (libraryId: string) => typedError<TagCount[], ApiError>(__TAURI_INVOKE("list_tags", { libraryId })),
 	/**  State of the background analysis queue. */
 	getJobProgress: () => typedError<JobProgress, ApiError>(__TAURI_INVOKE("get_job_progress")),
 	pauseJobs: () => typedError<JobProgress, ApiError>(__TAURI_INVOKE("pause_jobs")),
@@ -102,6 +123,7 @@ export const commands = {
 
 /** Events */
 export const events = {
+	analysisUpdatedEvent: makeEvent<AnalysisUpdatedEvent>("analysis-updated-event"),
 	jobProgressEvent: makeEvent<JobProgressEvent>("job-progress-event"),
 	mediaUpdatedEvent: makeEvent<MediaUpdatedEvent>("media-updated-event"),
 	scanCompleteEvent: makeEvent<ScanCompleteEvent>("scan-complete-event"),
@@ -130,6 +152,37 @@ export type AlbumRef = {
 	name: string,
 };
 
+/**
+ *  Applied when groups and flags are recomputed, so changing them never requires
+ *  re-reading the photos (raw metrics are stored).
+ */
+export type AnalysisSettings = {
+	/**  pHash Hamming distance for "same picture" (resize, recompression). PRD: ≤ 4. */
+	visualDistance?: number,
+	/**  pHash distance for "same scene". PRD: ≤ 12. */
+	similarDistance?: number,
+	/**  Similar photos must be this close in time. */
+	similarWindowMinutes?: number,
+	/**  Max gap between consecutive shots of a burst. */
+	sequenceGapSeconds?: number,
+	sequenceMinSize?: number,
+	/**  Local sharpness (see `ImageMetrics::sharpness`) below this = blurry. */
+	blurThreshold?: number | null,
+	/**  Mean luminance (0–255) below this = dark. */
+	darkThreshold?: number | null,
+	/**  Fraction of blown-out pixels above this = overexposed. */
+	overexposedFraction?: number | null,
+	minMegapixels?: number | null,
+	/**  Scores (0–1) from which a photo counts as screenshot / momentary. */
+	screenshotThreshold?: number | null,
+	momentaryThreshold?: number | null,
+};
+
+/**  Groups, quality flags and labels of a library were recomputed ("Organizar"). */
+export type AnalysisUpdatedEvent = {
+	libraryId: string,
+};
+
 /**  Error returned by every command: stable `code` + pt-BR `message`. */
 export type ApiError = {
 	code: string,
@@ -153,6 +206,8 @@ export type AppSettings = {
 	ioConcurrency: number,
 	/**  CPU workers for analysis; 0 = automatic (cores - 1). Used from phase 2. */
 	cpuConcurrency: number,
+	/**  Thresholds of the analysis heuristics (PRD §11–14). Absent in older catalogs. */
+	analysis?: AnalysisSettings,
 };
 
 export type CameraOption = {
@@ -169,6 +224,28 @@ export type DataMode =
 "custom" | 
 /**  OS data directory (no flag, or the app folder is read-only). */
 "system";
+
+export type GroupKind = "exact_duplicate" | "visual_duplicate" | "similar" | "sequence";
+
+export type GroupMember = {
+	item: MediaItem,
+	/**  pHash distance to the best candidate. */
+	distance: number,
+	quality: QualityLevel | null,
+	sharpness: number | null,
+};
+
+export type GroupPage = {
+	groups: MediaGroup[],
+	total: number,
+};
+
+export type GroupRef = {
+	id: string,
+	kind: GroupKind,
+	size: number,
+	isBest: boolean,
+};
 
 export type JobFailure = {
 	mediaId: string,
@@ -192,9 +269,19 @@ export type JobProgress = {
 	perMinute: number,
 	etaSeconds: number | null,
 	currentPath: string | null,
+	/**  Recomputing duplicates, similar photos and bursts (after the queue drains). */
+	grouping: boolean,
 };
 
 export type JobProgressEvent = JobProgress;
+
+export type LabelInfo = {
+	/**  category | momentary | tag */
+	dimension: string,
+	value: string,
+	score: number | null,
+	manual: boolean,
+};
 
 export type Library = {
 	id: string,
@@ -223,6 +310,18 @@ export type LibraryStats = {
 	videos: number,
 	favorites: number,
 	totalBytes: number,
+};
+
+/**  Everything the info panel shows about an item's analysis. */
+export type MediaAnalysis = {
+	analyzed: boolean,
+	quality: QualityLevel | null,
+	flags: QualityFlag[],
+	sharpness: number | null,
+	brightness: number | null,
+	/**  Active labels only (automatic above threshold, and manual tags). */
+	labels: LabelInfo[],
+	groups: GroupRef[],
 };
 
 /**  Where an item sits in a gallery context (filter + order), for the viewer. */
@@ -263,6 +362,26 @@ export type MediaFilter = {
 	 *  matched against file name, folder, place and album names.
 	 */
 	text?: string | null,
+	/**  Technical quality level (phase 4). */
+	quality?: QualityLevel | null,
+	qualityFlag?: QualityFlag | null,
+	/**  `true` = screenshots only (score above the configured threshold). */
+	screenshot?: boolean | null,
+	momentary?: MomentaryFilter | null,
+	/**  Manual tag. */
+	tag?: string | null,
+	/**  Members of a duplicate/similar group or of a burst (viewer navigation). */
+	groupId?: string | null,
+	sequenceId?: string | null,
+};
+
+export type MediaGroup = {
+	id: string,
+	kind: GroupKind,
+	/**  Best candidate first (`members[0]`). */
+	members: GroupMember[],
+	/**  Bytes of the non-best members. */
+	extraBytes: number,
 };
 
 /**  Media item as exposed to the frontend. */
@@ -332,6 +451,24 @@ export type MediaUpdatedEvent = {
 	removedIds: string[],
 };
 
+export type MomentaryFilter = "any" | "document" | "accidental";
+
+export type OrganizeCounts = {
+	/**  Groups, and extra copies in them (what could be freed). */
+	exactGroups: number,
+	exactExtra: number,
+	visualGroups: number,
+	visualExtra: number,
+	similarGroups: number,
+	sequences: number,
+	lowQuality: number,
+	momentary: number,
+	screenshots: number,
+	/**  Photos analysed / waiting (the counters grow while this is > 0). */
+	analyzed: number,
+	pending: number,
+};
+
 export type PlaceOption = {
 	id: number,
 	name: string,
@@ -339,6 +476,12 @@ export type PlaceOption = {
 	countryCode: string,
 	count: number,
 };
+
+export type QualityFlag = "blurry" | "dark" | "overexposed" | "low_res" | 
+/**  Almost no information (blank wall, lens cap, flat colour). */
+"empty";
+
+export type QualityLevel = "low" | "medium" | "high";
 
 export type ScanCompleteEvent = ScanSummary;
 
@@ -372,6 +515,11 @@ export type ScanSummary = {
 	restoredFiles: number,
 	errors: number,
 	cancelled: boolean,
+};
+
+export type TagCount = {
+	tag: string,
+	count: number,
 };
 
 export type Theme = "light" | "dark" | "system";

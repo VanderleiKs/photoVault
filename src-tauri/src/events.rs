@@ -54,4 +54,18 @@ impl JobObserver for TauriJobObserver {
     fn on_media_updated(&self, items: Vec<MediaItem>, removed_ids: Vec<String>) {
         let _ = MediaUpdatedEvent { items, removed_ids }.emit(&self.0);
     }
+
+    fn on_analysis_updated(&self, library_id: &str) {
+        let _ = AnalysisUpdatedEvent {
+            library_id: library_id.to_string(),
+        }
+        .emit(&self.0);
+    }
+}
+
+/// Groups, quality flags and labels of a library were recomputed ("Organizar").
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisUpdatedEvent {
+    pub library_id: String,
 }

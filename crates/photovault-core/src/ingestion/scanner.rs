@@ -240,6 +240,10 @@ pub async fn scan(
     if !summary.cancelled {
         libraries::touch_last_scan(&ctx.pool, &library.id).await?;
     }
+    // Missing/restored files change duplicate groups (new files do so after analysis).
+    if summary.missing_files > 0 || summary.restored_files > 0 {
+        crate::analysis::store::mark_dirty(&ctx.pool, &library.id).await?;
+    }
 
     tracing::info!(
         "Scan {} in {:?}: total {}, new {}, modified {}, missing {}, restored {}, errors {}",

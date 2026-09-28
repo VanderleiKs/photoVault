@@ -1,13 +1,29 @@
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { Backend } from '../ipc/backend';
-import { unwrap, type AppInfo, type AppSettings } from '../ipc/ipc';
+import { unwrap, type AppInfo, type AnalysisSettings, type AppSettings } from '../ipc/ipc';
 import { NotifyService } from '../notify.service';
+
+/** Same values as `AnalysisSettings::default()` in the core. */
+export const DEFAULT_ANALYSIS: AnalysisSettings = {
+  visualDistance: 4,
+  similarDistance: 12,
+  similarWindowMinutes: 30,
+  sequenceGapSeconds: 3,
+  sequenceMinSize: 3,
+  blurThreshold: 0.075,
+  darkThreshold: 45,
+  overexposedFraction: 0.25,
+  minMegapixels: 1,
+  screenshotThreshold: 0.6,
+  momentaryThreshold: 0.6,
+};
 
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'light',
   activeLibraryId: null,
   ioConcurrency: 2,
   cpuConcurrency: 0,
+  analysis: DEFAULT_ANALYSIS,
 };
 
 /** App-wide info and persisted settings (theme, active library, performance). */

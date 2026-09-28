@@ -2,6 +2,7 @@
 //! counts and smart albums (whose `rule_json` is a serialized `MediaFilter`).
 
 use super::media::MediaType;
+use crate::analysis::classify::{QualityFlag, QualityLevel};
 use crate::error::{Error, Result};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -41,6 +42,32 @@ pub struct MediaFilter {
     /// matched against file name, folder, place and album names.
     #[specta(optional)]
     pub text: Option<String>,
+    /// Technical quality level (phase 4).
+    #[specta(optional)]
+    pub quality: Option<QualityLevel>,
+    #[specta(optional)]
+    pub quality_flag: Option<QualityFlag>,
+    /// `true` = screenshots only (score above the configured threshold).
+    #[specta(optional)]
+    pub screenshot: Option<bool>,
+    #[specta(optional)]
+    pub momentary: Option<MomentaryFilter>,
+    /// Manual tag.
+    #[specta(optional)]
+    pub tag: Option<String>,
+    /// Members of a duplicate/similar group or of a burst (viewer navigation).
+    #[specta(optional)]
+    pub group_id: Option<String>,
+    #[specta(optional)]
+    pub sequence_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum MomentaryFilter {
+    Any,
+    Document,
+    Accidental,
 }
 
 impl MediaFilter {
@@ -54,7 +81,23 @@ impl MediaFilter {
             ($($f:ident),*) => { $( if self.$f.is_none() { self.$f = base.$f; } )* };
         }
         fill!(
-            media_type, favorite, year, month, day, date_from, date_to, place_id, camera, text
+            media_type,
+            favorite,
+            year,
+            month,
+            day,
+            date_from,
+            date_to,
+            place_id,
+            camera,
+            text,
+            quality,
+            quality_flag,
+            screenshot,
+            momentary,
+            tag,
+            group_id,
+            sequence_id
         );
         self
     }
@@ -325,11 +368,64 @@ pub(super) fn push_where(
             .push(" AND m.sort_key != ''");
     }
 
+    if let Some(level) = filter.quality {
+        qb.push(" AND m.id IN (SELECT media_id FROM media_quality WHERE level = ")
+            .push_bind(level.as_str())
+            .push(")");
+    }
+    if let Some(flag) = filter.quality_flag {
+        qb.push(" AND m.id IN (SELECT q.media_id FROM media_quality q, json_each(q.flags) f WHERE f.value = ")
+            .push_bind(flag.as_str())
+            .push(")");
+    }
+    if filter.screenshot == Some(true) {
+        push_label(qb, "category", Some("screenshot"));
+    }
+    match filter.momentary {
+        Some(MomentaryFilter::Any) => push_label(qb, "momentary", None),
+        Some(MomentaryFilter::Document) => push_label(qb, "momentary", Some("document")),
+        Some(MomentaryFilter::Accidental) => push_label(qb, "momentary", Some("accidental")),
+        None => {}
+    }
+    if let Some(tag) = &filter.tag {
+        qb.push(
+            " AND m.id IN (SELECT ml.media_id FROM media_labels ml JOIN labels l ON l.id = ml.label_id
+               WHERE l.dimension = 'tag' AND l.value = ",
+        )
+        .push_bind(tag.clone())
+        .push(")");
+    }
+    if let Some(group) = &filter.group_id {
+        qb.push(" AND m.id IN (SELECT media_id FROM similarity_members WHERE group_id = ")
+            .push_bind(group.clone())
+            .push(")");
+    }
+    if let Some(sequence) = &filter.sequence_id {
+        qb.push(" AND m.sequence_id = ").push_bind(sequence.clone());
+    }
+
     if let Some(fts) = parsed.fts {
         qb.push(" AND m.rowid IN (SELECT rowid FROM media_fts WHERE media_fts MATCH ")
             .push_bind(fts)
             .push(")");
     }
+}
+
+/// Item has an active label of `dimension` (and `value`, if given).
+fn push_label(
+    qb: &mut QueryBuilder<'_, Sqlite>,
+    dimension: &'static str,
+    value: Option<&'static str>,
+) {
+    qb.push(
+        " AND m.id IN (SELECT ml.media_id FROM media_labels ml JOIN labels l ON l.id = ml.label_id
+           WHERE ml.active = 1 AND l.dimension = ",
+    )
+    .push_bind(dimension);
+    if let Some(value) = value {
+        qb.push(" AND l.value = ").push_bind(value);
+    }
+    qb.push(")");
 }
 
 fn push_range(qb: &mut QueryBuilder<'_, Sqlite>, start: &str, end: &str) {

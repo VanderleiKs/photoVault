@@ -16,7 +16,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 /// Commands and events exposed to the frontend (single source for the TS bindings).
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
-    use commands::{albums, jobs, libraries, media, scan, system};
+    use commands::{albums, jobs, libraries, media, organize, scan, system};
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(collect_commands![
             system::get_app_info,
@@ -53,6 +53,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             albums::add_to_album,
             albums::remove_from_album,
             albums::set_album_cover,
+            organize::get_organize_counts,
+            organize::list_groups,
+            organize::get_media_analysis,
+            organize::add_tag,
+            organize::remove_tag,
+            organize::list_tags,
             jobs::get_job_progress,
             jobs::pause_jobs,
             jobs::resume_jobs,
@@ -65,6 +71,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::ScanErrorEvent,
             events::JobProgressEvent,
             events::MediaUpdatedEvent,
+            events::AnalysisUpdatedEvent,
         ])
 }
 

@@ -57,6 +57,18 @@ export const routes: Routes = [
         canActivate: [requireLibrary],
         loadComponent: () => import('./features/albums/album.page').then((m) => m.AlbumPage),
       },
+      ...(['duplicates', 'similar'] as const).map((mode) => ({
+        path: `organize/${mode}`,
+        canActivate: [requireLibrary],
+        data: { mode },
+        loadComponent: () => import('./features/organize/groups.page').then((m) => m.GroupsPage),
+      })),
+      ...(['low-quality', 'momentary', 'screenshots'] as const).map((mode) => ({
+        path: `organize/${mode}`,
+        canActivate: [requireLibrary],
+        data: { mode },
+        loadComponent: () => import('./features/organize/filtered.page').then((m) => m.FilteredPage),
+      })),
       {
         path: 'libraries',
         loadComponent: () =>

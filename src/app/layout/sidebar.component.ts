@@ -2,8 +2,9 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { ProgressBarModule } from '@openng/optimus-ui/progressbar';
 import { TooltipModule } from '@openng/optimus-ui/tooltip';
-import { formatBytes } from '../core/format';
+import { formatBytes, formatCount } from '../core/format';
 import { LibraryStore } from '../core/stores/library.store';
+import { OrganizeStore } from '../core/stores/organize.store';
 import { UiStore } from '../core/stores/ui.store';
 import { LIBRARY_NAV, MAIN_NAV, ORGANIZE_NAV, type NavItem } from './nav';
 
@@ -50,6 +51,9 @@ import { LIBRARY_NAV, MAIN_NAV, ORGANIZE_NAV, type NavItem } from './nav';
                 <i [class]="item.icon" class="w-4 text-center text-[15px]"></i>
                 @if (!collapsed()) {
                   <span class="flex-1 truncate">{{ item.label }}</span>
+                  @if (badge(item); as n) {
+                    <span class="rounded-full bg-white/10 px-1.5 py-px text-[11px] tabular-nums text-side-ink" [attr.aria-label]="n + ' itens'">{{ count(n) }}</span>
+                  }
                 }
               </a>
             </li>
@@ -77,6 +81,15 @@ import { LIBRARY_NAV, MAIN_NAV, ORGANIZE_NAV, type NavItem } from './nav';
 export class SidebarComponent {
   private readonly ui = inject(UiStore);
   private readonly libraries = inject(LibraryStore);
+  private readonly organize = inject(OrganizeStore);
+
+  protected badge(item: NavItem): number {
+    return this.organize.badges()[item.route] ?? 0;
+  }
+
+  protected count(n: number) {
+    return n > 9999 ? '9999+' : formatCount(n);
+  }
 
   protected readonly sections: { title: string; items: NavItem[] }[] = [
     { title: 'Principal', items: MAIN_NAV },

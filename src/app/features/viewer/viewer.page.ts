@@ -29,6 +29,7 @@ import { MediaBus } from '../../core/stores/media-bus';
 import { SelectionStore } from '../../core/stores/selection.store';
 import { ViewerContext } from '../../core/stores/viewer-context';
 import { AlbumPicker } from '../../shared/album-picker.component';
+import { MediaAnalysisComponent } from '../../shared/media-analysis.component';
 import { MediaDetailsComponent } from '../../shared/media-details.component';
 
 const ZOOM_STEPS = [0.5, 0.75, 1, 1.5, 2, 3, 4];
@@ -38,7 +39,7 @@ const STRIP_RADIUS = 12;
 /** Full-screen dark viewer (PRD §23.3). Route: /viewer/:id */
 @Component({
   selector: 'app-viewer-page',
-  imports: [RouterLink, ButtonModule, TooltipModule, MediaDetailsComponent],
+  imports: [RouterLink, ButtonModule, TooltipModule, MediaAnalysisComponent, MediaDetailsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'flex h-full flex-col bg-[#0b0f17] text-slate-100',
@@ -149,6 +150,7 @@ const STRIP_RADIUS = 12;
         <aside class="w-80 shrink-0 overflow-y-auto border-l border-white/5 bg-[#111827] p-5">
           <h2 class="mb-4 text-sm font-semibold text-white">Detalhes</h2>
           <app-media-details [item]="m" [dark]="true" />
+          <app-media-analysis class="mt-5" [item]="m" [dark]="true" />
 
           @if (albums().length) {
             <h4 class="mb-2 mt-5 text-sm font-semibold text-white">Álbuns</h4>
