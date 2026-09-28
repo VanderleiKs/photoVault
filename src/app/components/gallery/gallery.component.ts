@@ -1,16 +1,6 @@
-import {
-  Component,
-  OnInit,
-  inject,
-  signal,
-  AfterViewInit,
-  OnDestroy,
-  ViewChildren,
-  QueryList,
-  ElementRef,
-} from '@angular/core';
+import { Component, OnInit, effect, inject, signal, untracked } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { TauriService } from '../../services/tauri.service';
+import { TauriService, useThumbnailPlaceholder } from '../../services/tauri.service';
 import { Photo, Library } from '../../models/photo';
 import { SidebarComponent } from '../sidebar/sidebar.component';
 import { ButtonModule } from '@openng/optimus-ui/button';
@@ -42,7 +32,11 @@ import { CardModule } from '@openng/optimus-ui/card';
             @if (isScanning()) {
               <div class="d-flex align-items-center gap-2">
                 <span class="small" style="color: var(--pv-text-muted);">
-                  Escaneado {{ scanProgress()?.processed ?? 0 }}/{{ scanProgress()?.total ?? '?' }}
+                  @if (scanProgress()?.phase === 'indexing') {
+                    Indexando {{ scanProgress()!.processed }}/{{ scanProgress()!.total }}
+                  } @else {
+                    Procurando arquivos… {{ scanProgress()?.processed ?? 0 }} encontrados
+                  }
                 </span>
                 <button
                   pButton
@@ -76,6 +70,13 @@ import { CardModule } from '@openng/optimus-ui/card';
           </div>
         }
 
+        @if (scanError(); as error) {
+          <div class="alert alert-danger rounded-0 mb-0 py-2 small d-flex align-items-center gap-2" style="flex-shrink: 0;">
+            <i class="pi pi-exclamation-triangle"></i>
+            <span>{{ error }}</span>
+          </div>
+        }
+
         <!-- Gallery Grid -->
         <div class="flex-grow-1 p-4" style="overflow-y: auto;" (scroll)="onScroll($event)">
           @if (photos().length === 0 && !isScanning()) {
@@ -97,21 +98,18 @@ import { CardModule } from '@openng/optimus-ui/card';
             <div class="row g-3">
               @for (photo of photos(); track photo.id) {
                 <div class="col-6 col-md-4 col-lg-3 col-xl-2">
-                  <div
-                    class="p-card shadow-sm photo-card"
-                    #photoCard
-                    [attr.data-photo-id]="photo.id"
-                    (click)="openPhoto(photo)"
-                  >
+                  <div class="p-card shadow-sm photo-card" (click)="openPhoto(photo)">
                     <div class="p-card-body p-0">
                       <div class="photo-thumbnail">
                         @if (photo.media_type === 'image') {
                           <img
-                            [src]="getThumbnailUrl(photo)"
+                            [src]="thumbnailUrl(photo)"
                             [alt]="photo.filename"
                             class="w-100 h-100"
                             style="object-fit: cover;"
                             loading="lazy"
+                            decoding="async"
+                            (error)="onThumbnailError($event)"
                           />
                         } @else {
                           <i class="pi pi-video" style="font-size: 2rem; color: var(--pv-border);"></i>
@@ -202,7 +200,7 @@ import { CardModule } from '@openng/optimus-ui/card';
     }
   `],
 })
-export class GalleryComponent implements OnInit, AfterViewInit, OnDestroy {
+export class GalleryComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private tauri = inject(TauriService);
@@ -212,64 +210,45 @@ export class GalleryComponent implements OnInit, AfterViewInit, OnDestroy {
   stats = this.tauri.stats;
   isScanning = this.tauri.isScanning;
   scanProgress = this.tauri.scanProgress;
-
-  @ViewChildren('photoCard') photoCards!: QueryList<ElementRef>;
+  scanError = this.tauri.scanError;
+  isLoadingMore = signal(false);
 
   private libraryId = '';
-  private thumbnailCache = new Map<string, string>();
-  private observer: IntersectionObserver | null = null;
-  private loadingThumbnails = new Set<string>();
   private currentPage = 1;
-  private pageSize = 50;
-  private isLoadingMore = signal(false);
+  private readonly pageSize = 60;
   private hasMore = true;
 
   skeletonItems = Array(6).fill(0);
+
+  constructor() {
+    // Reload from page 1 whenever a scan of this library finishes.
+    effect(() => {
+      const completed = this.tauri.scanCompleted();
+      if (completed && completed.libraryId === this.libraryId) {
+        untracked(() => this.reload());
+      }
+    });
+  }
 
   async ngOnInit() {
     this.libraryId = this.route.snapshot.paramMap.get('id') || '';
     if (this.libraryId) {
       await this.loadLibrary();
       await this.tauri.getLibraryStats(this.libraryId);
-      await this.tauri.loadPhotos(this.libraryId);
+      await this.reload();
     }
   }
 
-  ngAfterViewInit() {
-    this.setupIntersectionObserver();
-    this.observeCards();
-
-    this.photoCards.changes.subscribe(() => {
-      this.observeCards();
-    });
-  }
-
-  ngOnDestroy() {
-    if (this.observer) {
-      this.observer.disconnect();
+  private async reload() {
+    this.currentPage = 1;
+    try {
+      const page = await this.tauri.loadPhotos(this.libraryId, 1, this.pageSize);
+      this.hasMore = page.length === this.pageSize;
+    } catch (err) {
+      console.error('Failed to load photos:', err);
+      this.photos.set([]);
+      this.hasMore = false;
     }
-  }
-
-  private setupIntersectionObserver() {
-    this.observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            const photoId = entry.target.getAttribute('data-photo-id');
-            if (photoId) {
-              this.loadThumbnail(photoId);
-            }
-          }
-        }
-      },
-      { root: null, rootMargin: '200px', threshold: 0.1 }
-    );
-  }
-
-  private observeCards() {
-    if (!this.observer) return;
-    const cards = this.photoCards?.toArray() ?? [];
-    cards.forEach((card) => this.observer!.observe(card.nativeElement));
   }
 
   private async loadLibrary() {
@@ -290,29 +269,12 @@ export class GalleryComponent implements OnInit, AfterViewInit, OnDestroy {
     this.router.navigate(['/library', this.libraryId, 'photo', photo.id]);
   }
 
-  getThumbnailUrl(photo: Photo): string {
-    const cached = this.thumbnailCache.get(photo.id);
-    if (cached) {
-      return cached;
-    }
-    return 'assets/placeholder.svg';
+  thumbnailUrl(photo: Photo): string {
+    return this.tauri.thumbnailUrl(photo.id);
   }
 
-  private async loadThumbnail(photoId: string) {
-    if (this.loadingThumbnails.has(photoId)) return;
-    this.loadingThumbnails.add(photoId);
-
-    try {
-      const dataUrl = await this.tauri.getThumbnailDataUrl(photoId);
-      if (dataUrl) {
-        this.thumbnailCache.set(photoId, dataUrl);
-        this.photos.update(p => [...p]);
-      }
-    } catch (err) {
-      console.error('Failed to load thumbnail:', err);
-    } finally {
-      this.loadingThumbnails.delete(photoId);
-    }
+  onThumbnailError(event: Event) {
+    useThumbnailPlaceholder(event);
   }
 
   onScroll(event: Event) {
@@ -330,12 +292,8 @@ export class GalleryComponent implements OnInit, AfterViewInit, OnDestroy {
     this.isLoadingMore.set(true);
     try {
       this.currentPage++;
-      const previousCount = this.photos().length;
-      await this.tauri.loadPhotos(this.libraryId, this.currentPage, this.pageSize);
-      const newCount = this.photos().length - previousCount;
-      if (newCount < this.pageSize) {
-        this.hasMore = false;
-      }
+      const page = await this.tauri.loadPhotos(this.libraryId, this.currentPage, this.pageSize);
+      this.hasMore = page.length === this.pageSize;
     } catch (err) {
       console.error('Failed to load more photos:', err);
       this.currentPage--;

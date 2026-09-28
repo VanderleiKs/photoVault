@@ -9,7 +9,7 @@ import { ButtonModule } from '@openng/optimus-ui/button';
   standalone: true,
   imports: [ButtonModule],
   template: `
-    <div class="photo-viewer" tabindex="0" (keydown)="onKeyDown($event)">
+    <div class="photo-viewer">
       <!-- Header -->
       <header class="d-flex align-items-center justify-content-between px-4 py-3" style="background: var(--pv-surface); border-bottom: 1px solid var(--pv-border);">
         <div class="d-flex align-items-center gap-3">
@@ -27,11 +27,11 @@ import { ButtonModule } from '@openng/optimus-ui/button';
       <div class="image-container" (wheel)="onWheel($event)">
         @if (photo(); as p) {
           @if (p.media_type === 'image') {
-            <img [src]="imageUrl()" [alt]="p.filename" class="viewer-image" [style.transform]="'scale(' + zoom() + ')'" (click)="cycleZoom()" />
+            <img [src]="imageUrl()" [alt]="p.filename" class="viewer-image" [style.transform]="'scale(' + zoom() + ')'" (click)="cycleZoom()" (error)="onImageError()" />
           } @else {
             <div class="video-placeholder">
               <i class="pi pi-video" style="font-size: 4rem; color: var(--pv-border);"></i>
-              <p style="color: var(--pv-text-muted);">Video preview not available</p>
+              <p style="color: var(--pv-text-muted);">Pré-visualização de vídeo ainda não disponível</p>
             </div>
           }
         }
@@ -119,8 +119,15 @@ export class PhotoViewerComponent implements OnInit {
     this.zoom.set(1);
 
     if (photo && photo.media_type === 'image') {
-      const dataUrl = await this.tauri.getThumbnailDataUrl(photoId);
-      this.imageUrl.set(dataUrl || '');
+      this.imageUrl.set(this.tauri.mediaUrl(photoId));
+    }
+  }
+
+  /** The original may be unreadable by the WebView (e.g. HEIC/TIFF): fall back to the thumbnail. */
+  onImageError() {
+    const thumbnail = this.tauri.thumbnailUrl(this.photoId);
+    if (this.imageUrl() !== thumbnail) {
+      this.imageUrl.set(thumbnail);
     }
   }
 

@@ -1,71 +1,60 @@
 # AGENTS.md
 
-PhotoVault — portable desktop app for organizing photo libraries.  
-Stack: Angular 22 + Tauri 2.x (Rust) + SQLite (WAL).
+PhotoVault: app portátil (sem instalação) para organizar bibliotecas de fotos.
+Stack: Angular 22 + Tauri 2 (Rust) + SQLite (WAL). Alvos: Windows 11 e Linux; Android no futuro.
+
+**Leia antes de mudar algo:** [docs/PRD.md](docs/PRD.md) (requisitos e regras de negócio) e [docs/PLANO.md](docs/PLANO.md) (diagnóstico, ADRs e fases, com a fase atual marcada).
 
 ## Commands
 
 ```bash
-npm install --legacy-peer-deps   # required flag; plain npm install fails
-npm run tauri:dev                 # full dev: Angular + Rust backend
-npm run tauri:build               # production build
+npm install                       # dependências do frontend
+npm run tauri:dev                 # dev completo: Angular + backend Rust
+npm run tauri:build               # build de produção
+npm run build                     # só Angular (sem backend)
+
+cd src-tauri
+cargo test                        # testes do backend (catálogo, scanner, protocolo)
+cargo clippy --all-targets -- -D warnings
+cargo fmt
 ```
 
-- `npm run dev` / `npm run build` run Angular only (no backend).  
-- There are **no tests, no linter, no formatter, no CI**. Don't look for them.
+- Linux precisa de: `build-essential pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf`.
+- Ainda não há testes nem linter no frontend (ver a Fase 1 do plano).
+- CI: `.github/workflows/build.yml` (só Windows por enquanto).
 
-## Architecture
+## Arquitetura
 
-Two halves that talk via Tauri IPC:
+| Camada | Local | Linguagem |
+|--------|-------|-----------|
+| Frontend | `src/` | Angular 22 (standalone, signals) + Bootstrap 5.3 (sai na Fase 1) + Optimus UI v2 + PrimeIcons |
+| Backend | `src-tauri/` | Rust 2024 / Tauri 2 |
 
-| Layer | Location | Language |
-|-------|----------|----------|
-| Frontend | `src/` | Angular 22 (standalone components, signals) |
-| Backend | `src-tauri/` | Rust (Tauri 2) |
+### Frontend
+- `src/app/services/tauri.service.ts`: **único** ponto de IPC, usando `@tauri-apps/api` (`invoke`, `listen`, `convertFileSrc`).
+- `src/app/models/photo.ts`: interfaces TS; devem espelhar as structs `Serialize` do Rust.
+- `src/app/components/`: gallery, timeline, duplicates, photo-viewer, library-selector, sidebar.
 
-### Frontend stack
-- **CSS**: Bootstrap 5.3 (grid, utilities, components)
-- **Component library**: @openng/optimus-ui v2 (PrimeNG-based: Button, Card, InputText, Menu)
-- **Icons**: PrimeIcons (`pi pi-*`) — consistent with Optimus UI
-- **State**: Angular signals
-- **Routing**: Angular Router
+### Backend (`src-tauri/src/`)
+- `lib.rs`: bootstrap (logs, pool, protocolo `pv://`, commands).
+- `app/`: `AppState { pool, paths, scan }`, resolução do diretório portátil e guard de scan único.
+- `commands/`: handlers IPC (única API pública). Todos usam `state.pool`.
+- `catalog/`: bibliotecas, fotos, navegação, conexão SQLite e migrations.
+- `scanner/`: descoberta recursiva e indexação incremental. Emite `scan_progress`, `scan_complete` e `scan_error`.
+- `protocol.rs`: `pv://localhost/thumb/<id>` e `pv://localhost/media/<id>`.
+- `metadata/`, `thumbnails/`: funções **bloqueantes**, sempre chamadas via `spawn_blocking`.
 
-### Frontend entrypoints
-- `src/app/services/tauri.service.ts` — **single** service wrapping every IPC call
-- `src/app/models/photo.ts` — TypeScript interfaces (`Photo`, `Library`, `ScanProgress`, …)
-- `src/app/components/` — `gallery/`, `library-selector/`, `photo-viewer/`, `sidebar/`
+## Gotchas
 
-### Backend modules (`src-tauri/src/`)
-- `commands/mod.rs` — Tauri IPC command handlers (the only public API surface)
-- `app/mod.rs` — global `AppState` (scan-cancellation flag) + path resolution
-- `catalog/` — library CRUD + DB init/migrations
-- `scanner/` — recursive file discovery + incremental indexing
-- `metadata/` — EXIF/metadata extraction
-- `thumbnails/` — WebP 256×256 thumbnail generation
-- `filesystem/` — filesystem helpers
-
-## Non-obvious gotchas
-
-- **Runtime data lives next to the executable**, not in OS app-data dirs.  
-  `data/catalog.db`, `thumbnails/`, and `logs/` are all resolved from `std::env::current_exe()`.  
-  During dev this means `src-tauri/target/debug/data/`.
-
-- **Migrations auto-run at startup** via `catalog::init_database` in `lib.rs`.  
-  Never run `sqlx migrate!` manually during dev.
-
-- **IPC uses raw `window.__TAURI_INTERNALS__`** (see `tauri.service.ts`), not `@tauri-apps/api`.  
-  Argument shapes must match exactly — e.g. `page`/`limit` are wrapped as `{ value: n }`.
-
-- **Tauri IPC command names**: camelCase in JS → snake_case in Rust (automatic).
-
-- **Angular 22 uses the new `@angular/build:application`** (esbuild).  
-  No `ng test`, `ng e2e`, or karma config exists.
-
-- **`delete_library` does NOT delete photos from disk** — only removes DB records.
-
-- **Scan cancellation** flows through `AppState.scan_cancelled` (`Arc<RwLock<bool>>`),  
-  polled in the scanner loop and set by the `cancel_scan` command.
-
-- **Bootstrap CSS/JS must be in `angular.json`** — otherwise layout breaks silently.
-
-- **Optimus UI `p-card` ignores `max-width`** — use `style="width: 100% !important"` when needed.
+- **Dados de runtime ficam ao lado do executável** (`data/catalog.db`, `thumbnails/`, `logs/`). A ordem de resolução é `PHOTOVAULT_HOME`, depois o diretório do `$APPIMAGE`, depois o diretório do exe. Em dev isso é `src-tauri/target/debug/`. Use `PHOTOVAULT_HOME=/tmp/pv` para testar com um catálogo limpo.
+- **Argumentos IPC são valores simples** com nomes camelCase em JS (`{ libraryId, page, limit }`), convertidos para snake_case no Rust automaticamente. As respostas de dados (`Photo`, `Library`) usam snake_case; os payloads de eventos usam camelCase.
+- **Nunca abra um pool SQLite por command**: use `State<Arc<AppState>>`.
+- **Nunca faça decodificação de imagem ou I/O pesado dentro de `async fn` sem `spawn_blocking`.**
+- **Imagens chegam ao frontend pelo protocolo `pv://`**, resolvidas por id do catálogo (nunca por caminho vindo do frontend). Proibido base64 via IPC. Use `tauri.thumbnailUrl(id)` / `tauri.mediaUrl(id)`.
+- **`relative_path` sempre usa `/`**, em qualquer SO (ver `scanner::normalize_relative_path`).
+- **Migrations rodam sozinhas no startup** (`catalog::init_database`). São imutáveis: crie um arquivo novo em vez de editar um antigo.
+- **Capabilities** em `src-tauri/capabilities/default.json`. Sem `core:default`, `listen()` falha em silêncio.
+- **`delete_library` não apaga fotos do disco**, só os registros (em cascata).
+- **Nada escreve dentro da pasta da biblioteca durante o scan.** O teste `scan_is_incremental_and_never_touches_originals` garante isso.
+- **Bootstrap CSS/JS precisam estar em `angular.json`** enquanto o Bootstrap existir.
+- **`p-card` do Optimus ignora `max-width`**: use `style="width: 100% !important"`.

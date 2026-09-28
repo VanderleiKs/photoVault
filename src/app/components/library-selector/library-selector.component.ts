@@ -88,6 +88,13 @@ import { CardModule } from "@openng/optimus-ui/card";
               </div>
             </div>
 
+            @if (error()) {
+              <div class="alert alert-danger py-2 small d-flex align-items-center gap-2">
+                <i class="pi pi-exclamation-triangle"></i>
+                <span>{{ error() }}</span>
+              </div>
+            }
+
             <button
               pButton
               type="button"
@@ -190,11 +197,16 @@ export class LibrarySelectorComponent implements OnInit {
   libraryName = "";
   rootPath = "";
   isCreating = signal(false);
+  error = signal<string | null>(null);
   libHover: string | null = null;
   libraries = this.tauri.libraries;
 
   async ngOnInit() {
-    await this.tauri.loadLibraries();
+    try {
+      await this.tauri.loadLibraries();
+    } catch (err) {
+      this.error.set(`Não foi possível carregar as bibliotecas: ${err}`);
+    }
   }
 
   async selectFolder() {
@@ -204,7 +216,7 @@ export class LibrarySelectorComponent implements OnInit {
         this.rootPath = path;
       }
     } catch (err) {
-      console.error("Failed to pick folder:", err);
+      this.error.set(`Não foi possível abrir o seletor de pastas: ${err}`);
     }
   }
 
@@ -212,6 +224,7 @@ export class LibrarySelectorComponent implements OnInit {
     if (!this.libraryName.trim() || !this.rootPath.trim()) return;
 
     this.isCreating.set(true);
+    this.error.set(null);
     try {
       const lib = await this.tauri.createLibrary(
         this.libraryName.trim(),
@@ -219,8 +232,7 @@ export class LibrarySelectorComponent implements OnInit {
       );
       this.router.navigate(["/library", lib.id]);
     } catch (err) {
-      console.error("Failed to create library:", err);
-      alert("Erro ao criar biblioteca. Verifique o caminho e tente novamente.");
+      this.error.set(String(err));
     } finally {
       this.isCreating.set(false);
     }

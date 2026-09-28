@@ -1,6 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { TauriService } from '../../services/tauri.service';
+import { TauriService, useThumbnailPlaceholder } from '../../services/tauri.service';
 import { Photo, Library } from '../../models/photo';
 import { SidebarComponent } from '../sidebar/sidebar.component';
 import { ButtonModule } from '@openng/optimus-ui/button';
@@ -35,7 +35,7 @@ interface TimelineGroup {
                       <div class="p-card-body p-0">
                         <div class="photo-thumbnail">
                           @if (photo.media_type === 'image') {
-                            <img [src]="getThumbnailUrl(photo)" [alt]="photo.filename" class="w-100 h-100" style="object-fit: cover;" loading="lazy" />
+                            <img [src]="thumbnailUrl(photo)" [alt]="photo.filename" class="w-100 h-100" style="object-fit: cover;" loading="lazy" decoding="async" (error)="onThumbnailError($event)" />
                           } @else {
                             <i class="pi pi-video" style="font-size: 2rem; color: var(--pv-border);"></i>
                           }
@@ -75,7 +75,6 @@ export class TimelineComponent implements OnInit {
   timelineGroups = signal<TimelineGroup[]>([]);
 
   private libraryId = '';
-  private thumbnailCache = new Map<string, string>();
 
   async ngOnInit() {
     this.libraryId = this.route.snapshot.paramMap.get('id') || '';
@@ -88,9 +87,8 @@ export class TimelineComponent implements OnInit {
   }
 
   private async loadPhotos() {
-    // Load all photos for timeline (use large limit)
-    await this.tauri.loadPhotos(this.libraryId, 1, 10000);
-    this.photos.set(this.tauri.photos());
+    // Temporary: loads up to 10k photos at once; replaced by a paginated timeline in phase 3.
+    this.photos.set(await this.tauri.fetchPhotos(this.libraryId, 1, 10000));
     this.groupByDate();
   }
 
@@ -123,10 +121,12 @@ export class TimelineComponent implements OnInit {
     this.timelineGroups.set(sorted);
   }
 
-  getThumbnailUrl(photo: Photo): string {
-    const cached = this.thumbnailCache.get(photo.id);
-    if (cached) return cached;
-    return 'assets/placeholder.svg';
+  thumbnailUrl(photo: Photo): string {
+    return this.tauri.thumbnailUrl(photo.id);
+  }
+
+  onThumbnailError(event: Event) {
+    useThumbnailPlaceholder(event);
   }
 
   openPhoto(photo: Photo) {

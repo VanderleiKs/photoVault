@@ -29,17 +29,34 @@ export interface LibraryStats {
   total_size: number;
 }
 
-export interface ScanProgress {
-  processed: number;
-  total: number;
-  current_path?: string;
-  currentPath?: string;
+export interface PhotoNavigation {
+  prev_id: string | null;
+  next_id: string | null;
 }
 
+export type ScanPhase = 'discovering' | 'indexing';
+
+/** Payload of the `scan_progress` event. `total` is 0 while discovering. */
+export interface ScanProgress {
+  libraryId: string;
+  phase: ScanPhase;
+  processed: number;
+  total: number;
+  currentPath: string;
+}
+
+/** Payload of the `scan_complete` event. */
 export interface ScanComplete {
-  library_id: string;
-  total_processed: number;
-  new_files: number;
-  modified_files: number;
+  libraryId: string;
+  totalProcessed: number;
+  newFiles: number;
+  modifiedFiles: number;
   errors: number;
+  cancelled: boolean;
+}
+
+/** Payload of the `scan_error` event. */
+export interface ScanError {
+  libraryId: string;
+  error: string;
 }

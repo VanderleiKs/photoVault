@@ -1,71 +1,44 @@
-use crate::app;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const THUMBNAIL_SIZE: u32 = 256;
 
-/// Generate a 256x256 thumbnail for a photo
-pub async fn generate_thumbnail(
-    app_handle: &tauri::AppHandle,
-    photo_id: &str,
-    source_path: &Path,
-) -> Result<(), String> {
-    let thumbnails_dir = app::get_thumbnails_dir(app_handle)?;
-
-    // Create subdirectory based on first 2 chars of ID for better filesystem performance
-    let subdir = if photo_id.len() >= 2 {
-        &photo_id[..2]
-    } else {
-        "xx"
-    };
-    let thumb_subdir = thumbnails_dir.join(subdir);
-    std::fs::create_dir_all(&thumb_subdir).map_err(|e| e.to_string())?;
-
-    let thumb_path = thumb_subdir.join(format!("{}.webp", photo_id));
-
-    // Skip if thumbnail already exists
-    if thumb_path.exists() {
-        return Ok(());
-    }
-
-    // Generate thumbnail using the `image` crate
-    let img = image::open(source_path).map_err(|e| e.to_string())?;
-
-    // Resize to fit within THUMBNAIL_SIZE x THUMBNAIL_SIZE while maintaining aspect ratio
-    let thumbnail = img.resize(
-        THUMBNAIL_SIZE,
-        THUMBNAIL_SIZE,
-        image::imageops::FilterType::Lanczos3,
-    );
-
-    // Save as WebP
-    let output_file = std::fs::File::create(&thumb_path).map_err(|e| e.to_string())?;
-    let mut writer = std::io::BufWriter::new(output_file);
-
-    // Use webp encoding
-    let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut writer);
-    thumbnail
-        .write_with_encoder(encoder)
-        .map_err(|e| e.to_string())?;
-
-    tracing::debug!(
-        "Generated thumbnail for {} at {}",
-        photo_id,
-        thumb_path.display()
-    );
-
-    Ok(())
+/// `<thumbnails_dir>/<id[0..2]>/<id>.webp`
+pub fn thumbnail_path(thumbnails_dir: &Path, photo_id: &str) -> PathBuf {
+    let subdir = photo_id.get(..2).unwrap_or("xx");
+    thumbnails_dir.join(subdir).join(format!("{photo_id}.webp"))
 }
 
-/// Get the thumbnail path for a photo
-pub fn get_thumbnail_path(
-    app_handle: &tauri::AppHandle,
+/// Generate a thumbnail fitting in 256x256. Blocking: call from `spawn_blocking`.
+/// With `force = false`, an existing thumbnail is kept.
+pub fn generate_thumbnail(
+    thumbnails_dir: &Path,
     photo_id: &str,
-) -> Result<std::path::PathBuf, String> {
-    let thumbnails_dir = app::get_thumbnails_dir(app_handle)?;
-    let subdir = if photo_id.len() >= 2 {
-        &photo_id[..2]
-    } else {
-        "xx"
-    };
-    Ok(thumbnails_dir.join(subdir).join(format!("{}.webp", photo_id)))
+    source_path: &Path,
+    force: bool,
+) -> Result<(), String> {
+    let thumb_path = thumbnail_path(thumbnails_dir, photo_id);
+    if !force && thumb_path.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = thumb_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let img = image::open(source_path).map_err(|e| e.to_string())?;
+    let thumbnail = img.thumbnail(THUMBNAIL_SIZE, THUMBNAIL_SIZE);
+
+    // Write to a temp file first so a crash never leaves a truncated thumbnail.
+    let tmp_path = thumb_path.with_extension("webp.tmp");
+    {
+        let file = std::fs::File::create(&tmp_path).map_err(|e| e.to_string())?;
+        let mut writer = std::io::BufWriter::new(file);
+        // The `image` crate only encodes lossless WebP; lossy comes with phase 2.
+        let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut writer);
+        thumbnail
+            .write_with_encoder(encoder)
+            .map_err(|e| e.to_string())?;
+    }
+    std::fs::rename(&tmp_path, &thumb_path).map_err(|e| e.to_string())?;
+
+    Ok(())
 }

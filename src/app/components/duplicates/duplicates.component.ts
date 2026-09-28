@@ -1,6 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { TauriService } from '../../services/tauri.service';
+import { TauriService, useThumbnailPlaceholder } from '../../services/tauri.service';
 import { Photo, Library } from '../../models/photo';
 import { SidebarComponent } from '../sidebar/sidebar.component';
 import { ButtonModule } from '@openng/optimus-ui/button';
@@ -37,7 +37,7 @@ interface DuplicateGroup {
                       <div class="p-card-body p-0">
                         <div class="photo-thumbnail">
                           @if (photo.media_type === 'image') {
-                            <img [src]="getThumbnailUrl(photo)" [alt]="photo.filename" class="w-100 h-100" style="object-fit: cover;" loading="lazy" />
+                            <img [src]="thumbnailUrl(photo)" [alt]="photo.filename" class="w-100 h-100" style="object-fit: cover;" loading="lazy" decoding="async" (error)="onThumbnailError($event)" />
                           } @else {
                             <i class="pi pi-video" style="font-size: 2rem; color: var(--pv-border);"></i>
                           }
@@ -56,7 +56,7 @@ interface DuplicateGroup {
             <div class="text-center" style="padding: 4rem 0;">
               <i class="pi pi-check-circle mb-3" style="font-size: 3rem; color: var(--pv-border);"></i>
               <p style="color: var(--pv-text-muted);">Nenhuma duplicata encontrada.</p>
-              <p class="small" style="color: var(--pv-text-muted);">Execute o scan com SHA-256 para detectar duplicatas.</p>
+              <p class="small" style="color: var(--pv-text-muted);">A detecção de duplicatas (SHA-256) chega na próxima fase.</p>
             </div>
           }
         </div>
@@ -78,7 +78,6 @@ export class DuplicatesComponent implements OnInit {
   duplicateGroups = signal<DuplicateGroup[]>([]);
 
   private libraryId = '';
-  private thumbnailCache = new Map<string, string>();
 
   async ngOnInit() {
     this.libraryId = this.route.snapshot.paramMap.get('id') || '';
@@ -91,8 +90,8 @@ export class DuplicatesComponent implements OnInit {
   }
 
   private async loadDuplicates() {
-    await this.tauri.loadPhotos(this.libraryId, 1, 10000);
-    const photos = this.tauri.photos();
+    // Temporary: loads up to 10k photos at once; replaced by backend grouping in phase 4.
+    const photos = await this.tauri.fetchPhotos(this.libraryId, 1, 10000);
     
     // Group by sha256 (exact duplicates)
     const groups = new Map<string, Photo[]>();
@@ -114,10 +113,12 @@ export class DuplicatesComponent implements OnInit {
     this.duplicateGroups.set(duplicates);
   }
 
-  getThumbnailUrl(photo: Photo): string {
-    const cached = this.thumbnailCache.get(photo.id);
-    if (cached) return cached;
-    return 'assets/placeholder.svg';
+  thumbnailUrl(photo: Photo): string {
+    return this.tauri.thumbnailUrl(photo.id);
+  }
+
+  onThumbnailError(event: Event) {
+    useThumbnailPlaceholder(event);
   }
 
   openPhoto(photo: Photo) {
