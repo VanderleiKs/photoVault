@@ -57,4 +57,5 @@ cargo fmt
 - **`delete_library` não apaga fotos do disco**, só os registros (em cascata).
 - **Nada escreve dentro da pasta da biblioteca durante o scan.** O teste `scan_is_incremental_and_never_touches_originals` garante isso.
 - **Bootstrap CSS/JS precisam estar em `angular.json`** enquanto o Bootstrap existir.
+- **O tema Optimus exige um preset** (`PhotoVaultPreset` em `app.config.ts`, baseado no Aura de `@openng/optimus-ui-themes`). Sem ele, todos os componentes aparecem sem estilo.
 - **`p-card` do Optimus ignora `max-width`**: use `style="width: 100% !important"`.

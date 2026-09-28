@@ -115,7 +115,18 @@ Cada fase termina com o app **executável e utilizável** e com o CI verde. As e
 - [x] Testes: 9 no backend (`cargo test`), incluindo um scanner de ponta a ponta com arquivo corrompido, reescaneamento, arquivo modificado, cancelamento e a garantia de que os originais não mudam
 - [ ] ~~WebP com perda~~: o crate `image` só codifica WebP lossless, então isso **foi para a Fase 2** (crate `webp`)
 
-**Aceite:** num Linux e num Windows 11 limpos, criar uma biblioteca com 1.000 fotos, ver o progresso, cancelar, reescanear e ver a galeria com miniaturas. *Pendente de validação manual na UI (os testes automatizados e o boot do binário já foram verificados).*
+- [x] Descobertos no teste de UI e corrigidos: **tema Optimus sem preset** (todos os componentes ficavam sem estilo) → `@openng/optimus-ui-themes` + preset Aura com primária azul; sidebar sem altura total (`html/body/app-root` a 100%)
+
+**Aceite:** num Linux e num Windows 11 limpos, criar uma biblioteca com 1.000 fotos, ver o progresso, cancelar, reescanear e ver a galeria com miniaturas.
+
+**Validação no Linux (2026-09-28, Zorin OS 18, AppImage de release, UI dirigida pelo inspetor do WebKit):** ✅
+criação pela UI (e erro de pasta inexistente na tela), scan com progresso (descoberta, depois indexação), estatísticas corretas, `.photovault-trash` ignorada, miniaturas reais e placeholder no arquivo corrompido, paginação (86/86), visualizador com o original (3840×2560) e ←/→ andando 1 foto, Esc, Timeline, reescaneamento incremental (0 novos em 0,3 s), cancelamento (0,9 s) e retomada (+2.509 = restante exato), scan concorrente recusado, `pv://` recusando traversal e id inexistente, dados ao lado do `.AppImage`, persistência após reiniciar e originais com hash idêntico.
+**Windows 11:** pendente.
+
+**Achados para as próximas fases:**
+- Vazão de indexação de **~23 arquivos/s** (fotos 4K, sequencial). A meta de 50 mil em menos de 5 min exige paralelismo → prioridade da Fase 2 (fila + rayon).
+- HEIC sem miniatura (esperado; Fase 2).
+- O `tauri build` padrão também gera `.deb` e `.rpm`; o release portátil deve usar só `--bundles appimage` (Fase 1).
 
 ---
 
@@ -275,6 +286,5 @@ Cada fase termina com o app **executável e utilizável** e com o CI verde. As e
 
 ## 6. Próximo passo imediato
 
-1. Validar a Fase 0 manualmente na UI (`npm run tauri:dev`) no Linux e no Windows 11.
-2. Instalar as dependências de sistema no Linux (`sudo apt install build-essential pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf`), porque hoje falta o `pkg-config` e os pacotes `-dev`.
-3. Iniciar a **Fase 1**, começando pelo workspace Cargo (ADR-002) e pelo shell do layout novo.
+1. Validar a Fase 0 no Windows 11 (o Linux já foi validado).
+2. Iniciar a **Fase 1**, começando pelo workspace Cargo (ADR-002) e pelo shell do layout novo.
