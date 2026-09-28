@@ -1,123 +1,65 @@
 # PhotoVault
 
-Aplicativo desktop portátil para organização de bibliotecas pessoais de fotos e vídeos.
+Aplicativo portátil (sem instalação) para organizar bibliotecas pessoais de fotos e vídeos, para Windows 11 e Linux. O app nunca modifica seus arquivos: ele constrói uma biblioteca lógica sobre eles.
 
-**Stack**: Angular 22 + Tauri 2.x + Rust 2024 + SQLite (WAL mode)
+**Stack:** Angular 22 + Optimus UI v2 + PrimeIcons · Tauri 2 + Rust 2024 · SQLite (WAL)
 
----
+- Requisitos do produto: [docs/PRD.md](docs/PRD.md)
+- Diagnóstico e plano de fases: [docs/PLANO.md](docs/PLANO.md)
 
 ## Pré-requisitos
 
-### Rust
-- [Rust](https://rustup.rs/) (stable)
-- [Tauri CLI](https://v2.tauri.app/start/prerequisites/)
-
-### Node.js
-- Node.js 20+
-- npm 10+
-
-### Dependências do sistema (Linux)
-```bash
-sudo apt-get install libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev \
-  libappindicator3-dev librsvg2-dev patchelf
-```
-
----
+- [Rust](https://rustup.rs/) stable
+- Node.js 22+ e npm 10+
+- Linux:
+  ```bash
+  sudo apt install build-essential pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev \
+    librsvg2-dev patchelf
+  ```
+- Windows 11: o WebView2 já vem no sistema; é preciso o Visual Studio Build Tools (C++).
 
 ## Desenvolvimento
 
-### Instalar dependências
 ```bash
-npm install --legacy-peer-deps
+npm install
+npm run tauri:dev        # Angular + backend
+npm run tauri:build      # build de produção
+
+cd src-tauri && cargo test
 ```
 
-### Executar em desenvolvimento
-```bash
-npm run tauri:dev
-```
+Para testar com um catálogo limpo: `PHOTOVAULT_HOME=/tmp/pv npm run tauri:dev`.
 
-### Build de produção
-```bash
-npm run tauri:build
-```
+## Runtime portátil
 
----
+Tudo fica ao lado do executável (ou do `.AppImage`):
 
-## Estrutura do Projeto
-
-```
-organizador-fotos/
-├── src/                      # Angular 22 frontend
-│   ├── app/
-│   │   ├── components/       # Componentes standalone
-│   │   ├── services/         # Serviços (Tauri IPC)
-│   │   └── models/           # Interfaces TypeScript
-│   ├── assets/               # Assets estáticos
-│   └── styles.css            # Tailwind v4
-├── src-tauri/                # Rust backend
-│   ├── src/
-│   │   ├── app/              # Estado global
-│   │   ├── catalog/          # CRUD bibliotecas
-│   │   ├── scanner/          # Discovery de arquivos
-│   │   ├── metadata/         # Extração de metadados
-│   │   ├── thumbnails/       # Geração de thumbnails
-│   │   ├── filesystem/       # Operações de filesystem
-│   │   └── commands/         # Comandos Tauri (IPC)
-│   ├── migrations/           # SQLx migrations
-│   ├── Cargo.toml
-│   └── tauri.conf.json
-└── package.json
-```
-
----
-
-## Runtime Portátil
-
-Em produção, o PhotoVault cria a seguinte estrutura junto ao executável:
-
-```
+```text
 PhotoVault/
-├── PhotoVault.exe
-├── data/
-│   └── catalog.db       # SQLite (WAL mode)
-├── thumbnails/          # Thumbnails WebP 256x256
-│   └── ab/
-│       cd/
-│           <photo-id>.webp
-└── logs/
-    └── photovault.log
+├── photovault(.exe)
+├── data/catalog.db                    # catálogo SQLite (WAL)
+├── thumbnails/<ab>/<photo-id>.webp    # miniaturas 256 px
+└── logs/photovault.log.AAAA-MM-DD
 ```
 
----
+## Estado atual (v0.2, Fase 0)
 
-## Funcionalidades (Fase 1 - Esqueleto)
+Funciona hoje:
 
-- [x] Criar bibliotecas com pasta raiz
-- [x] Scanner recursivo de arquivos de mídia
-- [x] Indexação incremental (path + size + modified_time)
-- [x] Banco SQLite com WAL mode
-- [x] Geração de thumbnails 256x256 WebP
-- [x] Galeria com grid responsivo
-- [x] Sidebar com navegação
-- [x] Progresso de scan em tempo real
-- [x] Cancelamento de scan
+- Criar e listar bibliotecas (várias)
+- Scan recursivo com progresso, cancelamento e indexação incremental (por tamanho)
+- Miniaturas WebP 256 px
+- Galeria paginada, timeline por mês e visualizador com zoom e navegação
 
----
+Ainda não funciona:
 
-## Próximas Fases
+- Data EXIF (hoje é usada a data de modificação do arquivo)
+- Duplicatas
+- Vídeos (entram só no catálogo)
+- O layout novo (vem na Fase 1)
 
-- **Fase 2**: Scanner completo (50k+ arquivos)
-- **Fase 3**: Metadata EXIF completa
-- **Fase 4**: Galeria avançada (virtualização, lazy loading)
-- **Fase 5**: Detecção de duplicatas
-- **Fase 6**: Análise de qualidade
-- **Fase 7**: Eventos/viagens
-- **Fase 8**: IA local (classificação)
-- **Fase 9**: Organização física
-- **Fase 10**: Backup verification
-
----
+Veja o [plano](docs/PLANO.md) para as próximas fases.
 
 ## Licença
 
-Private
+Privado.

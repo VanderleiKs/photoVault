@@ -1,193 +1,152 @@
-import { Injectable, signal, OnDestroy } from '@angular/core';
-import type { Photo, Library, LibraryStats, ScanProgress, ScanComplete } from '../models/photo';
+import { Injectable, OnDestroy, signal } from '@angular/core';
+import { convertFileSrc, invoke, isTauri } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type {
+  Library,
+  LibraryStats,
+  Photo,
+  PhotoNavigation,
+  ScanComplete,
+  ScanError,
+  ScanProgress,
+} from '../models/photo';
 
+/** Single entry point for every IPC call to the Rust backend. */
 @Injectable({ providedIn: 'root' })
 export class TauriService implements OnDestroy {
-  private readonly invoke = (window as any).__TAURI_INTERNALS__?.invoke;
-  private readonly event = (window as any).__TAURI_INTERNALS__?.event;
-
   readonly libraries = signal<Library[]>([]);
-  readonly currentLibrary = signal<Library | null>(null);
   readonly photos = signal<Photo[]>([]);
   readonly stats = signal<LibraryStats | null>(null);
   readonly scanProgress = signal<ScanProgress | null>(null);
   readonly isScanning = signal(false);
+  /** Last finished scan; components react to it to reload their data. */
+  readonly scanCompleted = signal<ScanComplete | null>(null);
+  readonly scanError = signal<string | null>(null);
 
-  private thumbnailQueue: string[] = [];
-  private activeThumbnailRequests = 0;
-  private readonly maxConcurrentThumbnails = 5;
-  private unlistenProgress?: () => void;
-  private unlistenComplete?: () => void;
-  private unlistenError?: () => void;
-  private listenersRegistered = false;
+  private readonly unlisteners: Promise<UnlistenFn>[] = [];
 
   constructor() {
-    this.checkAvailability();
-    this.registerEventListeners();
-  }
-
-  private checkAvailability() {
-    if (!this.invoke) {
-      console.warn('Tauri IPC not available - running in browser mode');
-    }
-  }
-
-  private registerEventListeners() {
-    if (this.listenersRegistered || !this.event) {
-      console.warn('[PhotoVault] Cannot register listeners - already registered or no event API');
+    if (!isTauri()) {
+      console.warn('[PhotoVault] Tauri IPC not available - running in browser mode');
       return;
     }
-    this.listenersRegistered = true;
-    console.log('[PhotoVault] Registering event listeners...');
 
-    this.event.listen('scan_progress', (event: any) => {
-      console.log('[PhotoVault] scan_progress event received:', JSON.stringify(event.payload));
-      this.scanProgress.set(event.payload as ScanProgress);
-    }).then((unlisten: () => void) => {
-      this.unlistenProgress = unlisten;
-      console.log('[PhotoVault] scan_progress listener registered');
-    });
-
-    this.event.listen('scan_complete', (event: any) => {
-      console.log('[PhotoVault] scan_complete event received:', JSON.stringify(event.payload));
-      this.isScanning.set(false);
-      this.scanProgress.set(null);
-      const payload = event.payload as ScanComplete;
-      if (payload.library_id) {
-        this.getLibraryStats(payload.library_id);
-        this.loadPhotos(payload.library_id, 1);
-      }
-    }).then((unlisten: () => void) => {
-      this.unlistenComplete = unlisten;
-      console.log('[PhotoVault] scan_complete listener registered');
-    });
-
-    this.event.listen('scan_error', (event: any) => {
-      console.error('[PhotoVault] scan_error event:', event.payload);
-      this.isScanning.set(false);
-    }).then((unlisten: () => void) => {
-      this.unlistenError = unlisten;
-      console.log('[PhotoVault] scan_error listener registered');
-    });
+    this.unlisteners.push(
+      listen<ScanProgress>('scan_progress', ({ payload }) => {
+        this.isScanning.set(true);
+        this.scanProgress.set(payload);
+      }),
+      listen<ScanComplete>('scan_complete', ({ payload }) => {
+        this.isScanning.set(false);
+        this.scanProgress.set(null);
+        this.scanCompleted.set(payload);
+        this.getLibraryStats(payload.libraryId).catch(() => {});
+      }),
+      listen<ScanError>('scan_error', ({ payload }) => {
+        this.isScanning.set(false);
+        this.scanProgress.set(null);
+        this.scanError.set(payload.error);
+      }),
+    );
   }
 
   ngOnDestroy() {
-    this.unlistenProgress?.();
-    this.unlistenComplete?.();
-    this.unlistenError?.();
+    for (const unlisten of this.unlisteners) {
+      unlisten.then((fn) => fn());
+    }
   }
 
-  private async tauriInvoke<T>(cmd: string, args?: Record<string, any>): Promise<T> {
-    if (!this.invoke) {
-      throw new Error('Tauri IPC not available');
+  /** Invoke a command. Rejects with the backend's error message (a string). */
+  private call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+    if (!isTauri()) {
+      return Promise.reject('Tauri IPC não disponível');
     }
-    return this.invoke(cmd, args) as Promise<T>;
+    return invoke<T>(cmd, args);
   }
 
   async loadLibraries(): Promise<void> {
-    const libs = await this.tauriInvoke<Library[]>('list_libraries');
-    this.libraries.set(libs);
+    this.libraries.set(await this.call<Library[]>('list_libraries'));
   }
 
   async createLibrary(name: string, rootPath: string): Promise<Library> {
-    const lib = await this.tauriInvoke<Library>('create_library', {
-      name,
-      rootPath,
-    });
+    const lib = await this.call<Library>('create_library', { name, rootPath });
     await this.loadLibraries();
     return lib;
   }
 
   async deleteLibrary(libraryId: string): Promise<void> {
-    await this.tauriInvoke('delete_library', { libraryId });
+    await this.call('delete_library', { libraryId });
     await this.loadLibraries();
   }
 
-  async pickFolder(): Promise<string | null> {
-    return this.tauriInvoke<string | null>('pick_folder');
+  pickFolder(): Promise<string | null> {
+    return this.call<string | null>('pick_folder');
   }
 
   async getLibraryStats(libraryId: string): Promise<LibraryStats> {
-    const stats = await this.tauriInvoke<LibraryStats>('get_library_stats', {
-      libraryId,
-    });
+    const stats = await this.call<LibraryStats>('get_library_stats', { libraryId });
     this.stats.set(stats);
     return stats;
   }
 
   async scanLibrary(libraryId: string): Promise<void> {
-    this.isScanning.set(true);
+    this.scanError.set(null);
     this.scanProgress.set(null);
-    await this.tauriInvoke('scan_library', { libraryId });
+    this.isScanning.set(true);
+    try {
+      await this.call('scan_library', { libraryId });
+    } catch (err) {
+      this.isScanning.set(false);
+      this.scanError.set(String(err));
+    }
   }
 
   async cancelScan(): Promise<void> {
-    await this.tauriInvoke('cancel_scan');
-    this.isScanning.set(false);
+    // `isScanning` goes false when the backend emits `scan_complete`.
+    await this.call('cancel_scan');
   }
 
-  async loadPhotos(libraryId: string, page: number = 1, limit: number = 50): Promise<void> {
-    try {
-      const photos = await this.tauriInvoke<Photo[]>('get_photos', {
-        libraryId,
-        page: { value: page },
-        limit: { value: limit },
-      });
-      if (page === 1) {
-        this.photos.set(photos);
-      } else {
-        this.photos.update(existing => [...existing, ...photos]);
-      }
-    } catch (err) {
-      console.error('Failed to load photos:', err);
-      if (page === 1) {
-        this.photos.set([]);
-      }
+  /** Fetch a page of photos without touching shared state. `page` starts at 1. */
+  fetchPhotos(libraryId: string, page = 1, limit = 50): Promise<Photo[]> {
+    return this.call<Photo[]>('get_photos', { libraryId, page, limit });
+  }
+
+  /** Load a page into the shared `photos` signal (page 1 replaces, others append). */
+  async loadPhotos(libraryId: string, page = 1, limit = 50): Promise<Photo[]> {
+    const photos = await this.fetchPhotos(libraryId, page, limit);
+    if (page === 1) {
+      this.photos.set(photos);
+    } else {
+      this.photos.update((existing) => [...existing, ...photos]);
     }
+    return photos;
   }
 
-  async getPhoto(photoId: string): Promise<Photo | null> {
-    return this.tauriInvoke<Photo | null>('get_photo', { photoId });
+  getPhoto(photoId: string): Promise<Photo | null> {
+    return this.call<Photo | null>('get_photo', { photoId });
   }
 
-  async getPhotoNavigation(photoId: string): Promise<{ prev_id: string | null; next_id: string | null }> {
-    return this.tauriInvoke('get_photo_navigation', { photoId });
+  getPhotoNavigation(photoId: string): Promise<PhotoNavigation> {
+    return this.call<PhotoNavigation>('get_photo_navigation', { photoId });
   }
 
-  async getThumbnailPath(photoId: string): Promise<string | null> {
-    return this.tauriInvoke<string | null>('get_thumbnail', { photoId });
+  /** URL of the 256px thumbnail, served by the `pv://` protocol. */
+  thumbnailUrl(photoId: string): string {
+    return isTauri() ? convertFileSrc(`thumb/${photoId}`, 'pv') : PLACEHOLDER_URL;
   }
 
-  async getThumbnailDataUrl(photoId: string): Promise<string | null> {
-    return this.enqueueThumbnailRequest(photoId);
+  /** URL of the original image, served by the `pv://` protocol. */
+  mediaUrl(photoId: string): string {
+    return isTauri() ? convertFileSrc(`media/${photoId}`, 'pv') : PLACEHOLDER_URL;
   }
+}
 
-  private async enqueueThumbnailRequest(photoId: string): Promise<string | null> {
-    return new Promise((resolve) => {
-      this.thumbnailQueue.push(photoId);
-      this.processThumbnailQueue(resolve);
-    });
-  }
+export const PLACEHOLDER_URL = 'assets/placeholder.svg';
 
-  private async processThumbnailQueue(resolve: (value: string | null) => void) {
-    if (this.activeThumbnailRequests >= this.maxConcurrentThumbnails || this.thumbnailQueue.length === 0) {
-      return;
-    }
-
-    const photoId = this.thumbnailQueue.shift()!;
-    this.activeThumbnailRequests++;
-
-    try {
-      const dataUrl = await this.tauriInvoke<string | null>('get_thumbnail_data_url', { photoId });
-      resolve(dataUrl);
-    } catch (err) {
-      console.error('Failed to load thumbnail:', err);
-      resolve(null);
-    } finally {
-      this.activeThumbnailRequests--;
-      if (this.thumbnailQueue.length > 0) {
-        this.processThumbnailQueue(() => {});
-      }
-    }
+/** `(error)` handler for thumbnails: swap in the placeholder once. */
+export function useThumbnailPlaceholder(event: Event): void {
+  const img = event.target as HTMLImageElement;
+  if (!img.src.endsWith(PLACEHOLDER_URL)) {
+    img.src = PLACEHOLDER_URL;
   }
 }

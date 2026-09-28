@@ -1,292 +1,134 @@
-use std::sync::Arc;
-use crate::app::{get_db_path, AppState};
-use crate::catalog::{self, Library, LibraryStats};
+use crate::app::AppState;
+use crate::catalog::{self, Library, LibraryStats, Photo, PhotoNavigation};
 use crate::scanner;
-use sqlx::{Row, SqlitePool};
+use std::path::Path;
+use std::sync::Arc;
 use tauri::{Emitter, State};
 use tauri_plugin_dialog::DialogExt;
 
-/// Create a new library
+type AppStateRef<'a> = State<'a, Arc<AppState>>;
+
+fn db_err(e: sqlx::Error) -> String {
+    tracing::error!("Database error: {}", e);
+    format!("Erro no banco de dados: {e}")
+}
+
 #[tauri::command]
 pub async fn create_library(
     name: String,
     root_path: String,
-    app_handle: tauri::AppHandle,
+    state: AppStateRef<'_>,
 ) -> Result<Library, String> {
-    let db_path = get_db_path(&app_handle)?;
-    let db_url = format!("sqlite://{}", db_path.display());
+    let name = name.trim();
+    let root_path = root_path.trim();
+    if name.is_empty() {
+        return Err("Informe o nome da biblioteca.".into());
+    }
+    if !Path::new(root_path).is_dir() {
+        return Err(format!(
+            "A pasta não existe ou não está acessível: {root_path}"
+        ));
+    }
 
-    let pool = SqlitePool::connect(&db_url).await.map_err(|e| e.to_string())?;
-
-    let id = catalog::create_library(&pool, &name, &root_path)
+    catalog::create_library(&state.pool, name, root_path)
         .await
-        .map_err(|e| e.to_string())?;
-
-    let library = catalog::get_library(&pool, &id)
-        .await
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "Library not found after creation".to_string())?;
-
-    Ok(library)
+        .map_err(db_err)
 }
 
-/// List all libraries
 #[tauri::command]
-pub async fn list_libraries(app_handle: tauri::AppHandle) -> Result<Vec<Library>, String> {
-    let db_path = get_db_path(&app_handle)?;
-    let db_url = format!("sqlite://{}", db_path.display());
-
-    let pool = SqlitePool::connect(&db_url).await.map_err(|e| e.to_string())?;
-
-    catalog::list_libraries(&pool)
-        .await
-        .map_err(|e| e.to_string())
+pub async fn list_libraries(state: AppStateRef<'_>) -> Result<Vec<Library>, String> {
+    catalog::list_libraries(&state.pool).await.map_err(db_err)
 }
 
-/// Get library statistics
 #[tauri::command]
 pub async fn get_library_stats(
     library_id: String,
-    app_handle: tauri::AppHandle,
+    state: AppStateRef<'_>,
 ) -> Result<LibraryStats, String> {
-    let db_path = get_db_path(&app_handle)?;
-    let db_url = format!("sqlite://{}", db_path.display());
-
-    let pool = SqlitePool::connect(&db_url).await.map_err(|e| e.to_string())?;
-
-    catalog::get_library_stats(&pool, &library_id)
+    catalog::get_library_stats(&state.pool, &library_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(db_err)
 }
 
-/// Start scanning a library
+/// Start scanning a library in the background.
+/// Progress: `scan_progress`; end: `scan_complete` or `scan_error`.
 #[tauri::command]
 pub async fn scan_library(
     library_id: String,
     app_handle: tauri::AppHandle,
-    app_state: State<'_, Arc<AppState>>,
+    state: AppStateRef<'_>,
 ) -> Result<(), String> {
-    let db_path = get_db_path(&app_handle)?;
-    let db_url = format!("sqlite://{}", db_path.display());
-
-    let pool = SqlitePool::connect(&db_url).await.map_err(|e| e.to_string())?;
-
-    // Get library root path
-    let library = catalog::get_library(&pool, &library_id)
+    let library = catalog::get_library(&state.pool, &library_id)
         .await
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "Library not found".to_string())?;
+        .map_err(db_err)?
+        .ok_or_else(|| "Biblioteca não encontrada.".to_string())?;
 
-    // Clone the Arc<AppState> to move into the spawned task
-    let app_state = app_state.inner().clone();
-    let app_handle_clone = app_handle.clone();
+    let guard = state
+        .scan
+        .try_start()
+        .ok_or_else(|| "Já existe um scan em andamento.".to_string())?;
+    let state = Arc::clone(state.inner());
 
-    // Run scan in background
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = scanner::scan_library(&pool, &app_state, &library_id, &library.root_path).await {
+        let _guard = guard;
+        if let Err(e) =
+            scanner::scan_library(&app_handle, &state, &library.id, &library.root_path).await
+        {
             tracing::error!("Scan failed: {}", e);
-            let _ = app_handle_clone.emit("scan_error", serde_json::json!({ "error": e }));
+            let _ = app_handle.emit(
+                "scan_error",
+                serde_json::json!({ "libraryId": library.id, "error": e }),
+            );
         }
     });
 
     Ok(())
 }
 
-/// Cancel ongoing scan
 #[tauri::command]
-pub async fn cancel_scan(app_state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    app_state.cancel_scan().await;
+pub async fn cancel_scan(state: AppStateRef<'_>) -> Result<(), String> {
+    state.scan.cancel();
     Ok(())
 }
 
-/// Get photos with pagination
 #[tauri::command]
 pub async fn get_photos(
     library_id: String,
     page: i64,
     limit: i64,
-    app_handle: tauri::AppHandle,
-) -> Result<Vec<serde_json::Value>, String> {
-    let db_path = get_db_path(&app_handle)?;
-    let db_url = format!("sqlite://{}", db_path.display());
-
-    let pool = SqlitePool::connect(&db_url).await.map_err(|e| e.to_string())?;
-
-    let offset = (page - 1) * limit;
-
-    let photos = sqlx::query(
-        r#"
-        SELECT
-            id, library_id, relative_path, filename, media_type,
-            file_size, width, height, captured_at,
-            sha256, perceptual_hash, quality_score,
-            created_at, updated_at
-        FROM photos
-        WHERE library_id = ?1
-        ORDER BY captured_at DESC
-        LIMIT ?2 OFFSET ?3
-        "#,
-    )
-    .bind(&library_id)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    let result: Vec<serde_json::Value> = photos
-        .into_iter()
-        .map(|row| {
-            serde_json::json!({
-                "id": row.get::<String, _>("id"),
-                "library_id": row.get::<String, _>("library_id"),
-                "relative_path": row.get::<String, _>("relative_path"),
-                "filename": row.get::<String, _>("filename"),
-                "media_type": row.get::<String, _>("media_type"),
-                "file_size": row.get::<i64, _>("file_size"),
-                "width": row.get::<Option<i64>, _>("width"),
-                "height": row.get::<Option<i64>, _>("height"),
-                "captured_at": row.get::<Option<String>, _>("captured_at"),
-                "sha256": row.get::<Option<String>, _>("sha256"),
-                "perceptual_hash": row.get::<Option<String>, _>("perceptual_hash"),
-                "quality_score": row.get::<Option<f64>, _>("quality_score"),
-                "created_at": row.get::<String, _>("created_at"),
-                "updated_at": row.get::<String, _>("updated_at"),
-            })
-        })
-        .collect();
-
-    Ok(result)
+    state: AppStateRef<'_>,
+) -> Result<Vec<Photo>, String> {
+    catalog::get_photos(&state.pool, &library_id, page, limit)
+        .await
+        .map_err(db_err)
 }
 
-/// Get previous and next photo IDs for navigation
+#[tauri::command]
+pub async fn get_photo(photo_id: String, state: AppStateRef<'_>) -> Result<Option<Photo>, String> {
+    catalog::get_photo(&state.pool, &photo_id)
+        .await
+        .map_err(db_err)
+}
+
 #[tauri::command]
 pub async fn get_photo_navigation(
     photo_id: String,
-    app_handle: tauri::AppHandle,
-) -> Result<serde_json::Value, String> {
-    let db_path = get_db_path(&app_handle)?;
-    let db_url = format!("sqlite://{}", db_path.display());
-
-    let pool = SqlitePool::connect(&db_url).await.map_err(|e| e.to_string())?;
-
-    // Get current photo's captured_at to determine ordering
-    let current: Option<(String,)> = sqlx::query_as(
-        "SELECT captured_at FROM photos WHERE id = ?1"
-    )
-    .bind(&photo_id)
-    .fetch_optional(&pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    let current_date = match current {
-        Some((date,)) => date,
-        None => return Ok(serde_json::json!({ "prev_id": null, "next_id": null })),
-    };
-
-    // Get previous photo (older)
-    let prev: Option<(String,)> = sqlx::query_as(
-        "SELECT id FROM photos WHERE captured_at < ?1 ORDER BY captured_at DESC LIMIT 1"
-    )
-    .bind(&current_date)
-    .fetch_optional(&pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    // Get next photo (newer)
-    let next: Option<(String,)> = sqlx::query_as(
-        "SELECT id FROM photos WHERE captured_at > ?1 ORDER BY captured_at ASC LIMIT 1"
-    )
-    .bind(&current_date)
-    .fetch_optional(&pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    Ok(serde_json::json!({
-        "prev_id": prev.map(|(id,)| id),
-        "next_id": next.map(|(id,)| id),
-    }))
-}
-
-/// Get a single photo by ID
-#[tauri::command]
-pub async fn get_photo(
-    photo_id: String,
-    app_handle: tauri::AppHandle,
-) -> Result<Option<serde_json::Value>, String> {
-    let db_path = get_db_path(&app_handle)?;
-    let db_url = format!("sqlite://{}", db_path.display());
-
-    let pool = SqlitePool::connect(&db_url).await.map_err(|e| e.to_string())?;
-
-    let photo = sqlx::query(
-        r#"
-        SELECT
-            id, library_id, relative_path, filename, media_type,
-            file_size, width, height, captured_at,
-            sha256, perceptual_hash, quality_score,
-            created_at, updated_at
-        FROM photos
-        WHERE id = ?1
-        "#,
-    )
-    .bind(&photo_id)
-    .fetch_optional(&pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    Ok(photo.map(|row| {
-        serde_json::json!({
-            "id": row.get::<String, _>("id"),
-            "library_id": row.get::<String, _>("library_id"),
-            "relative_path": row.get::<String, _>("relative_path"),
-            "filename": row.get::<String, _>("filename"),
-            "media_type": row.get::<String, _>("media_type"),
-            "file_size": row.get::<i64, _>("file_size"),
-            "width": row.get::<Option<i64>, _>("width"),
-            "height": row.get::<Option<i64>, _>("height"),
-            "captured_at": row.get::<Option<String>, _>("captured_at"),
-            "sha256": row.get::<Option<String>, _>("sha256"),
-            "perceptual_hash": row.get::<Option<String>, _>("perceptual_hash"),
-            "quality_score": row.get::<Option<f64>, _>("quality_score"),
-            "created_at": row.get::<String, _>("created_at"),
-            "updated_at": row.get::<String, _>("updated_at"),
-        })
-    }))
-}
-
-/// Get thumbnail path for a photo
-#[tauri::command]
-pub async fn get_thumbnail(
-    photo_id: String,
-    app_handle: tauri::AppHandle,
-) -> Result<Option<String>, String> {
-    let thumb_path = crate::thumbnails::get_thumbnail_path(&app_handle, &photo_id)?;
-
-    if thumb_path.exists() {
-        Ok(Some(thumb_path.to_string_lossy().to_string()))
-    } else {
-        Ok(None)
-    }
-}
-
-/// Delete a library (does NOT delete photos from disk)
-#[tauri::command]
-pub async fn delete_library(
-    library_id: String,
-    app_handle: tauri::AppHandle,
-) -> Result<(), String> {
-    let db_path = get_db_path(&app_handle)?;
-    let db_url = format!("sqlite://{}", db_path.display());
-
-    let pool = SqlitePool::connect(&db_url).await.map_err(|e| e.to_string())?;
-
-    catalog::delete_library(&pool, &library_id)
+    state: AppStateRef<'_>,
+) -> Result<PhotoNavigation, String> {
+    catalog::get_photo_navigation(&state.pool, &photo_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(db_err)
 }
 
-/// Open the native folder picker dialog and return the selected path
+/// Delete a library from the catalog (does NOT delete photos from disk).
+#[tauri::command]
+pub async fn delete_library(library_id: String, state: AppStateRef<'_>) -> Result<(), String> {
+    catalog::delete_library(&state.pool, &library_id)
+        .await
+        .map_err(db_err)
+}
+
+/// Open the native folder picker and return the selected path.
 #[tauri::command]
 pub async fn pick_folder(app_handle: tauri::AppHandle) -> Result<Option<String>, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -295,23 +137,7 @@ pub async fn pick_folder(app_handle: tauri::AppHandle) -> Result<Option<String>,
         let _ = tx.send(path.and_then(|p| p.into_path().ok()));
     });
 
-    match rx.await {
-        Ok(Some(path)) => Ok(Some(path.to_string_lossy().to_string())),
-        Ok(None) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-/// Get thumbnail as base64 data URL for direct use in <img> tags
-#[tauri::command]
-pub async fn get_thumbnail_data_url(photo_id: String, app_handle: tauri::AppHandle) -> Result<Option<String>, String> {
-    let thumb_path = crate::thumbnails::get_thumbnail_path(&app_handle, &photo_id)?;
-
-    if !thumb_path.exists() {
-        return Ok(None);
-    }
-
-    let data = std::fs::read(&thumb_path).map_err(|e| e.to_string())?;
-    let base64 = base64::encode(&data);
-    Ok(Some(format!("data:image/webp;base64,{}", base64)))
+    rx.await
+        .map(|path| path.map(|p| p.to_string_lossy().into_owned()))
+        .map_err(|e| e.to_string())
 }

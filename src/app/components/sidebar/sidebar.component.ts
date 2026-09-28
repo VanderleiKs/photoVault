@@ -23,7 +23,7 @@ import { Library } from '../../models/photo';
 
         <div class="nav-section-title">Navegação</div>
 
-        <a [routerLink]="['/library', library()?.id]" routerLinkActive="active" class="nav-link">
+        <a [routerLink]="['/library', library()?.id]" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="nav-link">
           <i class="pi pi-images"></i>
           <span>Todas</span>
         </a>
@@ -33,10 +33,10 @@ import { Library } from '../../models/photo';
           <span>Timeline</span>
         </a>
 
-        <a [routerLink]="['/library', library()?.id]" class="nav-link">
+        <span class="nav-link disabled" title="Em breve">
           <i class="pi pi-map-marker"></i>
           <span>Viagens</span>
-        </a>
+        </span>
 
         <div class="nav-section-title">Organizar</div>
 
@@ -45,10 +45,10 @@ import { Library } from '../../models/photo';
           <span>Duplicatas</span>
         </a>
 
-        <a [routerLink]="['/library', library()?.id]" class="nav-link">
+        <span class="nav-link disabled" title="Em breve">
           <i class="pi pi-check-circle"></i>
           <span>Revisão</span>
-        </a>
+        </span>
       </nav>
 
       <!-- Footer -->
@@ -95,6 +95,12 @@ import { Library } from '../../models/photo';
     .nav-link:hover {
       background: var(--pv-surface-alt);
       color: var(--pv-text);
+    }
+
+    .nav-link.disabled {
+      opacity: 0.45;
+      cursor: default;
+      pointer-events: none;
     }
 
     .nav-link.active {

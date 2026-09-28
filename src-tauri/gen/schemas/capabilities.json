@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"Permissões da janela principal. O frontend não acessa o filesystem diretamente.","local":true,"windows":["main"],"permissions":["core:default"]}}
