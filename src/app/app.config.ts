@@ -14,6 +14,7 @@ import { routes } from './app.routes';
 import { AppStore } from './core/stores/app.store';
 import { LibraryStore } from './core/stores/library.store';
 import { ScanStore } from './core/stores/scan.store';
+import { JobStore } from './core/stores/job.store';
 
 /** Aura with a blue primary palette. */
 const PhotoVaultPreset = definePreset(Aura, {
@@ -34,13 +35,18 @@ const PhotoVaultPreset = definePreset(Aura, {
   },
 });
 
-/** Load settings, libraries and any running scan before the first route renders. */
+/** Load settings, libraries, any running scan and the analysis queue before the first route renders. */
 async function bootstrapStores() {
   const app = inject(AppStore);
   const libraries = inject(LibraryStore);
   const scan = inject(ScanStore);
+  const jobs = inject(JobStore);
   await app.init();
-  await Promise.all([libraries.load().catch(() => {}), scan.init().catch(() => {})]);
+  await Promise.all([
+    libraries.load().catch(() => {}),
+    scan.init().catch(() => {}),
+    jobs.init().catch(() => {}),
+  ]);
 }
 
 export const appConfig: ApplicationConfig = {

@@ -9,13 +9,17 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 ];
 const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mov", "m4v", "mkv", "avi", "webm", "3gp"];
 
-/// Directories never indexed: system folders and PhotoVault's own trash.
+/// Directories never indexed besides hidden ones (`.photovault-trash`, `.Trash-1000`,
+/// `.thumbnails`…): OS and NAS system folders.
 const IGNORED_DIRS: &[&str] = &[
-    ".photovault-trash",
     "$RECYCLE.BIN",
     "System Volume Information",
     "@eaDir",
+    "#recycle",
 ];
+
+/// Smaller files are icons, stubs or broken copies, not photos (PRD §8.2).
+pub const MIN_FILE_SIZE: u64 = 1024;
 
 /// A folder on a local or external drive.
 pub struct LocalFolderSource {
@@ -45,7 +49,9 @@ impl MediaSource for LocalFolderSource {
         let walker = WalkDir::new(&self.root)
             .follow_links(false)
             .into_iter()
-            .filter_entry(|e| !(e.file_type().is_dir() && is_ignored_dir(e.file_name())));
+            .filter_entry(|e| {
+                e.depth() == 0 || !(e.file_type().is_dir() && is_ignored_dir(e.file_name()))
+            });
 
         Box::new(walker.filter_map(move |entry| {
             let entry = entry
@@ -55,12 +61,19 @@ impl MediaSource for LocalFolderSource {
                 return None;
             }
             let path = entry.path();
+            // macOS AppleDouble files ("._IMG_1234.jpg") only hold resource forks.
+            if entry.file_name().to_string_lossy().starts_with("._") {
+                return None;
+            }
             let (extension, media_type) = classify(path)?;
             let relative_path = normalize_relative_path(&self.root, path)?;
             let metadata = entry
                 .metadata()
                 .inspect_err(|e| tracing::warn!("Skipping {}: {e}", path.display()))
                 .ok()?;
+            if metadata.len() < MIN_FILE_SIZE {
+                return None;
+            }
             let modified = metadata
                 .modified()
                 .ok()
@@ -85,7 +98,8 @@ impl MediaSource for LocalFolderSource {
 }
 
 fn is_ignored_dir(name: &std::ffi::OsStr) -> bool {
-    IGNORED_DIRS.iter().any(|d| name.eq_ignore_ascii_case(d))
+    name.to_string_lossy().starts_with('.')
+        || IGNORED_DIRS.iter().any(|d| name.eq_ignore_ascii_case(d))
 }
 
 fn classify(path: &Path) -> Option<(String, MediaType)> {

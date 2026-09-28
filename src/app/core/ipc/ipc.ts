@@ -42,9 +42,17 @@ export function errorMessage(e: unknown): string {
 
 export const PLACEHOLDER_URL = 'assets/placeholder.svg';
 
-/** 256px thumbnail served by the `pv://` protocol. */
-export function thumbnailUrl(mediaId: string): string {
-  return isTauri() ? convertFileSrc(`thumb/${mediaId}`, 'pv') : PLACEHOLDER_URL;
+/**
+ * 256px thumbnail served by the `pv://` protocol. `version` (`MediaItem.thumbVersion`)
+ * changes when the thumbnail is regenerated, so the WebView cache is never stale.
+ */
+export function thumbnailUrl(mediaId: string, version = 0): string {
+  return isTauri() ? convertFileSrc(`thumb/${mediaId}?v=${version}`, 'pv') : PLACEHOLDER_URL;
+}
+
+/** 1024px WebP: viewer fallback for formats the WebView can't decode (HEIC, TIFF). */
+export function previewUrl(mediaId: string, version = 0): string {
+  return isTauri() ? convertFileSrc(`preview/${mediaId}?v=${version}`, 'pv') : PLACEHOLDER_URL;
 }
 
 /** Original file (image or video, with Range support) served by `pv://`. */

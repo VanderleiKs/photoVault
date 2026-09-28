@@ -5,6 +5,7 @@ mod protocol;
 mod state;
 
 use photovault_core::db;
+use photovault_core::jobs::JobRunner;
 use photovault_core::paths::AppPaths;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
@@ -15,7 +16,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 /// Commands and events exposed to the frontend (single source for the TS bindings).
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
-    use commands::{libraries, media, scan, system};
+    use commands::{jobs, libraries, media, scan, system};
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(collect_commands![
             system::get_app_info,
@@ -36,11 +37,18 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             media::list_media,
             media::get_media,
             media::get_media_navigation,
+            jobs::get_job_progress,
+            jobs::pause_jobs,
+            jobs::resume_jobs,
+            jobs::list_job_failures,
+            jobs::retry_failed_jobs,
         ])
         .events(collect_events![
             events::ScanProgressEvent,
             events::ScanCompleteEvent,
             events::ScanErrorEvent,
+            events::JobProgressEvent,
+            events::MediaUpdatedEvent,
         ])
 }
 
@@ -72,7 +80,11 @@ pub fn run() {
     let file_appender = tracing_appender::rolling::daily(&paths.logs_dir, "photovault.log");
     let (file_writer, _log_guard) = tracing_appender::non_blocking(file_appender);
     tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        // nom-exif logs every tag at INFO and "GPS not found" at WARN for each file.
+        .with(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("info,nom_exif=error")),
+        )
         .with(fmt::layer().with_writer(std::io::stderr))
         .with(fmt::layer().with_ansi(false).with_writer(file_writer))
         .init();
@@ -105,10 +117,18 @@ pub fn run() {
                 tauri::async_runtime::block_on(db::open(&paths.db_path, &paths.thumbnails_dir))
                     .inspect_err(|e| tracing::error!("Database initialization failed: {e}"))?;
 
+            let jobs = tauri::async_runtime::block_on(JobRunner::new(
+                database.pool.clone(),
+                paths.thumbnails_dir.clone(),
+                Arc::new(events::TauriJobObserver(app.handle().clone())),
+            ))?;
+            tauri::async_runtime::spawn(Arc::clone(&jobs).run());
+
             app.manage(Arc::new(state::AppState {
                 pool: database.pool,
                 paths: paths.clone(),
                 scan: Default::default(),
+                jobs,
                 scanning_library: Mutex::new(None),
                 archived_legacy_catalog: database.archived_legacy_catalog,
             }));

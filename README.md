@@ -53,24 +53,30 @@ PhotoVault/
 
 Sem o `portable.flag`, os dados vão para a pasta de dados do sistema. O CI gera os dois pacotes automaticamente a cada tag `v*` (`.github/workflows/release.yml`).
 
-## Estado atual (v0.3, Fase 1)
+## Estado atual (v0.4, Fase 2)
 
 Funciona hoje:
 
 - Layout novo (sidebar, topbar, painel de informações), tema claro e escuro, layout responsivo
 - Várias bibliotecas: adicionar, trocar a ativa, renomear, relocalizar (quando o disco muda de letra ou de ponto de montagem) e remover do catálogo
-- Scan incremental (tamanho + data de modificação) com progresso, cancelamento e galeria atualizada durante o scan
+- Scan incremental rápido (novos, modificados, ausentes, restaurados e movidos, preservando favoritos)
+- Análise em segundo plano, com pausa e retomada, que continua depois de fechar o app:
+  - data do EXIF (ou do nome do arquivo);
+  - câmera, lente e exposição;
+  - local offline a partir do GPS;
+  - miniaturas corretamente orientadas;
+  - hashes para duplicatas.
 - Galeria com rolagem infinita, timeline por mês e visualizador (zoom, teclado, vídeo)
+- Diagnóstico de arquivos com problema em Configurações
 - Modo portátil real no Windows e no Linux
 
 Ainda não funciona:
 
-- Data EXIF (hoje é usada a data de modificação do arquivo)
-- HEIC
+- Miniaturas de HEIC (os metadados já são lidos)
 - Miniaturas de vídeo
 - Busca
 - Álbuns
-- Duplicatas e análise
+- Tela de duplicatas
 
 Veja o [plano](docs/PLANO.md).
 

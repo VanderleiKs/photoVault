@@ -60,3 +60,59 @@ const DATE_SOURCES: Record<string, string> = {
 export function describeDateSource(source: string | null): string | null {
   return source ? (DATE_SOURCES[source] ?? source) : null;
 }
+
+const countryNames = new Intl.DisplayNames(['pt-BR'], { type: 'region' });
+
+/** "Canela", "RS", "BR" → "Canela, RS · Brasil". */
+export function formatPlace(
+  name: string | null,
+  admin1: string | null,
+  country: string | null,
+): string | null {
+  if (!name) return null;
+  const city = admin1 ? `${name}, ${admin1}` : name;
+  if (!country) return city;
+  let countryName = country;
+  try {
+    countryName = countryNames.of(country) ?? country;
+  } catch {
+    // Unknown code: show it as is.
+  }
+  return `${city} · ${countryName}`;
+}
+
+/** "Apple" + "iPhone 15 Pro" → "Apple iPhone 15 Pro"; avoids "Canon Canon EOS R6". */
+export function formatCamera(make: string | null, model: string | null): string | null {
+  if (!model) return make;
+  if (!make || model.toLowerCase().startsWith(make.toLowerCase())) return model;
+  return `${make} ${model}`;
+}
+
+const decimal = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+
+/** "f/1,8 · 1/1200 s · ISO 32 · 24 mm" (missing parts are skipped). */
+export function formatExposure(m: {
+  aperture: number | null;
+  shutter: string | null;
+  iso: number | null;
+  focalLength: number | null;
+}): string | null {
+  const parts = [
+    m.aperture ? `f/${decimal(m.aperture)}` : null,
+    m.shutter ? `${m.shutter} s` : null,
+    m.iso ? `ISO ${m.iso}` : null,
+    m.focalLength ? `${decimal(m.focalLength)} mm` : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
+}
+
+/** Seconds → "menos de 1 min" / "~12 min" / "~2 h 5 min". */
+export function formatEta(seconds: number | null): string | null {
+  if (seconds == null) return null;
+  if (seconds < 60) return 'menos de 1 min';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `~${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `~${h} h ${m} min` : `~${h} h`;
+}

@@ -38,8 +38,8 @@ export class InfoPanelComponent {
   private readonly router = inject(Router);
 
   protected readonly thumb = computed(() => {
-    const id = this.media.selectedId();
-    return id ? thumbnailUrl(id) : '';
+    const item = this.media.selected();
+    return item ? thumbnailUrl(item.id, item.thumbVersion) : '';
   });
 
   protected open(id: string) {

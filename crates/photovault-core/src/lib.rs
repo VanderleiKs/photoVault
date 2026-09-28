@@ -8,6 +8,7 @@ pub mod catalog;
 pub mod db;
 pub mod error;
 pub mod ingestion;
+pub mod jobs;
 pub mod paths;
 pub mod thumbnails;
 pub mod volume;

@@ -176,22 +176,34 @@ catálogo v0.x arquivado com as 3 bibliotecas mantidas; onboarding numa instala�
 
 ---
 
-### Fase 2 — Ingestão completa (≈ 2,5 semanas) → `v0.4`
+### Fase 2 — Ingestão completa (≈ 2,5 semanas) → `v0.4` ✅ implementada, exceto HEIC e miniaturas de vídeo (branch `fase-2-ingestao`)
 
-- [ ] Scanner: exclusões (PRD 8.2), lock por biblioteca, `CancellationToken`
-- [ ] Diff incremental completo: novo, modificado (size + mtime com tolerância), ausente (`missing`), movido (via sha256)
-- [ ] Módulo `jobs`: fila persistida, estágios idempotentes, retomada após reiniciar, pausar/retomar, rayon + semáforo de I/O configurável
-- [ ] Progresso via `Channel` com fases, contadores e ETA; resumo final
-- [ ] Metadados: `nom-exif` (EXIF + QuickTime), fallback de data com `date_source`, data a partir do nome do arquivo, orientação
-- [ ] Miniaturas 256 e 1024 (`fast_image_resize`), WebP **com perda** (crate `webp`), com orientação aplicada
-- [ ] SHA-256 em streaming e pHash
-- [ ] HEIC atrás da feature `heic` (libheif empacotada no build Windows e no AppImage)
-- [ ] Vídeo: duração e metadados; miniatura com o sidecar ffmpeg (feature `video-thumbs`)
-- [ ] Geocodificação offline de GPS para `places`
-- [ ] Tela Configurações → Diagnóstico (jobs com falha)
-- [ ] Fixtures de teste: JPEG com e sem EXIF, rotacionado, HEIC, PNG screenshot, corrompido, vídeo curto. Teste que confirma que os originais não mudam (hash da pasta antes e depois).
+- [x] Scanner: exclusões (pastas ocultas, `$RECYCLE.BIN`, `System Volume Information`, `@eaDir`, `#recycle`, AppleDouble `._*`, arquivos < 1 KB), lock por biblioteca e cancelamento (já existiam); scan agora só descobre e compara, sem decodificar (21 mil arquivos/s)
+- [x] Diff incremental completo: novo, modificado (size + mtime ± 2 s), ausente (`missing`, nunca apagado), restaurado, **movido** (SHA-256 igual ao de um `missing` → religa ao registro antigo, preservando id e favoritos); pasta vazia com catálogo cheio é recusada (disco desmontado)
+- [x] Módulo `jobs`: fila persistida em `jobs`, job `ingest` idempotente, retomada após reiniciar (`running` → `queued`), pausar/retomar (inclusive no meio de um lote), workers `spawn_blocking` limitados por semáforo de CPU + portão de I/O configurável; bibliotecas desconectadas ficam na fila
+- [x] Progresso via eventos (`JobProgressEvent`: fila, feitos, falhas, itens/min, ETA; `MediaUpdatedEvent` em lote), no lugar de `Channel`
+- [x] Metadados: `nom-exif` (EXIF + trilha de vídeo MP4/MOV), cadeia de data com `date_source` (EXIF original → EXIF DateTime → contêiner → nome do arquivo → mtime), data a partir de `IMG_20250712_143201`, `PXL_…`, `IMG-…-WA…`, `Screenshot_…`; fuso do EXIF guardado em `captured_at_local`
+- [x] Miniaturas 256 e 1024 (`fast_image_resize` Lanczos3), WebP com perda (q80, `method 2`), orientação aplicada; `thumb_version` evita cache velho no WebView; `pv://preview` para o visualizador
+- [x] SHA-256 (streaming para vídeo) e pHash (gradiente 64 bits, `phash_distance`)
+- [ ] HEIC atrás da feature `heic` (libheif empacotada): **pendente**. Hoje o HEIC é catalogado com EXIF completo (data, câmera, GPS) e o job fica `skipped`, sem miniatura
+- [~] Vídeo: duração, dimensões, data e GPS do contêiner ✅; miniatura com sidecar ffmpeg (feature `video-thumbs`): **pendente**
+- [x] Geocodificação offline (`reverse_geocoder`, GeoNames embutido) → `places` (estados do Brasil como sigla, país localizado na interface)
+- [x] Configurações → "Análise em segundo plano": estado, pausar/retomar, lista de arquivos com problema e "Reprocessar"; indicador compacto na galeria
+- [x] Fixtures em `crates/photovault-core/tests/fixtures/` (EXIF completo e rotacionado, só DateTime, sem EXIF com data no nome, par para pHash) + corrompido/HEIC gerados nos testes; teste que compara o conteúdo da pasta antes e depois. Teste `local_samples` (ignorado) roda com arquivos reais via `PV_SAMPLE_VIDEO`/`PV_SAMPLE_HEIC`
 
 **Aceite:** 50 mil arquivos num HD USB indexados em menos de 5 min (estágios básicos); reescanear processa só a diferença; arquivos corrompidos aparecem no diagnóstico sem parar o scan.
+
+**Medições (2026-09-28, i7-1255U 15 W, SSD, `ingest_bench`, fotos de 12 MP):**
+- Estágios básicos (descoberta + diff + gravação no catálogo): **15.840 arquivos em 0,74 s**. O aceite de 50 mil em menos de 5 min está folgado no SSD; falta medir num HD USB real.
+- Análise completa (hash, EXIF, 2 miniaturas, pHash, local): **64,7 arquivos/s** (v0.3: 16–25/s). 100 mil fotos ≈ 26 min em segundo plano, com a galeria navegável desde o início. O gargalo restante é a decodificação JPEG (~80 ms por foto de 12 MP); o próximo ganho é decodificar reduzido via DCT.
+- Otimizações aplicadas: WebP `method 2` (2,5× mais rápido que o padrão, arquivo ~5% maior, sem diferença visível) e nenhuma cópia do buffer RGB.
+
+**Validação no app (`tauri dev`, catálogo v0.3 migrado):** ✅ os 86 itens antigos voltaram para a fila e foram reprocessados; o painel mostra "Canela, RS · Brasil", "Apple iPhone 15 Pro" + lente e "f/1,8 · 1/1200 s · ISO 32 · 24 mm"; data do EXIF e dimensões com rotação corretas; as miniaturas aparecem sozinhas conforme a análise avança; o indicador mostra fila e ETA; a pausa congela a fila (165 → 162 em 4 s, só o que já estava em andamento); o JPG corrompido aparece em "Arquivos com problema".
+**Bug encontrado e corrigido na validação:** pausar só valia para o lote seguinte (um lote de 198 arquivos continuava rodando); agora as tarefas conferem a pausa e voltam para a fila (teste `pause_stops_a_batch_midway`).
+
+**Achados:**
+- Um arquivo que passa a ser filtrado (por exemplo, < 1 KB) vira `missing` no próximo scan, embora continue no disco. Aceitável, mas pode confundir numa futura tela de "arquivos ausentes".
+- A ordem da galeria muda quando a data do EXIF substitui a provisória: ela é reordenada quando a fila esvazia, se o usuário estiver na primeira página; mais abaixo, só ao recarregar.
 
 ---
 
@@ -300,5 +312,6 @@ catálogo v0.x arquivado com as 3 bibliotecas mantidas; onboarding numa instala�
 
 ## 6. Próximo passo imediato
 
-1. Validar as Fases 0 e 1 no Windows 11 (zip gerado pelo `release.yml` ou `npx tauri build --no-bundle && npm run package:portable`).
-2. Iniciar a **Fase 2**, começando pela fila de jobs paralela (rayon + semáforo de I/O), que resolve a vazão do scan, e pelo EXIF (`nom-exif`).
+1. Validar as Fases 0–2 no Windows 11 (zip do `release.yml` ou `npx tauri build --no-bundle && npm run package:portable`), incluindo um HD USB real para o aceite de 50 mil arquivos.
+2. Decidir o empacotamento da libheif (HEIC) e do ffmpeg (miniaturas de vídeo): os dois pendentes da Fase 2.
+3. Iniciar a **Fase 3** (catálogo e navegação: busca FTS5, favoritos, álbuns, filtros).

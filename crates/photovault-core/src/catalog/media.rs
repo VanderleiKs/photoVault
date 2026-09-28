@@ -39,7 +39,22 @@ pub struct MediaItem {
     pub date_source: Option<String>,
     pub camera_make: Option<String>,
     pub camera_model: Option<String>,
+    pub lens: Option<String>,
+    pub iso: Option<u32>,
+    pub aperture: Option<f64>,
+    /// "1/1200", "2"…
+    pub shutter: Option<String>,
+    pub focal_length: Option<f64>,
+    pub gps_lat: Option<f64>,
+    pub gps_lon: Option<f64>,
+    pub place_name: Option<String>,
+    /// State; Brazilian states as their code ("RS").
+    pub place_admin1: Option<String>,
+    /// ISO 3166-1 alpha-2 ("BR").
+    pub place_country: Option<String>,
     pub is_favorite: bool,
+    /// 0 = thumbnails not generated yet; bumps when they are rewritten.
+    pub thumb_version: u32,
     pub indexed_at: String,
 }
 
@@ -59,7 +74,18 @@ struct MediaRow {
     date_source: Option<String>,
     camera_make: Option<String>,
     camera_model: Option<String>,
+    lens: Option<String>,
+    iso: Option<i64>,
+    aperture: Option<f64>,
+    shutter: Option<String>,
+    focal_length: Option<f64>,
+    gps_lat: Option<f64>,
+    gps_lon: Option<f64>,
+    place_name: Option<String>,
+    place_admin1: Option<String>,
+    place_country: Option<String>,
     is_favorite: bool,
+    thumb_version: i64,
     indexed_at: String,
 }
 
@@ -81,7 +107,18 @@ impl From<MediaRow> for MediaItem {
             date_source: r.date_source,
             camera_make: r.camera_make,
             camera_model: r.camera_model,
+            lens: r.lens,
+            iso: small(r.iso),
+            aperture: r.aperture,
+            shutter: r.shutter,
+            focal_length: r.focal_length,
+            gps_lat: r.gps_lat,
+            gps_lon: r.gps_lon,
+            place_name: r.place_name,
+            place_admin1: r.place_admin1,
+            place_country: r.place_country,
             is_favorite: r.is_favorite,
+            thumb_version: small(Some(r.thumb_version)).unwrap_or(0),
             indexed_at: r.indexed_at,
         }
     }
@@ -107,9 +144,13 @@ pub struct MediaNavigation {
     pub total: u32,
 }
 
-const COLUMNS: &str = "id, library_id, relative_path, filename, extension, media_type, file_size, \
-     width, height, duration_ms, captured_at, date_source, camera_make, camera_model, \
-     is_favorite, indexed_at";
+/// Columns of `MediaRow`, selected `FROM media m LEFT JOIN places p`.
+const COLUMNS: &str = "m.id, m.library_id, m.relative_path, m.filename, m.extension, m.media_type, \
+     m.file_size, m.width, m.height, m.duration_ms, m.captured_at, m.date_source, \
+     m.camera_make, m.camera_model, m.lens, m.iso, m.aperture, m.shutter, m.focal_length, \
+     m.gps_lat, m.gps_lon, p.name AS place_name, p.admin1 AS place_admin1, \
+     p.country_code AS place_country, m.is_favorite, m.thumb_version, m.indexed_at";
+const FROM: &str = "FROM media m LEFT JOIN places p ON p.id = m.place_id";
 
 const MAX_PAGE: u32 = 500;
 const CURSOR_SEP: char = '\u{1f}';
@@ -142,10 +183,10 @@ pub async fn list(
     };
 
     let mut rows: Vec<(MediaRow, String)> = sqlx::query_as::<_, MediaRow>(&format!(
-        "SELECT {COLUMNS} FROM media
-         WHERE library_id = ?1 AND status = 'active'
-           AND (?2 IS NULL OR (sort_key, id) < (?2, ?3))
-         ORDER BY sort_key DESC, id DESC
+        "SELECT {COLUMNS} {FROM}
+         WHERE m.library_id = ?1 AND m.status = 'active'
+           AND (?2 IS NULL OR (m.sort_key, m.id) < (?2, ?3))
+         ORDER BY m.sort_key DESC, m.id DESC
          LIMIT ?4"
     ))
     .bind(library_id)
@@ -174,12 +215,34 @@ pub async fn list(
 }
 
 pub async fn get(pool: &SqlitePool, id: &str) -> Result<MediaItem> {
-    sqlx::query_as::<_, MediaRow>(&format!("SELECT {COLUMNS} FROM media WHERE id = ?1"))
+    sqlx::query_as::<_, MediaRow>(&format!("SELECT {COLUMNS} {FROM} WHERE m.id = ?1"))
         .bind(id)
         .fetch_optional(pool)
         .await?
         .map(Into::into)
         .ok_or(Error::MediaNotFound)
+}
+
+/// Several items by id (order not guaranteed; unknown ids are skipped).
+pub async fn get_many(pool: &SqlitePool, ids: &[String]) -> Result<Vec<MediaItem>> {
+    let mut items = Vec::with_capacity(ids.len());
+    // SQLite caps bound parameters; 500 per query is well within it.
+    for chunk in ids.chunks(500) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let sql = format!("SELECT {COLUMNS} {FROM} WHERE m.id IN ({placeholders})");
+        let mut query = sqlx::query_as::<_, MediaRow>(&sql);
+        for id in chunk {
+            query = query.bind(id);
+        }
+        items.extend(
+            query
+                .fetch_all(pool)
+                .await?
+                .into_iter()
+                .map(MediaItem::from),
+        );
+    }
+    Ok(items)
 }
 
 /// Neighbours and position of a media item in gallery order, within its library.

@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { MessageService } from '@openng/optimus-ui/api';
 import type { MediaItem, MediaPage } from '../ipc/ipc';
 import { fakeBackend, ok, pretendTauri } from '../testing/fake-backend';
+import { JobStore } from './job.store';
 import { MediaStore } from './media.store';
 
 const item = (id: string): MediaItem => ({
@@ -20,7 +21,18 @@ const item = (id: string): MediaItem => ({
   dateSource: null,
   cameraMake: null,
   cameraModel: null,
+  lens: null,
+  iso: null,
+  aperture: null,
+  shutter: null,
+  focalLength: null,
+  gpsLat: null,
+  gpsLon: null,
+  placeName: null,
+  placeAdmin1: null,
+  placeCountry: null,
   isFavorite: false,
+  thumbVersion: 0,
   indexedAt: '',
 });
 
@@ -70,5 +82,22 @@ describe('MediaStore', () => {
     releaseOld();
     await pending;
     expect(store.items().map((m) => m.id)).toEqual(['fresh']);
+  });
+
+  it('patches analysed items in place and drops merged ones', async () => {
+    const store = setup(() => ok({ items: [item('a'), item('b'), item('c')], nextCursor: null }));
+    TestBed.tick(); // initial effects (no active library in the fake)
+    await store.reset('lib');
+    store.select(store.items()[1]);
+
+    const analysed = { ...item('a'), thumbVersion: 1, cameraModel: 'iPhone 15 Pro' };
+    TestBed.inject(JobStore).lastUpdate.set({ items: [analysed], removedIds: ['b'] });
+    TestBed.tick();
+
+    expect(store.items().map((m) => [m.id, m.thumbVersion])).toEqual([
+      ['a', 1],
+      ['c', 0],
+    ]);
+    expect(store.selected()).toBeNull();
   });
 });

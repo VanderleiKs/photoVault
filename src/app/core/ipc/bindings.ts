@@ -42,10 +42,20 @@ export const commands = {
 	listMedia: (libraryId: string, cursor: string | null, limit: number) => typedError<MediaPage, ApiError>(__TAURI_INVOKE("list_media", { libraryId, cursor, limit })),
 	getMedia: (mediaId: string) => typedError<MediaItem, ApiError>(__TAURI_INVOKE("get_media", { mediaId })),
 	getMediaNavigation: (mediaId: string) => typedError<MediaNavigation, ApiError>(__TAURI_INVOKE("get_media_navigation", { mediaId })),
+	/**  State of the background analysis queue. */
+	getJobProgress: () => typedError<JobProgress, ApiError>(__TAURI_INVOKE("get_job_progress")),
+	pauseJobs: () => typedError<JobProgress, ApiError>(__TAURI_INVOKE("pause_jobs")),
+	resumeJobs: () => typedError<JobProgress, ApiError>(__TAURI_INVOKE("resume_jobs")),
+	/**  Files the pipeline could not fully process (unsupported format, corrupt, unreadable). */
+	listJobFailures: (limit: number) => typedError<JobFailure[], ApiError>(__TAURI_INVOKE("list_job_failures", { limit })),
+	/**  Re-queue every failed item. Returns how many. */
+	retryFailedJobs: () => typedError<number, ApiError>(__TAURI_INVOKE("retry_failed_jobs")),
 };
 
 /** Events */
 export const events = {
+	jobProgressEvent: makeEvent<JobProgressEvent>("job-progress-event"),
+	mediaUpdatedEvent: makeEvent<MediaUpdatedEvent>("media-updated-event"),
 	scanCompleteEvent: makeEvent<ScanCompleteEvent>("scan-complete-event"),
 	scanErrorEvent: makeEvent<ScanErrorEvent>("scan-error-event"),
 	scanProgressEvent: makeEvent<ScanProgressEvent>("scan-progress-event"),
@@ -86,6 +96,32 @@ export type DataMode =
 /**  OS data directory (no flag, or the app folder is read-only). */
 "system";
 
+export type JobFailure = {
+	mediaId: string,
+	libraryName: string,
+	relativePath: string,
+	error: string,
+	attempts: number,
+	updatedAt: string,
+};
+
+export type JobProgress = {
+	/**  Working right now (false when idle or paused). */
+	active: boolean,
+	paused: boolean,
+	/**  Waiting to be processed (includes items of disconnected libraries). */
+	queued: number,
+	/**  Processed since the queue last became busy. */
+	doneInSession: number,
+	/**  Items with a problem (see diagnostics). */
+	failed: number,
+	perMinute: number,
+	etaSeconds: number | null,
+	currentPath: string | null,
+};
+
+export type JobProgressEvent = JobProgress;
+
 export type Library = {
 	id: string,
 	uid: string,
@@ -120,7 +156,22 @@ export type MediaItem = {
 	dateSource: string | null,
 	cameraMake: string | null,
 	cameraModel: string | null,
+	lens: string | null,
+	iso: number | null,
+	aperture: number | null,
+	/**  "1/1200", "2"… */
+	shutter: string | null,
+	focalLength: number | null,
+	gpsLat: number | null,
+	gpsLon: number | null,
+	placeName: string | null,
+	/**  State; Brazilian states as their code ("RS"). */
+	placeAdmin1: string | null,
+	/**  ISO 3166-1 alpha-2 ("BR"). */
+	placeCountry: string | null,
 	isFavorite: boolean,
+	/**  0 = thumbnails not generated yet; bumps when they are rewritten. */
+	thumbVersion: number,
 	indexedAt: string,
 };
 
@@ -141,6 +192,15 @@ export type MediaPage = {
 };
 
 export type MediaType = "image" | "video";
+
+/**
+ *  Items whose metadata/thumbnails changed; `removedIds` were merged into another
+ *  record (moved files).
+ */
+export type MediaUpdatedEvent = {
+	items: MediaItem[],
+	removedIds: string[],
+};
 
 export type ScanCompleteEvent = ScanSummary;
 
@@ -168,6 +228,10 @@ export type ScanSummary = {
 	processed: number,
 	newFiles: number,
 	modifiedFiles: number,
+	/**  Catalogued files no longer found (kept as `missing`, never deleted). */
+	missingFiles: number,
+	/**  Previously missing files that are back. */
+	restoredFiles: number,
 	errors: number,
 	cancelled: boolean,
 };

@@ -8,6 +8,8 @@ import { Backend } from '../../core/ipc/backend';
 import { unwrap, type Theme } from '../../core/ipc/ipc';
 import { NotifyService } from '../../core/notify.service';
 import { AppStore } from '../../core/stores/app.store';
+import { JobStore } from '../../core/stores/job.store';
+import { formatCount, formatEta } from '../../core/format';
 
 @Component({
   selector: 'app-settings-page',
@@ -38,7 +40,7 @@ import { AppStore } from '../../core/stores/app.store';
 
       <section class="rounded-card border border-line bg-panel p-5">
         <h2 class="font-semibold">Desempenho</h2>
-        <p class="mt-1 text-sm text-muted">Usado pela análise em segundo plano (a partir da Fase 2). Em HD externo USB, mantenha poucas leituras paralelas.</p>
+        <p class="mt-1 text-sm text-muted">Usado pela análise em segundo plano (EXIF, miniaturas e hashes). Em HD externo USB, mantenha poucas leituras paralelas. Vale a partir do próximo lote.</p>
         <div class="mt-4 grid gap-4 sm:grid-cols-2">
           <label class="flex flex-col gap-1.5">
             <span class="text-sm">Leituras de disco em paralelo</span>
@@ -49,6 +51,41 @@ import { AppStore } from '../../core/stores/app.store';
             <p-inputnumber [ngModel]="app.settings().cpuConcurrency" (ngModelChange)="save({ cpuConcurrency: $event })" [min]="0" [max]="64" [showButtons]="true" />
           </label>
         </div>
+      </section>
+
+      <section class="rounded-card border border-line bg-panel p-5">
+        <div class="flex flex-wrap items-center gap-3">
+          <h2 class="flex-1 font-semibold">Análise em segundo plano</h2>
+          @if (jobs.progress(); as p) {
+            <p-button
+              [label]="p.paused ? 'Retomar' : 'Pausar'"
+              [icon]="p.paused ? 'pi pi-play' : 'pi pi-pause'"
+              size="small"
+              severity="secondary"
+              [outlined]="true"
+              (onClick)="p.paused ? jobs.resume() : jobs.pause()"
+            />
+          }
+        </div>
+        <p class="mt-1 text-sm text-muted">{{ jobSummary() }}</p>
+
+        @if (jobs.progress()?.failed) {
+          <div class="mt-4 flex flex-wrap items-center gap-3">
+            <h3 class="flex-1 text-sm font-semibold">Arquivos com problema ({{ jobs.progress()!.failed }})</h3>
+            <p-button label="Ver detalhes" icon="pi pi-list" size="small" [text]="true" (onClick)="jobs.loadFailures()" />
+            <p-button label="Reprocessar" icon="pi pi-refresh" size="small" severity="secondary" [outlined]="true" (onClick)="jobs.retryFailed()" />
+          </div>
+          @if (jobs.failures().length) {
+            <ul class="mt-2 max-h-72 divide-y divide-line overflow-auto rounded-lg border border-line text-[13px]">
+              @for (f of jobs.failures(); track f.mediaId) {
+                <li class="px-3 py-2">
+                  <p class="break-all font-mono text-xs">{{ f.libraryName }} / {{ f.relativePath }}</p>
+                  <p class="mt-0.5 text-muted">{{ f.error }}</p>
+                </li>
+              }
+            </ul>
+          }
+        }
       </section>
 
       @if (app.info(); as info) {
@@ -86,6 +123,18 @@ import { AppStore } from '../../core/stores/app.store';
 })
 export class SettingsPage {
   protected readonly app = inject(AppStore);
+  protected readonly jobs = inject(JobStore);
+
+  protected readonly jobSummary = computed(() => {
+    const p = this.jobs.progress();
+    if (!p) return 'Indisponível.';
+    if (p.queued === 0) return 'Tudo analisado.';
+    const count = `${formatCount(p.queued)} arquivo(s) na fila`;
+    if (p.paused) return `Pausada · ${count}.`;
+    const speed = p.perMinute ? ` · ${formatCount(p.perMinute)}/min` : '';
+    const eta = formatEta(p.etaSeconds);
+    return `${count}${speed}${eta ? ` · termina em ${eta}` : ''}.`;
+  });
   private readonly backend = inject(Backend);
   private readonly notify = inject(NotifyService);
 
