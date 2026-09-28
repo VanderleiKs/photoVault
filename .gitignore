@@ -29,3 +29,6 @@ Thumbs.db
 /src-tauri/data/
 /src-tauri/logs/
 /src-tauri/thumbnails/
+
+# Portable release folder
+/release/

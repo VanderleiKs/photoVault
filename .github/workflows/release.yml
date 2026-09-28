@@ -1,0 +1,65 @@
+name: Release (portable)
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  portable:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            build: npx tauri build --no-bundle
+            asset: windows-x64
+          - os: ubuntu-22.04 # oldest supported glibc for the AppImage
+            build: npx tauri build --bundles appimage
+            asset: linux-x86_64
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libfuse2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm ci
+      - run: ${{ matrix.build }}
+      - run: node scripts/package-portable.mjs
+
+      - name: Zip (Windows)
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path release/PhotoVault -DestinationPath "release/PhotoVault-${{ github.ref_name }}-${{ matrix.asset }}-portable.zip"
+
+      - name: Zip (Linux)
+        if: runner.os == 'Linux'
+        working-directory: release
+        run: zip -r "PhotoVault-${{ github.ref_name }}-${{ matrix.asset }}-portable.zip" PhotoVault
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhotoVault-${{ matrix.asset }}-portable
+          path: release/*.zip
+
+      - name: Attach to draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: release/*.zip

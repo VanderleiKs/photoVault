@@ -2,10 +2,11 @@
 
 Aplicativo portátil (sem instalação) para organizar bibliotecas pessoais de fotos e vídeos, para Windows 11 e Linux. O app nunca modifica seus arquivos: ele constrói uma biblioteca lógica sobre eles.
 
-**Stack:** Angular 22 + Optimus UI v2 + PrimeIcons · Tauri 2 + Rust 2024 · SQLite (WAL)
+**Stack:** Angular 22 + Optimus UI v2 + Tailwind 4 + PrimeIcons · Tauri 2 + Rust 2024 · SQLite (WAL)
 
 - Requisitos do produto: [docs/PRD.md](docs/PRD.md)
 - Diagnóstico e plano de fases: [docs/PLANO.md](docs/PLANO.md)
+- Guia para quem desenvolve (arquitetura e armadilhas): [AGENTS.md](AGENTS.md)
 
 ## Pré-requisitos
 
@@ -22,43 +23,56 @@ Aplicativo portátil (sem instalação) para organizar bibliotecas pessoais de f
 
 ```bash
 npm install
-npm run tauri:dev        # Angular + backend
-npm run tauri:build      # build de produção
-
-cd src-tauri && cargo test
+npm run tauri:dev          # Angular + backend, com live reload
+npm test                   # testes do frontend (Vitest)
+cargo test --workspace     # testes do backend (também regenera os bindings TS)
 ```
 
 Para testar com um catálogo limpo: `PHOTOVAULT_HOME=/tmp/pv npm run tauri:dev`.
 
-## Runtime portátil
+## Gerar a versão portátil
 
-Tudo fica ao lado do executável (ou do `.AppImage`):
+```bash
+# Linux
+npx tauri build --bundles appimage && npm run package:portable
+# Windows
+npx tauri build --no-bundle && npm run package:portable
+```
+
+O resultado fica em `release/PhotoVault/`. Basta compactar e distribuir. Tudo o que o app grava fica ao lado do executável:
 
 ```text
 PhotoVault/
-├── photovault(.exe)
-├── data/catalog.db                    # catálogo SQLite (WAL)
-├── thumbnails/<ab>/<photo-id>.webp    # miniaturas 256 px
+├── PhotoVault.exe | PhotoVault.AppImage
+├── portable.flag                           # ativa o modo portátil (não apague)
+├── data/catalog.db                         # catálogo SQLite (WAL)
+├── thumbnails/256/<ab>/<cd>/<id>.webp      # miniaturas
+├── cache/webview/                          # perfil do WebView (fora de %LOCALAPPDATA%)
 └── logs/photovault.log.AAAA-MM-DD
 ```
 
-## Estado atual (v0.2, Fase 0)
+Sem o `portable.flag`, os dados vão para a pasta de dados do sistema. O CI gera os dois pacotes automaticamente a cada tag `v*` (`.github/workflows/release.yml`).
+
+## Estado atual (v0.3, Fase 1)
 
 Funciona hoje:
 
-- Criar e listar bibliotecas (várias)
-- Scan recursivo com progresso, cancelamento e indexação incremental (por tamanho)
-- Miniaturas WebP 256 px
-- Galeria paginada, timeline por mês e visualizador com zoom e navegação
+- Layout novo (sidebar, topbar, painel de informações), tema claro e escuro, layout responsivo
+- Várias bibliotecas: adicionar, trocar a ativa, renomear, relocalizar (quando o disco muda de letra ou de ponto de montagem) e remover do catálogo
+- Scan incremental (tamanho + data de modificação) com progresso, cancelamento e galeria atualizada durante o scan
+- Galeria com rolagem infinita, timeline por mês e visualizador (zoom, teclado, vídeo)
+- Modo portátil real no Windows e no Linux
 
 Ainda não funciona:
 
 - Data EXIF (hoje é usada a data de modificação do arquivo)
-- Duplicatas
-- Vídeos (entram só no catálogo)
-- O layout novo (vem na Fase 1)
+- HEIC
+- Miniaturas de vídeo
+- Busca
+- Álbuns
+- Duplicatas e análise
 
-Veja o [plano](docs/PLANO.md) para as próximas fases.
+Veja o [plano](docs/PLANO.md).
 
 ## Licença
 

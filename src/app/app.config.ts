@@ -1,11 +1,21 @@
-import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
-import { provideRouter } from '@angular/router';
-import { provideAnimations } from '@angular/platform-browser/animations';
+import {
+  ApplicationConfig,
+  inject,
+  provideAppInitializer,
+  provideBrowserGlobalErrorListeners,
+  provideZonelessChangeDetection,
+} from '@angular/core';
+import { provideRouter, withComponentInputBinding } from '@angular/router';
+import { ConfirmationService, MessageService } from '@openng/optimus-ui/api';
 import { provideOptimus } from '@openng/optimus-ui/config';
 import { definePreset } from '@openng/optimus-ui-themes';
 import Aura from '@openng/optimus-ui-themes/aura';
+import { routes } from './app.routes';
+import { AppStore } from './core/stores/app.store';
+import { LibraryStore } from './core/stores/library.store';
+import { ScanStore } from './core/stores/scan.store';
 
-/** Aura with a blue primary palette (matches `--pv-accent`). */
+/** Aura with a blue primary palette. */
 const PhotoVaultPreset = definePreset(Aura, {
   semantic: {
     primary: {
@@ -23,20 +33,32 @@ const PhotoVaultPreset = definePreset(Aura, {
     },
   },
 });
-import { routes } from './app.routes';
+
+/** Load settings, libraries and any running scan before the first route renders. */
+async function bootstrapStores() {
+  const app = inject(AppStore);
+  const libraries = inject(LibraryStore);
+  const scan = inject(ScanStore);
+  await app.init();
+  await Promise.all([libraries.load().catch(() => {}), scan.init().catch(() => {})]);
+}
 
 export const appConfig: ApplicationConfig = {
   providers: [
-    provideZoneChangeDetection({ eventCoalescing: true }),
-    provideRouter(routes),
-    provideAnimations(),
+    provideBrowserGlobalErrorListeners(),
+    provideZonelessChangeDetection(),
+    provideRouter(routes, withComponentInputBinding()),
     provideOptimus({
       theme: {
         preset: PhotoVaultPreset,
         options: {
           darkModeSelector: '.dark-mode',
+          cssLayer: { name: 'optimus', order: 'theme, base, optimus, components, utilities' },
         },
       },
     }),
+    MessageService,
+    ConfirmationService,
+    provideAppInitializer(bootstrapStores),
   ],
 };

@@ -1,21 +1,63 @@
+/* Layer order: Optimus components sit below Tailwind utilities so classes can override them. */
+@layer theme, base, optimus, components, utilities;
+
+@import "tailwindcss";
+@import "tailwindcss-primeui";
 @import "primeicons/primeicons.css";
 
+/* Dark mode follows the `.dark-mode` class on <html> (same selector Optimus uses). */
+@custom-variant dark (&:where(.dark-mode, .dark-mode *));
+
+/* Design tokens (PRD §23.7). The sidebar is dark in both themes. */
 :root {
-  --pv-bg: #0f172a;
-  --pv-surface: #1e293b;
-  --pv-surface-alt: #334155;
-  --pv-border: #475569;
-  --pv-accent: #3b82f6;
-  --pv-accent-hover: #2563eb;
-  --pv-text: #f1f5f9;
-  --pv-text-muted: #94a3b8;
+  --pv-canvas: #f5f7fb;
+  --pv-panel: #ffffff;
+  --pv-panel-2: #eef1f6;
+  --pv-line: #e3e7ee;
+  --pv-ink: #0f172a;
+  --pv-muted: #64748b;
+
+  --pv-side-bg: #0f172a;
+  --pv-side-hover: #1e293b;
+  --pv-side-active: #1e3a8a;
+  --pv-side-ink: #e2e8f0;
+  --pv-side-muted: #94a3b8;
+  --pv-side-line: #1e293b;
+
+  --pv-radius-card: 12px;
+  --pv-radius-tile: 8px;
 }
 
-* {
-  box-sizing: border-box;
+.dark-mode {
+  --pv-canvas: #0b1120;
+  --pv-panel: #111827;
+  --pv-panel-2: #1f2937;
+  --pv-line: #1f2937;
+  --pv-ink: #f1f5f9;
+  --pv-muted: #94a3b8;
+  --pv-side-bg: #070b16;
+  --pv-side-hover: #111827;
+  --pv-side-line: #111827;
 }
 
-/* Full-height layout: pages use `h-100` on their root. */
+@theme inline {
+  --color-canvas: var(--pv-canvas);
+  --color-panel: var(--pv-panel);
+  --color-panel-2: var(--pv-panel-2);
+  --color-line: var(--pv-line);
+  --color-ink: var(--pv-ink);
+  --color-muted: var(--pv-muted);
+  --color-side: var(--pv-side-bg);
+  --color-side-hover: var(--pv-side-hover);
+  --color-side-active: var(--pv-side-active);
+  --color-side-ink: var(--pv-side-ink);
+  --color-side-muted: var(--pv-side-muted);
+  --color-side-line: var(--pv-side-line);
+  --radius-card: var(--pv-radius-card);
+  --radius-tile: var(--pv-radius-tile);
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
 html,
 body,
 app-root {
@@ -25,83 +67,25 @@ app-root {
 
 body {
   margin: 0;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  background-color: var(--pv-bg);
-  color: var(--pv-text);
   overflow: hidden;
+  background: var(--pv-canvas);
+  color: var(--pv-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Optimus UI Overrides for Dark Theme */
-.p-component {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-}
-
-.p-card {
-  background: var(--pv-surface) !important;
-  border: 1px solid var(--pv-border) !important;
-  border-radius: 12px !important;
-  color: var(--pv-text) !important;
-}
-
-.p-card .p-card-body {
-  padding: 1.5rem !important;
-}
-
-.p-button {
-  border-radius: 8px !important;
-  font-weight: 500 !important;
-}
-
-.p-inputtext {
-  background: var(--pv-surface-alt) !important;
-  border: 1px solid var(--pv-border) !important;
-  color: var(--pv-text) !important;
-  border-radius: 8px !important;
-  padding: 0.75rem 1rem !important;
-}
-
-.p-inputtext:enabled:focus {
-  border-color: var(--pv-accent) !important;
-  box-shadow: 0 0 0 1px var(--pv-accent) !important;
-}
-
-.p-menu {
-  background: var(--pv-surface) !important;
-  border: 1px solid var(--pv-border) !important;
-  border-radius: 12px !important;
-}
-
-.p-menu .p-menuitem-link {
-  color: var(--pv-text) !important;
-}
-
-.p-menu .p-menuitem-link:hover {
-  background: var(--pv-surface-alt) !important;
-}
-
-.p-menu .p-menuitem-link .p-menuitem-text {
-  color: var(--pv-text) !important;
-}
-
-.p-menu .p-menuitem-link .p-menuitem-icon {
-  color: var(--pv-text-muted) !important;
-}
-
-/* Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--pv-bg);
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--pv-border);
-  border-radius: 4px;
+  background: color-mix(in srgb, var(--pv-muted) 35%, transparent);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: var(--pv-text-muted);
+::-webkit-scrollbar-track {
+  background: transparent;
 }
