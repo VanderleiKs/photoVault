@@ -130,35 +130,49 @@ criação pela UI (e erro de pasta inexistente na tela), scan com progresso (des
 
 ---
 
-### Fase 1 — Fundação (≈ 2 semanas) → `v0.3`
+### Fase 1 — Fundação (≈ 2 semanas) → `v0.3` ✅ implementada (branch `fase-1-fundacao`)
 
 **Backend**
-- [ ] Workspace Cargo e `crates/photovault-core` com a estrutura da seção 5.2 do PRD
-- [ ] `core::paths`: completar a resolução de `base_dir` (PRD 3.3) com `portable.flag` e o fallback para o diretório do SO (`PHOTOVAULT_HOME` e AppImage já existem)
-- [ ] Diretório de dados do WebView em `base_dir/cache/webview` (`WebviewWindowBuilder::data_directory`)
-- [ ] `core::error` (thiserror + DTO `{code,message}`)
-- [ ] Nova migration `0001_init.sql` com o schema completo do PRD (seção 6)
-- [ ] `tauri-specta`: geração de `src/app/core/ipc/bindings.ts` no build de debug
-- [ ] Protocolo `pv://`: suporte a `Range` e vídeo em `pv://media` (thumb e imagem já existem desde a Fase 0)
-- [ ] CSP restritiva e capabilities mínimas
-- [ ] Trait `MediaSource` + `LocalFolderSource`; trait `VisionAnalyzer` (vazia)
+- [x] Workspace Cargo (`Cargo.toml` na raiz) com `crates/photovault-core` sem Tauri: `db`, `catalog` (libraries, media, settings), `ingestion` (source, local, scanner, control, metadata), `thumbnails`, `paths`, `volume`, `analysis::vision`
+- [x] `paths`: `PHOTOVAULT_HOME` → pasta do AppImage/exe com `portable.flag` (ou build debug) → pasta do SO; o modo aparece em Configurações
+- [x] Perfil do WebView em `base_dir/cache/webview` (janela criada em `lib.rs` com `data_directory`); verificado que nada é gravado em `~/.local/share`
+- [x] `Error` com `code()` estável + `ApiError { code, message }` em pt-BR
+- [x] Migration `0001_init.sql` com o schema completo (FTS5 fica para a migration da Fase 3); catálogo v0.x **arquivado automaticamente**, preservando as bibliotecas (ADR-008)
+- [x] `tauri-specta` rc.25: `src/app/core/ipc/bindings.ts` gerado (debug e `cargo test`); o CI verifica se está atualizado; bytes como `u64` + `specta(type = Number)`
+- [x] `pv://media` com `Range` (206) para vídeo; `pv://thumb`; ids validados
+- [x] CSP restritiva (`csp` + `devCsp` para o live reload); capabilities `core:default`
+- [x] Traits `MediaSource` + `LocalFolderSource` e `VisionAnalyzer`
+- [x] Paginação por keyset (cursor opaco) + navegação com posição ("12 / 426")
+- [x] Bibliotecas: validação, pasta duplicada recusada, renomear, **relocalizar** (confere uma amostra de arquivos conhecidos), remoção apagando as miniaturas
+- [x] Antecipado da Fase 2: comparação por **mtime** (tolerância de 2 s) além do tamanho; `[profile.dev.package."*"] opt-level = 2` (dev muito mais rápido)
 
 **Frontend**
-- [ ] Remover Bootstrap e zone.js; Tailwind 4 + `tailwindcss-primeui`; zoneless; OnPush
-- [ ] Tema Optimus (Aura) com os tokens do PRD 23.7, claro e escuro
-- [ ] Estrutura `src/app/{core,layout,features,shared}` e rotas lazy
-- [ ] **Shell** conforme o mockup: sidebar escura (grupos, badges, rodapé de disco), topbar (busca, Importar, grade/lista, avatar), painel de informações recolhível, layout responsivo (bottom nav abaixo de 768 px)
-- [ ] Stores com signals: `LibraryStore`, `MediaStore`, `JobStore`, `UiStore`
-- [ ] Toast global de erros, skeletons e estados vazios
-- [ ] Telas: **Bibliotecas** (criar, listar, remover, status conectada/desconectada, relocalizar) e **Configurações** (base_dir, limites de concorrência, tema)
+- [x] Sem Bootstrap, `zone.js` nem `@angular/animations`; Tailwind 4 + `tailwindcss-primeui`; zoneless; todos os componentes OnPush
+- [x] Preset Aura azul + tokens claro/escuro do PRD 23.7 (`bg-canvas`, `bg-panel`, `bg-side`…), tema claro/escuro/sistema persistido
+- [x] `src/app/{core,layout,features,shared}` com rotas lazy
+- [x] **Shell** do mockup: sidebar escura (grupos Principal/Organizar/Biblioteca, recolhível, volume com espaço livre), topbar (seletor de biblioteca, busca, Importar, tema, menu), painel "Informações", bottom nav abaixo de 768 px
+- [x] Stores com signals: `AppStore`, `LibraryStore`, `ScanStore` (no lugar de `JobStore`), `MediaStore`, `UiStore`
+- [x] Toasts (sem `alert()`), `ConfirmDialog`, skeletons e estados vazios (sem fotos, biblioteca desconectada)
+- [x] Telas: **Todas as fotos** (grade com rolagem infinita, slider de tamanho, progresso, atualização durante o scan), **Timeline**, **Visualizador** (escuro, zoom, teclado, vídeo, detalhes), **Bibliotecas**, **Configurações**, **Boas-vindas**, e "em breve" (com a fase de entrega) para os itens ainda não implementados
+- [ ] Busca: campo presente e desabilitado (Fase 3)
+- [ ] Alternância grade/lista e badges de contagem do menu Organizar (entram com os dados das Fases 3 e 4)
+- [ ] Painel de informações como `Drawer` em telas estreitas (hoje fica oculto abaixo de 1024 px)
 
 **Qualidade/entrega**
-- [ ] Testes: `cargo test` no core (paths, normalização, migrations) e Vitest nas stores
-- [ ] CI com matriz `windows-latest` + `ubuntu-22.04`: `fmt`, `clippy -D warnings`, `test`, `ng build`, `ng test`
-- [ ] Pipeline de release portátil: `tauri build --no-bundle` + zip (Windows) e `--bundles appimage` (Linux), com o artefato já contendo o `portable.flag`
-- [ ] Teste manual: rodar a partir de um pendrive nos dois SOs e confirmar que nada é gravado fora da pasta do app
+- [x] 22 testes Rust (core: paths, migrations, catálogo legado, libraries, keyset, settings, scanner de ponta a ponta; Tauri: protocolo e `Range`) + 11 testes Vitest (format, `unwrap`, `LibraryStore`, `MediaStore`)
+- [x] `ci.yml`: matriz `windows-latest` + `ubuntu-22.04` com fmt, clippy `-D warnings`, `cargo test`, bindings atualizados, `ng build`, `ng test`
+- [x] `release.yml` + `scripts/package-portable.mjs`: zip portátil (Windows) e AppImage (Linux), com `portable.flag` e `LEIA-ME.txt`
+- [ ] Teste manual no Windows 11 e a partir de um pendrive (o Linux já foi validado)
 
 **Aceite:** o app abre no shell novo, gerencia bibliotecas e roda portátil nos dois SOs. O visual da sidebar/topbar corresponde ao mockup.
+
+**Validação no Linux (2026-09-28, AppImage de release e `tauri dev`, UI dirigida pelo inspetor do WebKit):** ✅
+catálogo v0.x arquivado com as 3 bibliotecas mantidas; onboarding numa instalação limpa (86 arquivos em ~6 s); troca de biblioteca pela topbar; galeria sendo preenchida durante o scan (4 → 120 itens); cancelamento (1,2 s) com toast de resumo; reescaneamento sem mudanças em 59 ms; seleção e painel de informações; visualizador ("5 / 189", ←/→, `i`, Esc) mantendo a seleção; tema escuro persistido; biblioteca desconectada, depois relocalização (pasta errada recusada com `RELOCATION_MISMATCH`, pasta certa aceita); remoção com confirmação apagando 27 miniaturas e mantendo os arquivos; modo portátil com zero gravações fora da pasta; live reload sob a `devCsp`.
+**Windows 11:** pendente (o CI compila e testa; falta o teste manual).
+
+**Achados:**
+- A CSP bloqueia `fetch` para `pv:` (esperado; o app só usa `<img>`/`<video>`).
+- A vazão do scan continua sequencial (~16–25 arquivos/s): paralelizar é a prioridade da Fase 2.
 
 ---
 
@@ -286,5 +300,5 @@ criação pela UI (e erro de pasta inexistente na tela), scan com progresso (des
 
 ## 6. Próximo passo imediato
 
-1. Validar a Fase 0 no Windows 11 (o Linux já foi validado).
-2. Iniciar a **Fase 1**, começando pelo workspace Cargo (ADR-002) e pelo shell do layout novo.
+1. Validar as Fases 0 e 1 no Windows 11 (zip gerado pelo `release.yml` ou `npx tauri build --no-bundle && npm run package:portable`).
+2. Iniciar a **Fase 2**, começando pela fila de jobs paralela (rayon + semáforo de I/O), que resolve a vazão do scan, e pelo EXIF (`nom-exif`).

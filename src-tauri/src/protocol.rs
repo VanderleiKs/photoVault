@@ -1,66 +1,134 @@
-//! `pv://` custom protocol serving images to the WebView.
+//! `pv://` custom protocol serving media to the WebView.
 //!
-//! - `pv://localhost/thumb/<photo-id>` → 256px WebP thumbnail
-//! - `pv://localhost/media/<photo-id>` → original image
+//! - `pv://localhost/thumb/<media-id>` → 256px WebP thumbnail
+//! - `pv://localhost/media/<media-id>` → original file (images and videos, with `Range`)
 //!
 //! Files are resolved **only by catalog id**; paths coming from the frontend are
 //! never trusted. On Windows/Android the WebView uses `http://pv.localhost/...`,
 //! which is what `convertFileSrc(path, 'pv')` produces on the frontend.
 
-use crate::app::AppState;
-use crate::catalog;
-use crate::thumbnails;
+use crate::state::AppState;
+use photovault_core::catalog::media;
+use photovault_core::thumbnails;
+use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tauri::http::{Request, Response, StatusCode, header};
+use tauri::http::{HeaderValue, Request, Response, StatusCode, header};
 use tauri::{AppHandle, Manager};
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 pub const SCHEME: &str = "pv";
+
+/// Largest slice returned for one ranged request (the player asks for more).
+const MAX_CHUNK: u64 = 4 * 1024 * 1024;
 
 pub async fn handle(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     let state = app.state::<Arc<AppState>>();
     let path = percent_decode(request.uri().path());
+    let range = request
+        .headers()
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok());
 
     let result = match path.trim_start_matches('/').split_once('/') {
         Some(("thumb", id)) => serve_thumbnail(&state, id).await,
-        Some(("media", id)) => serve_media(&state, id).await,
+        Some(("media", id)) => serve_media(&state, id, range).await,
         _ => Err(StatusCode::NOT_FOUND),
     };
 
-    match result {
-        Ok((bytes, mime)) => Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, mime)
-            .header(header::CACHE_CONTROL, "max-age=300")
-            .body(bytes),
-        Err(status) => Response::builder().status(status).body(Vec::new()),
-    }
-    .unwrap_or_else(|_| Response::new(Vec::new()))
+    result.unwrap_or_else(|status| {
+        Response::builder()
+            .status(status)
+            .body(Vec::new())
+            .unwrap_or_default()
+    })
 }
 
-type Served = Result<(Vec<u8>, &'static str), StatusCode>;
+type Served = Result<Response<Vec<u8>>, StatusCode>;
 
 async fn serve_thumbnail(state: &AppState, id: &str) -> Served {
     let id = parse_id(id)?;
-    let path = thumbnails::thumbnail_path(&state.paths.thumbnails_dir, &id);
-    read(&path).await.map(|bytes| (bytes, "image/webp"))
+    let path = thumbnails::path(&state.paths.thumbnails_dir, &id, thumbnails::GRID_SIZE);
+    let bytes = tokio::fs::read(&path).await.map_err(io_status)?;
+    ok(bytes, "image/webp")
 }
 
-async fn serve_media(state: &AppState, id: &str) -> Served {
+async fn serve_media(state: &AppState, id: &str, range: Option<&str>) -> Served {
     let id = parse_id(id)?;
-    let (root, relative, media_type) = catalog::get_photo_location(&state.pool, &id)
+    let (root, relative, _) = media::location(&state.pool, &id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(|e| match e {
+            photovault_core::Error::MediaNotFound => StatusCode::NOT_FOUND,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        })?;
+    let path = resolve_inside(Path::new(&root), &relative).ok_or(StatusCode::NOT_FOUND)?;
+    let mime = mime_for(&path);
+    let is_video = mime.starts_with("video/");
 
-    // Videos need Range support (plan, phase 1); only images for now.
-    if media_type != "image" {
-        return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    // Videos are always streamed in ranges, even if the first request has none.
+    match (range, is_video) {
+        (None, false) => ok(tokio::fs::read(&path).await.map_err(io_status)?, mime),
+        (range, _) => serve_range(&path, range.unwrap_or("bytes=0-"), mime).await,
     }
+}
 
-    let path = resolve_inside(Path::new(&root), &relative).ok_or(StatusCode::FORBIDDEN)?;
-    let mime = image_mime(&path);
-    read(&path).await.map(|bytes| (bytes, mime))
+async fn serve_range(path: &Path, range: &str, mime: &str) -> Served {
+    let mut file = tokio::fs::File::open(path).await.map_err(io_status)?;
+    let size = file.metadata().await.map_err(io_status)?.len();
+    let (start, end) = parse_range(range, size).ok_or(StatusCode::RANGE_NOT_SATISFIABLE)?;
+    let end = end.min(start + MAX_CHUNK - 1);
+
+    let mut buf = vec![0; (end - start + 1) as usize];
+    file.seek(SeekFrom::Start(start)).await.map_err(io_status)?;
+    file.read_exact(&mut buf).await.map_err(io_status)?;
+
+    Response::builder()
+        .status(StatusCode::PARTIAL_CONTENT)
+        .header(header::CONTENT_TYPE, mime)
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{size}"))
+        .header(header::CONTENT_LENGTH, buf.len())
+        .body(buf)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+fn ok(bytes: Vec<u8>, mime: &str) -> Served {
+    let mut response = Response::new(bytes);
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(mime).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+    );
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("max-age=300"),
+    );
+    Ok(response)
+}
+
+fn io_status(e: std::io::Error) -> StatusCode {
+    match e.kind() {
+        std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+/// Parse a single `bytes=start-end` / `bytes=start-` / `bytes=-suffix` range.
+fn parse_range(header: &str, size: u64) -> Option<(u64, u64)> {
+    if size == 0 {
+        return None;
+    }
+    let spec = header.strip_prefix("bytes=")?.split(',').next()?.trim();
+    let (start, end) = spec.split_once('-')?;
+    let (start, end) = match (start.trim(), end.trim()) {
+        ("", suffix) => {
+            let n: u64 = suffix.parse().ok()?;
+            (size.saturating_sub(n), size - 1)
+        }
+        (s, "") => (s.parse().ok()?, size - 1),
+        (s, e) => (s.parse().ok()?, e.parse::<u64>().ok()?.min(size - 1)),
+    };
+    (start <= end && start < size).then_some((start, end))
 }
 
 /// Only canonical UUIDs are accepted as ids.
@@ -77,14 +145,7 @@ fn resolve_inside(root: &Path, relative: &str) -> Option<PathBuf> {
     full.starts_with(&root).then_some(full)
 }
 
-async fn read(path: &Path) -> Result<Vec<u8>, StatusCode> {
-    tokio::fs::read(path).await.map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
-        _ => StatusCode::INTERNAL_SERVER_ERROR,
-    })
-}
-
-fn image_mime(path: &Path) -> &'static str {
+fn mime_for(path: &Path) -> &'static str {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -97,6 +158,12 @@ fn image_mime(path: &Path) -> &'static str {
         Some("bmp") => "image/bmp",
         Some("tif" | "tiff") => "image/tiff",
         Some("heic" | "heif") => "image/heic",
+        Some("mp4" | "m4v") => "video/mp4",
+        Some("mov") => "video/quicktime",
+        Some("webm") => "video/webm",
+        Some("mkv") => "video/x-matroska",
+        Some("avi") => "video/x-msvideo",
+        Some("3gp") => "video/3gpp",
         _ => "application/octet-stream",
     }
 }
@@ -136,5 +203,39 @@ mod tests {
     fn rejects_non_uuid_ids() {
         assert!(parse_id("../../etc/passwd").is_err());
         assert!(parse_id("6f1c1f3e-2b7a-4c55-9d0e-3a2b1c4d5e6f").is_ok());
+    }
+
+    #[tokio::test]
+    async fn serves_partial_content() {
+        let path = std::env::temp_dir().join(format!("pv-range-{}.mp4", uuid::Uuid::new_v4()));
+        std::fs::write(&path, b"0123456789").unwrap();
+
+        let response = serve_range(&path, "bytes=2-5", "video/mp4").await.unwrap();
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(response.headers()[header::CONTENT_RANGE], "bytes 2-5/10");
+        assert_eq!(response.headers()[header::ACCEPT_RANGES], "bytes");
+        assert_eq!(response.body(), b"2345");
+
+        let open_ended = serve_range(&path, "bytes=7-", "video/mp4").await.unwrap();
+        assert_eq!(open_ended.body(), b"789");
+
+        assert_eq!(
+            serve_range(&path, "bytes=50-", "video/mp4")
+                .await
+                .unwrap_err(),
+            StatusCode::RANGE_NOT_SATISFIABLE
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn parses_ranges() {
+        assert_eq!(parse_range("bytes=0-", 100), Some((0, 99)));
+        assert_eq!(parse_range("bytes=10-19", 100), Some((10, 19)));
+        assert_eq!(parse_range("bytes=90-500", 100), Some((90, 99)));
+        assert_eq!(parse_range("bytes=-10", 100), Some((90, 99)));
+        assert_eq!(parse_range("bytes=100-", 100), None);
+        assert_eq!(parse_range("items=0-1", 100), None);
+        assert_eq!(parse_range("bytes=0-", 0), None);
     }
 }

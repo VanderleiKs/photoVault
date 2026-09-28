@@ -1,0 +1,26 @@
+[package]
+name = "photovault-core"
+description = "PhotoVault domain core: catalog, ingestion, thumbnails. No Tauri dependency."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+specta.workspace = true
+# Only for `#[specta(type = Number)]` on byte counts (exact up to 2^53).
+specta-typescript = "0.0.12"
+walkdir = "2"
+image = "0.25"
+dirs = "6"
+sysinfo = { version = "0.39", default-features = false, features = ["disk"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
