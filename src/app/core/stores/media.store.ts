@@ -2,6 +2,7 @@ import { Injectable, computed, effect, inject, signal, untracked } from '@angula
 import { Backend } from '../ipc/backend';
 import { unwrap, type MediaItem } from '../ipc/ipc';
 import { NotifyService } from '../notify.service';
+import { JobStore } from './job.store';
 import { LibraryStore } from './library.store';
 import { ScanStore } from './scan.store';
 
@@ -16,6 +17,7 @@ export class MediaStore {
   private readonly notify = inject(NotifyService);
   private readonly libraries = inject(LibraryStore);
   private readonly scan = inject(ScanStore);
+  private readonly jobs = inject(JobStore);
 
   readonly items = signal<MediaItem[]>([]);
   readonly loading = signal(false);
@@ -48,6 +50,21 @@ export class MediaStore {
         this.lastLiveRefresh = Date.now();
         untracked(() => void this.refreshFirstPage());
       }
+    });
+    // Analysis results (EXIF date, size, thumbnails) patch the loaded items in place...
+    effect(() => {
+      const update = this.jobs.lastUpdate();
+      if (update) untracked(() => this.patch(update.items, update.removedIds));
+    });
+    // ...and once the queue drains, re-sort the top of the gallery by the real dates
+    // (only near the top, so the user's scroll position is never lost).
+    let wasBusy = false;
+    effect(() => {
+      const busy = this.jobs.busy();
+      if (wasBusy && !busy && untracked(this.items).length <= PAGE_SIZE) {
+        untracked(() => void this.refreshFirstPage());
+      }
+      wasBusy = busy;
     });
     // ...and when a scan of it finishes.
     effect(() => {
@@ -103,6 +120,22 @@ export class MediaStore {
       this.hasMore.set(page.nextCursor !== null);
     } catch {
       // Best effort: the full reload after the scan will surface errors.
+    }
+  }
+
+  /** Apply updated items to the loaded page and the selection. */
+  private patch(updated: MediaItem[], removedIds: string[]) {
+    const byId = new Map(updated.filter((m) => m.libraryId === this.libraryId).map((m) => [m.id, m]));
+    const removed = new Set(removedIds);
+    if (byId.size || removed.size) {
+      this.items.update((items) =>
+        items.filter((m) => !removed.has(m.id)).map((m) => byId.get(m.id) ?? m),
+      );
+    }
+    const selected = this.selected();
+    if (selected) {
+      if (removed.has(selected.id)) this.selected.set(null);
+      else if (byId.has(selected.id)) this.selected.set(byId.get(selected.id)!);
     }
   }
 

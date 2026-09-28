@@ -1,6 +1,6 @@
 {
   "name": "photovault",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "PhotoVault - Aplicativo desktop port\u00e1til para organiza\u00e7\u00e3o de fotos",

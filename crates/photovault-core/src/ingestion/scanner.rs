@@ -1,26 +1,28 @@
-//! Discovery + incremental indexing of a library (PRD §8).
+//! Discovery + incremental diff of a library (PRD §8).
 //!
-//! Read-only on the library: nothing is ever written inside the source folder.
+//! Fast by design: no file is decoded here. New/modified files are queued for the
+//! background ingest pipeline (`jobs`). Read-only on the library folder.
 
 use super::control::ScanControl;
 use super::local::LocalFolderSource;
 use super::metadata;
 use super::source::{MediaSource, SourceEntry};
-use crate::catalog::{Library, MediaType, libraries};
-use crate::error::Result;
-use crate::thumbnails;
+use crate::catalog::{Library, libraries};
+use crate::error::{Error, Result};
+use crate::jobs;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use specta::Type;
-use sqlx::SqlitePool;
-use std::collections::HashMap;
-use std::path::PathBuf;
+use sqlx::{Sqlite, SqlitePool, Transaction};
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(150);
 /// exFAT/FAT32 store mtime with 10 ms / 2 s granularity.
 const MTIME_TOLERANCE_SECS: i64 = 2;
+/// Rows written per transaction.
+const BATCH: usize = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "lowercase")]
@@ -48,6 +50,10 @@ pub struct ScanSummary {
     pub processed: u32,
     pub new_files: u32,
     pub modified_files: u32,
+    /// Catalogued files no longer found (kept as `missing`, never deleted).
+    pub missing_files: u32,
+    /// Previously missing files that are back.
+    pub restored_files: u32,
     pub errors: u32,
     pub cancelled: bool,
 }
@@ -57,11 +63,9 @@ pub trait ScanObserver: Send + Sync {
     fn on_progress(&self, progress: &ScanProgress);
 }
 
-/// Everything a scan needs besides the library itself.
 #[derive(Clone)]
 pub struct ScanContext {
     pub pool: SqlitePool,
-    pub thumbnails_dir: PathBuf,
     pub control: Arc<ScanControl>,
 }
 
@@ -89,8 +93,8 @@ impl Throttle {
     }
 }
 
-/// Scan a library. The caller must hold the `ScanGuard` from `ctx.control`.
-/// Per-file failures are counted in `errors` and never stop the scan.
+/// Scan a library. The caller must hold the `ScanGuard` from `ctx.control`
+/// and should wake the job runner afterwards.
 pub async fn scan(
     ctx: &ScanContext,
     library: &Library,
@@ -98,6 +102,7 @@ pub async fn scan(
 ) -> Result<ScanSummary> {
     let source = LocalFolderSource::new(&library.root_path)?;
     tracing::info!("Starting scan of {} at {}", library.id, library.root_path);
+    let started = Instant::now();
 
     let progress = Arc::new(Throttle {
         observer,
@@ -140,17 +145,33 @@ pub async fn scan(
         return Ok(summary);
     };
     summary.total = entries.len() as u32;
-    tracing::info!("Found {} media files", summary.total);
+    tracing::info!(
+        "Found {} media files in {:?}",
+        summary.total,
+        started.elapsed()
+    );
 
+    // Pass 2: diff against the catalog, written in batches.
     let known = known_files(&ctx.pool, &library.id).await?;
 
-    // Pass 2: incremental indexing.
-    for entry in entries {
+    // An unmounted drive often leaves an empty mount-point folder behind: never
+    // turn a whole library into "missing" because of that.
+    if entries.is_empty() && known.values().any(|k| !k.missing) {
+        return Err(Error::PathNotAccessible(format!(
+            "{} (a pasta está vazia; o disco pode não estar montado)",
+            library.root_path
+        )));
+    }
+    let mut seen: HashSet<&str> = HashSet::with_capacity(entries.len());
+    let mut tx = ctx.pool.begin().await?;
+
+    for (index, entry) in entries.iter().enumerate() {
         if ctx.control.is_cancelled() {
             summary.cancelled = true;
             break;
         }
         summary.processed += 1;
+        seen.insert(&entry.relative_path);
         progress.emit(
             ScanPhase::Indexing,
             summary.processed,
@@ -160,24 +181,54 @@ pub async fn scan(
         );
 
         let result = match known.get(&entry.relative_path) {
-            Some(k) if !k.changed(&entry) => {
-                // Unchanged: only repair a missing thumbnail.
-                ensure_thumbnail(ctx, &k.id, &entry, false).await;
-                Ok(())
+            Some(k) if !k.changed(entry) => {
+                if k.missing {
+                    summary.restored_files += 1;
+                    restore(&mut tx, &k.id).await
+                } else {
+                    Ok(())
+                }
             }
-            Some(k) => update(ctx, &k.id, &entry)
-                .await
-                .map(|_| summary.modified_files += 1),
-            None => insert(ctx, &library.id, &entry)
-                .await
-                .map(|_| summary.new_files += 1),
+            Some(k) => {
+                summary.modified_files += 1;
+                if k.missing {
+                    summary.restored_files += 1;
+                }
+                update(&mut tx, &library.id, &k.id, entry).await
+            }
+            None => {
+                summary.new_files += 1;
+                insert(&mut tx, &library.id, entry).await
+            }
         };
-
         if let Err(e) = result {
             tracing::warn!("Failed to index {}: {e}", entry.relative_path);
             summary.errors += 1;
         }
+
+        if (index + 1) % BATCH == 0 {
+            tx.commit().await?;
+            tx = ctx.pool.begin().await?;
+        }
     }
+
+    // Files that disappeared. Only on a complete scan: a cancelled one saw a subset.
+    if !summary.cancelled {
+        let gone: Vec<&str> = known
+            .iter()
+            .filter(|(path, k)| !k.missing && !seen.contains(path.as_str()))
+            .map(|(_, k)| k.id.as_str())
+            .collect();
+        for id in &gone {
+            sqlx::query("UPDATE media SET status = 'missing', updated_at = ?1 WHERE id = ?2")
+                .bind(Utc::now().to_rfc3339())
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        summary.missing_files = gone.len() as u32;
+    }
+    tx.commit().await?;
 
     progress.emit(
         ScanPhase::Indexing,
@@ -191,15 +242,18 @@ pub async fn scan(
     }
 
     tracing::info!(
-        "Scan {}: total {}, new {}, modified {}, errors {}",
+        "Scan {} in {:?}: total {}, new {}, modified {}, missing {}, restored {}, errors {}",
         if summary.cancelled {
             "cancelled"
         } else {
             "complete"
         },
+        started.elapsed(),
         summary.total,
         summary.new_files,
         summary.modified_files,
+        summary.missing_files,
+        summary.restored_files,
         summary.errors
     );
     Ok(summary)
@@ -209,6 +263,7 @@ struct Known {
     id: String,
     size: i64,
     mtime: Option<String>,
+    missing: bool,
 }
 
 impl Known {
@@ -233,65 +288,46 @@ fn parse(s: &str) -> Option<DateTime<Utc>> {
 }
 
 async fn known_files(pool: &SqlitePool, library_id: &str) -> Result<HashMap<String, Known>> {
-    let rows: Vec<(String, String, i64, Option<String>)> = sqlx::query_as(
-        "SELECT relative_path, id, file_size, file_mtime FROM media WHERE library_id = ?1",
+    let rows: Vec<(String, String, i64, Option<String>, String)> = sqlx::query_as(
+        "SELECT relative_path, id, file_size, file_mtime, status FROM media
+         WHERE library_id = ?1 AND status IN ('active', 'missing')",
     )
     .bind(library_id)
     .fetch_all(pool)
     .await?;
     Ok(rows
         .into_iter()
-        .map(|(path, id, size, mtime)| (path, Known { id, size, mtime }))
+        .map(|(path, id, size, mtime, status)| {
+            let missing = status == "missing";
+            (
+                path,
+                Known {
+                    id,
+                    size,
+                    mtime,
+                    missing,
+                },
+            )
+        })
         .collect())
 }
 
-/// Dimensions off the async runtime.
-async fn dimensions(entry: &SourceEntry) -> (Option<i64>, Option<i64>) {
-    match (&entry.local_path, entry.media_type) {
-        (Some(path), MediaType::Image) => {
-            let path = path.clone();
-            tokio::task::spawn_blocking(move || metadata::image_dimensions(&path))
-                .await
-                .unwrap_or((None, None))
-        }
-        _ => (None, None),
-    }
-}
+type Tx = Transaction<'static, Sqlite>;
 
-/// Thumbnail off the async runtime. Failures (corrupt/unsupported files) are logged, not fatal.
-async fn ensure_thumbnail(ctx: &ScanContext, media_id: &str, entry: &SourceEntry, force: bool) {
-    let (Some(path), MediaType::Image) = (&entry.local_path, entry.media_type) else {
-        return;
-    };
-    let (dir, id, path) = (
-        ctx.thumbnails_dir.clone(),
-        media_id.to_string(),
-        path.clone(),
-    );
-    let result = tokio::task::spawn_blocking(move || {
-        thumbnails::generate(&dir, &id, &path, thumbnails::GRID_SIZE, force)
-    })
-    .await;
-
-    match result {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => tracing::warn!("No thumbnail for {}: {e}", entry.relative_path),
-        Err(e) => tracing::warn!("Thumbnail task failed for {}: {e}", entry.relative_path),
-    }
-}
-
-async fn insert(ctx: &ScanContext, library_id: &str, entry: &SourceEntry) -> Result<()> {
+async fn insert(tx: &mut Tx, library_id: &str, entry: &SourceEntry) -> Result<()> {
     let id = uuid::Uuid::now_v7().to_string();
     let now = Utc::now().to_rfc3339();
-    let (width, height) = dimensions(entry).await;
+    // Provisional date until the ingest job reads EXIF.
+    let captured_at = entry
+        .modified
+        .as_deref()
+        .and_then(metadata::mtime_as_capture);
 
-    // Until EXIF lands (phase 2) the capture date is the file's mtime.
     sqlx::query(
         "INSERT INTO media (
             id, library_id, relative_path, filename, extension, media_type,
-            file_size, file_mtime, width, height, captured_at, date_source,
-            indexed_at, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?8, 'mtime', ?11, ?11)",
+            file_size, file_mtime, captured_at, date_source, indexed_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'mtime', ?10, ?10)",
     )
     .bind(&id)
     .bind(library_id)
@@ -301,49 +337,50 @@ async fn insert(ctx: &ScanContext, library_id: &str, entry: &SourceEntry) -> Res
     .bind(entry.media_type.as_str())
     .bind(entry.size as i64)
     .bind(&entry.modified)
-    .bind(width)
-    .bind(height)
+    .bind(captured_at)
     .bind(&now)
-    .execute(&ctx.pool)
+    .execute(&mut **tx)
     .await?;
 
-    ensure_thumbnail(ctx, &id, entry, false).await;
-    Ok(())
+    jobs::enqueue_ingest(&mut **tx, library_id, &id).await
 }
 
-async fn update(ctx: &ScanContext, media_id: &str, entry: &SourceEntry) -> Result<()> {
-    let (width, height) = dimensions(entry).await;
-
-    // Content changed: derived data (hashes) is no longer valid.
+async fn update(tx: &mut Tx, library_id: &str, media_id: &str, entry: &SourceEntry) -> Result<()> {
+    // Content changed: hashes are stale until the job recomputes them.
     sqlx::query(
         "UPDATE media
-         SET file_size = ?1, file_mtime = ?2, width = ?3, height = ?4,
-             captured_at = CASE WHEN date_source = 'mtime' THEN ?2 ELSE captured_at END,
-             sha256 = NULL, phash = NULL, status = 'active', updated_at = ?5
-         WHERE id = ?6",
+         SET file_size = ?1, file_mtime = ?2, sha256 = NULL, phash = NULL,
+             status = 'active', updated_at = ?3
+         WHERE id = ?4",
     )
     .bind(entry.size as i64)
     .bind(&entry.modified)
-    .bind(width)
-    .bind(height)
     .bind(Utc::now().to_rfc3339())
     .bind(media_id)
-    .execute(&ctx.pool)
+    .execute(&mut **tx)
     .await?;
 
-    ensure_thumbnail(ctx, media_id, entry, true).await;
+    jobs::enqueue_ingest(&mut **tx, library_id, media_id).await
+}
+
+async fn restore(tx: &mut Tx, media_id: &str) -> Result<()> {
+    sqlx::query("UPDATE media SET status = 'active', updated_at = ?1 WHERE id = ?2")
+        .bind(Utc::now().to_rfc3339())
+        .bind(media_id)
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::MediaType;
     use crate::db::tests::{temp_dir, test_db};
-    use std::collections::BTreeMap;
     use std::path::Path;
 
     #[derive(Default)]
-    struct Recorder(Mutex<Vec<ScanProgress>>);
+    pub(crate) struct Recorder(pub Mutex<Vec<ScanProgress>>);
 
     impl ScanObserver for Recorder {
         fn on_progress(&self, p: &ScanProgress) {
@@ -351,61 +388,57 @@ mod tests {
         }
     }
 
-    fn write_jpeg(path: &Path, w: u32, h: u32) {
+    pub(crate) fn write_jpeg(path: &Path, w: u32, h: u32) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        image::RgbImage::from_fn(w, h, |x, y| image::Rgb([x as u8, y as u8, 128]))
-            .save(path)
-            .unwrap();
+        // Noise keeps even small test images above `MIN_FILE_SIZE` once compressed.
+        image::RgbImage::from_fn(w.max(96), h.max(96), |x, y| {
+            let n = (x.wrapping_mul(7919) ^ y.wrapping_mul(104_729)).wrapping_mul(2_654_435_761);
+            image::Rgb([(n >> 24) as u8, (n >> 16) as u8, (x + y) as u8])
+        })
+        .save(path)
+        .unwrap();
     }
 
-    fn write_bytes(path: &Path, bytes: &[u8]) {
+    pub(crate) fn write_bytes(path: &Path, bytes: &[u8]) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, bytes).unwrap();
     }
 
-    /// Every file under `root` with its content, to prove originals are untouched.
-    fn snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
-        walkdir::WalkDir::new(root)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file())
-            .map(|e| (e.path().to_path_buf(), std::fs::read(e.path()).unwrap()))
-            .collect()
-    }
-
-    async fn paths(pool: &SqlitePool, library_id: &str) -> Vec<String> {
+    async fn paths(pool: &SqlitePool, library_id: &str, status: &str) -> Vec<String> {
         sqlx::query_scalar(
-            "SELECT relative_path FROM media WHERE library_id = ?1 ORDER BY relative_path",
+            "SELECT relative_path FROM media WHERE library_id = ?1 AND status = ?2 ORDER BY relative_path",
         )
         .bind(library_id)
+        .bind(status)
         .fetch_all(pool)
         .await
         .unwrap()
     }
 
-    async fn id_of(pool: &SqlitePool, relative_path: &str) -> String {
-        sqlx::query_scalar("SELECT id FROM media WHERE relative_path = ?1")
-            .bind(relative_path)
+    async fn queued(pool: &SqlitePool) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE status = 'queued'")
             .fetch_one(pool)
             .await
             .unwrap()
     }
 
     #[tokio::test]
-    async fn scan_is_incremental_and_never_touches_originals() {
+    async fn diff_detects_new_modified_missing_and_restored() {
         let (pool, dir) = test_db().await;
         let root = temp_dir();
         write_jpeg(&root.join("celular/2024/IMG_0001.jpg"), 64, 48);
         write_jpeg(&root.join("camera/foto.png"), 32, 32);
-        write_bytes(&root.join("corrompida.jpg"), b"not really a jpeg");
-        write_bytes(&root.join("video.mp4"), b"fake video");
-        write_bytes(&root.join("notas.txt"), b"ignored extension");
-        write_jpeg(&root.join(".photovault-trash/antiga.jpg"), 8, 8);
-        let original = snapshot(&root);
+        write_bytes(&root.join("corrompida.jpg"), &[7u8; 4096]);
+        write_bytes(&root.join("video.mp4"), &[0u8; 2048]);
+        write_bytes(&root.join("notas.txt"), &[1u8; 4096]); // unsupported extension
+        write_bytes(&root.join("icone.png"), &[1u8; 100]); // too small
+        write_bytes(&root.join("._IMG_0001.jpg"), &[1u8; 4096]); // AppleDouble
+        write_jpeg(&root.join(".photovault-trash/antiga.jpg"), 64, 64);
+        write_jpeg(&root.join(".thumbnails/x.jpg"), 64, 64);
+        write_jpeg(&root.join("$RECYCLE.BIN/y.jpg"), 64, 64);
 
         let ctx = ScanContext {
             pool: pool.clone(),
-            thumbnails_dir: dir.join("thumbnails"),
             control: Arc::new(ScanControl::default()),
         };
         let lib = libraries::create(&pool, "Teste", root.to_str().unwrap())
@@ -413,14 +446,10 @@ mod tests {
             .unwrap();
         let recorder = Arc::new(Recorder::default());
 
-        // First scan: supported files only, ignored dirs skipped, corrupt file not fatal.
         let s = scan(&ctx, &lib, recorder.clone()).await.unwrap();
+        assert_eq!((s.total, s.new_files, s.errors), (4, 4, 0));
         assert_eq!(
-            (s.total, s.new_files, s.errors, s.cancelled),
-            (4, 4, 0, false)
-        );
-        assert_eq!(
-            paths(&pool, &lib.id).await,
+            paths(&pool, &lib.id, "active").await,
             [
                 "camera/foto.png",
                 "celular/2024/IMG_0001.jpg",
@@ -428,47 +457,72 @@ mod tests {
                 "video.mp4"
             ]
         );
-        let img = id_of(&pool, "celular/2024/IMG_0001.jpg").await;
-        let img_thumb = thumbnails::path(&ctx.thumbnails_dir, &img, thumbnails::GRID_SIZE);
-        assert!(img_thumb.exists());
-        let bad = id_of(&pool, "corrompida.jpg").await;
-        assert!(!thumbnails::path(&ctx.thumbnails_dir, &bad, thumbnails::GRID_SIZE).exists());
-        assert_eq!(snapshot(&root), original, "scan modified the library");
-
+        assert_eq!(
+            queued(&pool).await,
+            4,
+            "every new file is queued for ingest"
+        );
         let progress = recorder.0.lock().unwrap().clone();
         assert_eq!(progress.first().unwrap().phase, ScanPhase::Discovering);
-        let last = progress.last().unwrap();
-        assert_eq!(
-            (last.phase, last.processed, last.total),
-            (ScanPhase::Indexing, 4, 4)
-        );
 
-        // Second scan: nothing new; a deleted thumbnail is regenerated.
-        std::fs::remove_file(&img_thumb).unwrap();
-        let s = scan(&ctx, &lib, recorder.clone()).await.unwrap();
-        assert_eq!((s.new_files, s.modified_files), (0, 0));
-        assert!(img_thumb.exists());
-        assert_eq!(id_of(&pool, "celular/2024/IMG_0001.jpg").await, img);
-
-        // Changed content (size) is updated in place, keeping the id.
-        write_jpeg(&root.join("celular/2024/IMG_0001.jpg"), 200, 150);
-        let s = scan(&ctx, &lib, recorder.clone()).await.unwrap();
-        assert_eq!((s.new_files, s.modified_files), (0, 1));
-        let width: Option<i64> = sqlx::query_scalar("SELECT width FROM media WHERE id = ?1")
-            .bind(&img)
-            .fetch_one(&pool)
+        // Unchanged rescan: nothing to do.
+        sqlx::query("UPDATE jobs SET status = 'done'")
+            .execute(&pool)
             .await
             .unwrap();
-        assert_eq!(width, Some(200));
+        let s = scan(&ctx, &lib, recorder.clone()).await.unwrap();
+        assert_eq!((s.new_files, s.modified_files, s.missing_files), (0, 0, 0));
+        assert_eq!(queued(&pool).await, 0);
 
-        // Cancelled scan reports it and does not bump last_scan_at.
-        let before = libraries::get(&pool, &lib.id).await.unwrap().last_scan_at;
+        // Modified (size) → requeued; deleted → missing (kept in the catalog).
+        write_jpeg(&root.join("celular/2024/IMG_0001.jpg"), 200, 150);
+        std::fs::remove_file(root.join("camera/foto.png")).unwrap();
+        let s = scan(&ctx, &lib, recorder.clone()).await.unwrap();
+        assert_eq!((s.modified_files, s.missing_files), (1, 1));
+        assert_eq!(queued(&pool).await, 1);
+        assert_eq!(paths(&pool, &lib.id, "missing").await, ["camera/foto.png"]);
+
+        // Back again → restored with the same row.
+        write_jpeg(&root.join("camera/foto.png"), 32, 32);
+        let before: Vec<String> = sqlx::query_scalar("SELECT id FROM media ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        let s = scan(&ctx, &lib, recorder.clone()).await.unwrap();
+        assert!(s.restored_files == 1 && s.missing_files == 0, "{s:?}");
+        let after: Vec<String> = sqlx::query_scalar("SELECT id FROM media ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(before, after);
+
+        // An empty folder (unmounted drive) is refused instead of marking everything missing.
+        let empty = temp_dir();
+        let moved = libraries::relocate(&pool, &lib.id, empty.to_str().unwrap()).await;
+        assert!(
+            moved.is_err(),
+            "relocation check already refuses empty folders"
+        );
+        let empty_lib = Library {
+            root_path: empty.to_str().unwrap().into(),
+            ..lib.clone()
+        };
+        assert!(matches!(
+            scan(&ctx, &empty_lib, recorder.clone()).await,
+            Err(Error::PathNotAccessible(_))
+        ));
+        assert!(paths(&pool, &lib.id, "missing").await.is_empty());
+
+        // A cancelled scan never marks files missing and keeps last_scan_at.
+        std::fs::remove_file(root.join("video.mp4")).unwrap();
+        let last = libraries::get(&pool, &lib.id).await.unwrap().last_scan_at;
         ctx.control.cancel();
         let s = scan(&ctx, &lib, recorder).await.unwrap();
         assert!(s.cancelled);
+        assert!(paths(&pool, &lib.id, "missing").await.is_empty());
         assert_eq!(
             libraries::get(&pool, &lib.id).await.unwrap().last_scan_at,
-            before
+            last
         );
 
         let _ = std::fs::remove_dir_all(dir);
@@ -481,6 +535,7 @@ mod tests {
             id: "x".into(),
             size: 10,
             mtime: Some("2025-01-01T10:00:00Z".into()),
+            missing: false,
         };
         let entry = |size, modified: &str| SourceEntry {
             relative_path: "a.jpg".into(),

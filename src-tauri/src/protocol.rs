@@ -1,6 +1,7 @@
 //! `pv://` custom protocol serving media to the WebView.
 //!
 //! - `pv://localhost/thumb/<media-id>` → 256px WebP thumbnail
+//! - `pv://localhost/preview/<media-id>` → 1024px WebP (viewer fallback for HEIC/TIFF)
 //! - `pv://localhost/media/<media-id>` → original file (images and videos, with `Range`)
 //!
 //! Files are resolved **only by catalog id**; paths coming from the frontend are
@@ -24,14 +25,17 @@ const MAX_CHUNK: u64 = 4 * 1024 * 1024;
 
 pub async fn handle(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     let state = app.state::<Arc<AppState>>();
-    let path = percent_decode(request.uri().path());
+    let decoded = percent_decode(request.uri().path());
+    // `?v=<thumbVersion>` only busts the WebView cache; it arrives encoded in the path.
+    let path = decoded.split('?').next().unwrap_or_default();
     let range = request
         .headers()
         .get(header::RANGE)
         .and_then(|v| v.to_str().ok());
 
     let result = match path.trim_start_matches('/').split_once('/') {
-        Some(("thumb", id)) => serve_thumbnail(&state, id).await,
+        Some(("thumb", id)) => serve_thumbnail(&state, id, thumbnails::GRID_SIZE).await,
+        Some(("preview", id)) => serve_thumbnail(&state, id, thumbnails::PREVIEW_SIZE).await,
         Some(("media", id)) => serve_media(&state, id, range).await,
         _ => Err(StatusCode::NOT_FOUND),
     };
@@ -46,9 +50,9 @@ pub async fn handle(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec
 
 type Served = Result<Response<Vec<u8>>, StatusCode>;
 
-async fn serve_thumbnail(state: &AppState, id: &str) -> Served {
+async fn serve_thumbnail(state: &AppState, id: &str, size: u32) -> Served {
     let id = parse_id(id)?;
-    let path = thumbnails::path(&state.paths.thumbnails_dir, &id, thumbnails::GRID_SIZE);
+    let path = thumbnails::path(&state.paths.thumbnails_dir, &id, size);
     let bytes = tokio::fs::read(&path).await.map_err(io_status)?;
     ok(bytes, "image/webp")
 }

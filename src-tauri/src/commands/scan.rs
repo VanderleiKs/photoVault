@@ -31,13 +31,14 @@ pub async fn scan_library(
         let _guard = guard;
         let ctx = ScanContext {
             pool: state.pool.clone(),
-            thumbnails_dir: state.paths.thumbnails_dir.clone(),
             control: Arc::clone(&state.scan),
         };
         let observer = Arc::new(TauriScanObserver(app.clone()));
 
         match scanner::scan(&ctx, &library, observer).await {
             Ok(summary) => {
+                // New/modified files were queued for EXIF, thumbnails and hashes.
+                state.jobs.wake();
                 let _ = ScanCompleteEvent(summary).emit(&app);
             }
             Err(e) => {

@@ -14,7 +14,7 @@ import { TooltipModule } from '@openng/optimus-ui/tooltip';
 import { Backend } from '../../core/ipc/backend';
 import {
   mediaUrl,
-  thumbnailUrl,
+  previewUrl,
   unwrap,
   type MediaItem,
   type MediaNavigation,
@@ -117,12 +117,12 @@ export class ViewerPage {
   protected readonly zoom = signal(1);
   protected readonly showDetails = signal(true);
   protected readonly videoError = signal(false);
-  /** Falls back to the thumbnail when the WebView cannot decode the original (HEIC/TIFF). */
+  /** Falls back to the 1024px preview when the WebView cannot decode the original (HEIC/TIFF). */
   private readonly useThumbnail = signal(false);
 
   protected readonly original = computed(() => mediaUrl(this.id()));
   protected readonly src = computed(() =>
-    this.useThumbnail() ? thumbnailUrl(this.id()) : this.original(),
+    this.useThumbnail() ? previewUrl(this.id(), this.item()?.thumbVersion) : this.original(),
   );
   protected readonly zoomLabel = computed(() => `${Math.round(this.zoom() * 100)}%`);
 

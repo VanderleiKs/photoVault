@@ -21,6 +21,13 @@ walkdir = "2"
 image = "0.25"
 dirs = "6"
 sysinfo = { version = "0.39", default-features = false, features = ["disk"] }
+nom-exif = "3.8"
+fast_image_resize = { version = "6", features = ["image"] }
+webp = "0.3"
+image_hasher = "3.1"
+reverse_geocoder = "4.1"
+regex = "1"
+sha2 = "0.10"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

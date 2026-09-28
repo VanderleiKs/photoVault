@@ -1,6 +1,8 @@
 pub mod control;
+pub mod geo;
 pub mod local;
 pub mod metadata;
+pub mod processor;
 pub mod scanner;
 pub mod source;
 

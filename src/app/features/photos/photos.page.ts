@@ -21,6 +21,7 @@ import { MediaStore } from '../../core/stores/media.store';
 import { ScanStore } from '../../core/stores/scan.store';
 import { UiStore } from '../../core/stores/ui.store';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
+import { JobStatusComponent } from '../../shared/job-status.component';
 import { MediaTileComponent } from '../../shared/media-tile.component';
 
 @Component({
@@ -33,6 +34,7 @@ import { MediaTileComponent } from '../../shared/media-tile.component';
     SkeletonModule,
     SliderModule,
     EmptyStateComponent,
+    JobStatusComponent,
     MediaTileComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -44,6 +46,8 @@ import { MediaTileComponent } from '../../shared/media-tile.component';
           <h1 class="text-xl font-semibold">Todas as fotos</h1>
           <p class="text-sm text-muted">{{ subtitle() }}</p>
         </div>
+
+        <app-job-status />
 
         @if (media.items().length) {
           <label class="hidden items-center gap-3 text-muted sm:flex" title="Tamanho das miniaturas">

@@ -3,9 +3,12 @@ import { TagModule } from '@openng/optimus-ui/tag';
 import {
   describeDateSource,
   formatBytes,
+  formatCamera,
   formatDate,
   formatDimensions,
   formatDuration,
+  formatExposure,
+  formatPlace,
 } from '../core/format';
 import type { MediaItem } from '../core/ipc/ipc';
 
@@ -71,10 +74,14 @@ export class MediaDetailsComponent {
         value: formatDate(m.capturedAt, true),
         hint: describeDateSource(m.dateSource) ?? undefined,
       },
-      { icon: 'pi pi-folder', label: 'Local no disco', value: m.relativePath },
     ];
-    const camera = [m.cameraMake, m.cameraModel].filter(Boolean).join(' ');
-    if (camera) rows.push({ icon: 'pi pi-camera', label: 'Câmera', value: camera });
+    const place = formatPlace(m.placeName, m.placeAdmin1, m.placeCountry);
+    if (place) rows.push({ icon: 'pi pi-map-marker', label: 'Local', value: place });
+    rows.push({ icon: 'pi pi-folder', label: 'Local no disco', value: m.relativePath });
+    const camera = formatCamera(m.cameraMake, m.cameraModel);
+    if (camera) rows.push({ icon: 'pi pi-camera', label: 'Câmera', value: camera, hint: m.lens ?? undefined });
+    const exposure = formatExposure(m);
+    if (exposure) rows.push({ icon: 'pi pi-sliders-h', label: 'Exposição', value: exposure });
     const dims = formatDimensions(m.width, m.height);
     if (dims) rows.push({ icon: 'pi pi-image', label: 'Dimensões', value: dims });
     const duration = formatDuration(m.durationMs);
