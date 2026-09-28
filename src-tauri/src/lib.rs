@@ -16,7 +16,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 /// Commands and events exposed to the frontend (single source for the TS bindings).
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
-    use commands::{jobs, libraries, media, scan, system};
+    use commands::{albums, jobs, libraries, media, scan, system};
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(collect_commands![
             system::get_app_info,
@@ -35,8 +35,24 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             scan::cancel_scan,
             scan::get_scanning_library,
             media::list_media,
+            media::count_media,
             media::get_media,
-            media::get_media_navigation,
+            media::get_media_context,
+            media::set_favorite,
+            media::get_media_albums,
+            media::get_overview,
+            media::get_timeline,
+            media::list_places,
+            media::list_cameras,
+            albums::list_albums,
+            albums::get_album,
+            albums::create_album,
+            albums::rename_album,
+            albums::update_album_rule,
+            albums::delete_album,
+            albums::add_to_album,
+            albums::remove_from_album,
+            albums::set_album_cover,
             jobs::get_job_progress,
             jobs::pause_jobs,
             jobs::resume_jobs,

@@ -9,22 +9,10 @@ export interface NavItem {
 }
 
 export const MAIN_NAV: NavItem[] = [
-  {
-    label: 'Início',
-    icon: 'pi pi-home',
-    route: '/home',
-    phase: 3,
-    description: 'Resumo da biblioteca: totais, anos, viagens e fotos recentes.',
-  },
+  { label: 'Início', icon: 'pi pi-home', route: '/home' },
   { label: 'Todas as fotos', icon: 'pi pi-images', route: '/photos' },
   { label: 'Timeline', icon: 'pi pi-calendar', route: '/timeline' },
-  {
-    label: 'Álbuns',
-    icon: 'pi pi-book',
-    route: '/albums',
-    phase: 3,
-    description: 'Álbuns manuais e inteligentes (por regras), sem duplicar arquivos.',
-  },
+  { label: 'Álbuns', icon: 'pi pi-book', route: '/albums' },
   {
     label: 'Viagens',
     icon: 'pi pi-send',
@@ -39,13 +27,7 @@ export const MAIN_NAV: NavItem[] = [
     phase: 7,
     description: 'Reconhecimento de rostos 100% local, sem enviar fotos para fora do computador.',
   },
-  {
-    label: 'Favoritos',
-    icon: 'pi pi-heart',
-    route: '/favorites',
-    phase: 3,
-    description: 'Suas fotos favoritas. Favoritas nunca são sugeridas para exclusão.',
-  },
+  { label: 'Favoritos', icon: 'pi pi-heart', route: '/favorites' },
 ];
 
 export const ORGANIZE_NAV: NavItem[] = [

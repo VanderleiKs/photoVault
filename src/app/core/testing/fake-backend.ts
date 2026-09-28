@@ -27,7 +27,43 @@ export function fakeBackend(commands: Record<string, (...args: never[]) => unkno
         scanProgressEvent: { listen },
         scanCompleteEvent: { listen },
         scanErrorEvent: { listen },
+        jobProgressEvent: { listen },
+        mediaUpdatedEvent: { listen },
       },
     },
+  };
+}
+
+/** A `MediaItem` with defaults (override what the test cares about). */
+export function mediaItem(id: string, patch: Partial<import('../ipc/ipc').MediaItem> = {}): import('../ipc/ipc').MediaItem {
+  return {
+    id,
+    libraryId: 'lib',
+    relativePath: `${id}.jpg`,
+    filename: `${id}.jpg`,
+    extension: 'jpg',
+    mediaType: 'image',
+    fileSize: 1,
+    width: null,
+    height: null,
+    durationMs: null,
+    capturedAt: null,
+    dateSource: null,
+    cameraMake: null,
+    cameraModel: null,
+    lens: null,
+    iso: null,
+    aperture: null,
+    shutter: null,
+    focalLength: null,
+    gpsLat: null,
+    gpsLon: null,
+    placeName: null,
+    placeAdmin1: null,
+    placeCountry: null,
+    isFavorite: false,
+    thumbVersion: 0,
+    indexedAt: '',
+    ...patch,
   };
 }

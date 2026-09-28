@@ -38,10 +38,58 @@ export const commands = {
 	cancelScan: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_scan")),
 	/**  Library being scanned right now, if any. */
 	getScanningLibrary: () => typedError<string | null, ApiError>(__TAURI_INVOKE("get_scanning_library")),
-	/**  A page of the gallery. Pass `nextCursor` from the previous page to continue. */
-	listMedia: (libraryId: string, cursor: string | null, limit: number) => typedError<MediaPage, ApiError>(__TAURI_INVOKE("list_media", { libraryId, cursor, limit })),
+	/**
+	 *  A page of the gallery. Pass `nextCursor` from the previous page to continue
+	 *  (with the same query).
+	 */
+	listMedia: (libraryId: string, query: MediaQuery, cursor: string | null, limit: number) => typedError<MediaPage, ApiError>(__TAURI_INVOKE("list_media", { libraryId, query, cursor, limit })),
+	countMedia: (libraryId: string, filter: MediaFilter) => typedError<MediaCount, ApiError>(__TAURI_INVOKE("count_media", { libraryId, filter })),
 	getMedia: (mediaId: string) => typedError<MediaItem, ApiError>(__TAURI_INVOKE("get_media", { mediaId })),
-	getMediaNavigation: (mediaId: string) => typedError<MediaNavigation, ApiError>(__TAURI_INVOKE("get_media_navigation", { mediaId })),
+	/**  Position, total and neighbours of an item inside a gallery context (viewer). */
+	getMediaContext: (mediaId: string, query: MediaQuery, radius: number) => typedError<MediaContext, ApiError>(__TAURI_INVOKE("get_media_context", { mediaId, query, radius })),
+	/**  Returns the updated items. */
+	setFavorite: (mediaIds: string[], favorite: boolean) => typedError<MediaItem[], ApiError>(__TAURI_INVOKE("set_favorite", { mediaIds, favorite })),
+	/**  Manual albums containing the item. */
+	getMediaAlbums: (mediaId: string) => typedError<AlbumRef[], ApiError>(__TAURI_INVOKE("get_media_albums", { mediaId })),
+	getOverview: (libraryId: string) => typedError<LibraryOverview, ApiError>(__TAURI_INVOKE("get_overview", { libraryId })),
+	getTimeline: (libraryId: string, filter: MediaFilter) => typedError<TimelineBucket[], ApiError>(__TAURI_INVOKE("get_timeline", { libraryId, filter })),
+	/**  Filter menu options. */
+	listPlaces: (libraryId: string) => typedError<PlaceOption[], ApiError>(__TAURI_INVOKE("list_places", { libraryId })),
+	listCameras: (libraryId: string) => typedError<CameraOption[], ApiError>(__TAURI_INVOKE("list_cameras", { libraryId })),
+	listAlbums: (libraryId: string) => typedError<Album[], ApiError>(__TAURI_INVOKE("list_albums", { libraryId })),
+	getAlbum: (albumId: string) => typedError<Album, ApiError>(__TAURI_INVOKE("get_album", { albumId })),
+	/**  `rule` set = smart album (filled by the rule); otherwise a manual album. */
+	createAlbum: (libraryId: string, name: string, rule: {
+	mediaType?: MediaType | null,
+	/**  `true` = only favorites. */
+	favorite?: boolean | null,
+	year?: number | null,
+	/**  1–12. Without `year`, that month in any year. */
+	month?: number | null,
+	/**  1–31; needs `year` and `month`. */
+	day?: number | null,
+	/**  Inclusive range, "YYYY-MM-DD". */
+	dateFrom?: string | null,
+	dateTo?: string | null,
+	placeId?: number | null,
+	/**  Exact `camera_model`. */
+	camera?: string | null,
+	albumId?: string | null,
+	/**
+	 *  Free text (Ctrl+K): years and month names become date filters, the rest is
+	 *  matched against file name, folder, place and album names.
+	 */
+	text?: string | null,
+} | null) => typedError<Album, ApiError>(__TAURI_INVOKE("create_album", { libraryId, name, rule })),
+	renameAlbum: (albumId: string, name: string) => typedError<Album, ApiError>(__TAURI_INVOKE("rename_album", { albumId, name })),
+	updateAlbumRule: (albumId: string, rule: MediaFilter) => typedError<Album, ApiError>(__TAURI_INVOKE("update_album_rule", { albumId, rule })),
+	/**  Removes the album only; photos stay in the library. */
+	deleteAlbum: (albumId: string) => typedError<null, ApiError>(__TAURI_INVOKE("delete_album", { albumId })),
+	/**  Returns how many items were added (already present ones are skipped). */
+	addToAlbum: (albumId: string, mediaIds: string[]) => typedError<number, ApiError>(__TAURI_INVOKE("add_to_album", { albumId, mediaIds })),
+	removeFromAlbum: (albumId: string, mediaIds: string[]) => typedError<number, ApiError>(__TAURI_INVOKE("remove_from_album", { albumId, mediaIds })),
+	/**  `mediaId` null = automatic cover (newest photo). */
+	setAlbumCover: (albumId: string, mediaId: string | null) => typedError<Album, ApiError>(__TAURI_INVOKE("set_album_cover", { albumId, mediaId })),
 	/**  State of the background analysis queue. */
 	getJobProgress: () => typedError<JobProgress, ApiError>(__TAURI_INVOKE("get_job_progress")),
 	pauseJobs: () => typedError<JobProgress, ApiError>(__TAURI_INVOKE("pause_jobs")),
@@ -62,6 +110,26 @@ export const events = {
 };
 
 /* Types */
+export type Album = {
+	id: string,
+	libraryId: string,
+	name: string,
+	kind: AlbumKind,
+	/**  Smart albums only. */
+	rule: MediaFilter | null,
+	mediaCount: number,
+	/**  Chosen cover, or the newest item with a thumbnail. */
+	cover: MediaItem | null,
+	createdAt: string,
+};
+
+export type AlbumKind = "manual" | "smart";
+
+export type AlbumRef = {
+	id: string,
+	name: string,
+};
+
 /**  Error returned by every command: stable `code` + pt-BR `message`. */
 export type ApiError = {
 	code: string,
@@ -85,6 +153,12 @@ export type AppSettings = {
 	ioConcurrency: number,
 	/**  CPU workers for analysis; 0 = automatic (cores - 1). Used from phase 2. */
 	cpuConcurrency: number,
+};
+
+export type CameraOption = {
+	make: string | null,
+	model: string,
+	count: number,
 };
 
 /**  Where the runtime data lives. */
@@ -133,11 +207,62 @@ export type Library = {
 	connected: boolean,
 };
 
+export type LibraryOverview = {
+	photos: number,
+	videos: number,
+	favorites: number,
+	albums: number,
+	/**  Newest first. */
+	years: YearSummary[],
+	/**  Hero image: a landscape favorite if there is one, else any landscape photo. */
+	highlight: MediaItem | null,
+};
+
 export type LibraryStats = {
 	photos: number,
 	videos: number,
 	favorites: number,
 	totalBytes: number,
+};
+
+/**  Where an item sits in a gallery context (filter + order), for the viewer. */
+export type MediaContext = {
+	/**  1-based position and total, for "12 / 426". */
+	position: number,
+	total: number,
+	/**  Neighbours in order (thumbnail strip); `items[index]` is the item itself. */
+	items: MediaItem[],
+	index: number,
+};
+
+export type MediaCount = {
+	total: number,
+	photos: number,
+	videos: number,
+};
+
+/**  Every field is optional; unset fields don't restrict. All set fields combine with AND. */
+export type MediaFilter = {
+	mediaType?: MediaType | null,
+	/**  `true` = only favorites. */
+	favorite?: boolean | null,
+	year?: number | null,
+	/**  1–12. Without `year`, that month in any year. */
+	month?: number | null,
+	/**  1–31; needs `year` and `month`. */
+	day?: number | null,
+	/**  Inclusive range, "YYYY-MM-DD". */
+	dateFrom?: string | null,
+	dateTo?: string | null,
+	placeId?: number | null,
+	/**  Exact `camera_model`. */
+	camera?: string | null,
+	albumId?: string | null,
+	/**
+	 *  Free text (Ctrl+K): years and month names become date filters, the rest is
+	 *  matched against file name, folder, place and album names.
+	 */
+	text?: string | null,
 };
 
 /**  Media item as exposed to the frontend. */
@@ -175,21 +300,26 @@ export type MediaItem = {
 	indexedAt: string,
 };
 
-export type MediaNavigation = {
-	/**  Previous item in gallery order (newer). */
-	prevId: string | null,
-	/**  Next item in gallery order (older). */
-	nextId: string | null,
-	/**  1-based position and total, for "12 / 426". */
-	position: number,
-	total: number,
-};
-
 /**  One page of the gallery. Pass `next_cursor` back to get the following page. */
 export type MediaPage = {
 	items: MediaItem[],
 	nextCursor: string | null,
 };
+
+export type MediaQuery = {
+	filter?: MediaFilter,
+	sort?: MediaSort,
+};
+
+export type MediaSort = 
+/**  Capture date, newest first; undated last. */
+"newest" | 
+/**  Capture date, oldest first; undated last. */
+"oldest" | 
+/**  File name A→Z. */
+"name" | 
+/**  Largest files first. */
+"largest";
 
 export type MediaType = "image" | "video";
 
@@ -200,6 +330,14 @@ export type MediaType = "image" | "video";
 export type MediaUpdatedEvent = {
 	items: MediaItem[],
 	removedIds: string[],
+};
+
+export type PlaceOption = {
+	id: number,
+	name: string,
+	admin1: string | null,
+	countryCode: string,
+	count: number,
 };
 
 export type ScanCompleteEvent = ScanSummary;
@@ -238,6 +376,14 @@ export type ScanSummary = {
 
 export type Theme = "light" | "dark" | "system";
 
+/**  Month bucket; `year` 0 = undated. */
+export type TimelineBucket = {
+	year: number,
+	/**  1–12; 0 for undated. */
+	month: number,
+	count: number,
+};
+
 export type VolumeInfo = {
 	/**  Human label: volume name on Windows, last mount-point component on Linux. */
 	label: string,
@@ -245,6 +391,12 @@ export type VolumeInfo = {
 	totalBytes: number,
 	availableBytes: number,
 	removable: boolean,
+};
+
+export type YearSummary = {
+	year: number,
+	count: number,
+	cover: MediaItem | null,
 };
 
 /* Tauri Specta runtime */

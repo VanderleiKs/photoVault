@@ -11,6 +11,9 @@ pub enum Error {
     #[error("Mídia não encontrada.")]
     MediaNotFound,
 
+    #[error("Álbum não encontrado.")]
+    AlbumNotFound,
+
     #[error("A pasta não existe ou não está acessível: {0}")]
     PathNotAccessible(String),
 
@@ -42,6 +45,7 @@ impl Error {
         match self {
             Error::LibraryNotFound => "LIBRARY_NOT_FOUND",
             Error::MediaNotFound => "MEDIA_NOT_FOUND",
+            Error::AlbumNotFound => "ALBUM_NOT_FOUND",
             Error::PathNotAccessible(_) => "PATH_NOT_ACCESSIBLE",
             Error::InvalidInput(_) => "INVALID_INPUT",
             Error::ScanInProgress => "SCAN_IN_PROGRESS",

@@ -1,84 +1,63 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  DestroyRef,
-  ElementRef,
-  afterNextRender,
-  computed,
-  inject,
-  viewChild,
-} from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ChangeDetectionStrategy, Component, computed, effect, inject } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { ButtonModule } from '@openng/optimus-ui/button';
 import { ProgressBarModule } from '@openng/optimus-ui/progressbar';
-import { SkeletonModule } from '@openng/optimus-ui/skeleton';
-import { SliderModule } from '@openng/optimus-ui/slider';
 import { formatCount } from '../../core/format';
-import type { MediaItem } from '../../core/ipc/ipc';
+import type { MediaItem, MediaSort } from '../../core/ipc/ipc';
+import { BrowseStore } from '../../core/stores/browse.store';
+import { GalleryStore } from '../../core/stores/gallery.store';
 import { LibraryStore } from '../../core/stores/library.store';
-import { MediaStore } from '../../core/stores/media.store';
 import { ScanStore } from '../../core/stores/scan.store';
-import { UiStore } from '../../core/stores/ui.store';
+import { ViewerContext } from '../../core/stores/viewer-context';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
+import { FilterBarComponent } from '../../shared/filter-bar.component';
+import { GalleryControlsComponent } from '../../shared/gallery-controls.component';
 import { JobStatusComponent } from '../../shared/job-status.component';
-import { MediaTileComponent } from '../../shared/media-tile.component';
+import { MediaGridComponent } from '../../shared/media-grid/media-grid.component';
+import { SelectionBarComponent } from '../../shared/selection-bar.component';
 
+/** "Todas as fotos": the whole library with filters, search and sort (PRD §19). */
 @Component({
   selector: 'app-photos-page',
   imports: [
-    FormsModule,
     RouterLink,
     ButtonModule,
     ProgressBarModule,
-    SkeletonModule,
-    SliderModule,
     EmptyStateComponent,
+    FilterBarComponent,
+    GalleryControlsComponent,
     JobStatusComponent,
-    MediaTileComponent,
+    MediaGridComponent,
+    SelectionBarComponent,
   ],
+  providers: [GalleryStore],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
-    <header class="sticky top-0 z-10 border-b border-line bg-canvas/95 px-6 py-4 backdrop-blur">
+    <header data-sticky-header class="sticky top-0 z-10 border-b border-line bg-canvas/95 px-6 py-4 backdrop-blur">
       <div class="flex flex-wrap items-center gap-4">
         <div class="min-w-0 flex-1">
-          <h1 class="text-xl font-semibold">Todas as fotos</h1>
+          <h1 class="text-xl font-semibold">{{ browse.text().trim() ? 'Resultados da busca' : 'Todas as fotos' }}</h1>
           <p class="text-sm text-muted">{{ subtitle() }}</p>
         </div>
-
         <app-job-status />
-
-        @if (media.items().length) {
-          <label class="hidden items-center gap-3 text-muted sm:flex" title="Tamanho das miniaturas">
-            <i class="pi pi-th-large text-xs"></i>
-            <p-slider [(ngModel)]="ui.tileSize" [min]="96" [max]="280" [step]="8" styleClass="w-28" ariaLabel="Tamanho das miniaturas" />
-            <i class="pi pi-stop text-sm"></i>
-          </label>
-        }
-
+        <app-gallery-controls [sort]="browse.sort()" (sortChange)="setSort($event)" />
         @if (scanning()) {
           <p-button label="Cancelar" icon="pi pi-times" severity="danger" [outlined]="true" (onClick)="scan.cancel()" />
         } @else {
-          <p-button
-            label="Escanear"
-            icon="pi pi-refresh"
-            [disabled]="!library()?.connected"
-            (onClick)="startScan()"
-          />
+          <p-button label="Escanear" icon="pi pi-refresh" [disabled]="!library()?.connected" (onClick)="startScan()" />
         }
       </div>
 
       @if (scanning()) {
         <div class="mt-3" role="status">
-          <p-progressbar
-            [value]="percent()"
-            [mode]="percent() === null ? 'indeterminate' : 'determinate'"
-            [showValue]="false"
-            styleClass="!h-1.5"
-          />
+          <p-progressbar [value]="percent()" [mode]="percent() === null ? 'indeterminate' : 'determinate'" [showValue]="false" styleClass="!h-1.5" />
           <p class="mt-1.5 truncate text-xs text-muted">{{ progressText() }}</p>
         </div>
+      }
+
+      @if (hasMedia()) {
+        <app-filter-bar class="mt-3" />
       }
     </header>
 
@@ -92,59 +71,54 @@ import { MediaTileComponent } from '../../shared/media-tile.component';
           >
             <p-button label="Gerenciar bibliotecas" icon="pi pi-database" routerLink="/libraries" />
           </app-empty-state>
-        } @else if (!media.items().length && !media.loading() && !scanning()) {
-          <app-empty-state
-            icon="pi pi-images"
-            title="Nenhuma foto indexada ainda"
-            text="Escaneie a biblioteca para encontrar fotos e vídeos. Seus arquivos não são alterados."
-          >
-            <p-button label="Escanear agora" icon="pi pi-refresh" (onClick)="startScan()" />
-          </app-empty-state>
+        } @else if (gallery.loaded() && !gallery.items().length && !scanning()) {
+          @if (browse.filtered()) {
+            <app-empty-state icon="pi pi-search" title="Nada encontrado" text="Nenhuma foto atende a esta busca ou a estes filtros.">
+              <p-button label="Limpar filtros" icon="pi pi-filter-slash" [outlined]="true" (onClick)="browse.clear()" />
+            </app-empty-state>
+          } @else {
+            <app-empty-state icon="pi pi-images" title="Nenhuma foto indexada ainda" text="Escaneie a biblioteca para encontrar fotos e vídeos. Seus arquivos não são alterados.">
+              <p-button label="Escanear agora" icon="pi pi-refresh" (onClick)="startScan()" />
+            </app-empty-state>
+          }
         }
       }
 
-      <div class="grid gap-2" [style.grid-template-columns]="columns()" role="listbox" aria-label="Fotos">
-        @for (item of media.items(); track item.id) {
-          <app-media-tile
-            [item]="item"
-            [selected]="item.id === media.selectedId()"
-            (select)="select($event)"
-            (open)="open($event)"
-          />
-        }
-        @if (media.loading()) {
-          @for (i of skeletons; track i) {
-            <p-skeleton styleClass="!aspect-square !h-auto !rounded-lg" />
-          }
-        }
-      </div>
-      <div #sentinel class="h-px"></div>
+      <app-media-grid
+        [items]="gallery.items()"
+        [loading]="gallery.loading()"
+        [hasMore]="gallery.hasMore()"
+        (loadMore)="gallery.loadMore()"
+        (open)="open($event)"
+      />
     </section>
+
+    <app-selection-bar [items]="gallery.items()" />
   `,
 })
 export class PhotosPage {
-  protected readonly media = inject(MediaStore);
+  protected readonly gallery = inject(GalleryStore);
+  protected readonly browse = inject(BrowseStore);
   protected readonly scan = inject(ScanStore);
-  protected readonly ui = inject(UiStore);
   private readonly libraries = inject(LibraryStore);
-  private readonly router = inject(Router);
-  private readonly destroyRef = inject(DestroyRef);
+  private readonly viewer = inject(ViewerContext);
 
   protected readonly library = this.libraries.active;
-  protected readonly skeletons = Array.from({ length: 12 }, (_, i) => i);
-  private readonly sentinel = viewChild.required<ElementRef<HTMLElement>>('sentinel');
-
   protected readonly scanning = computed(() => this.scan.isScanning(this.library()?.id));
-  protected readonly columns = computed(() => `repeat(auto-fill, minmax(${this.ui.tileSize()}px, 1fr))`);
+  /** The library has anything at all (filters are pointless otherwise). */
+  protected readonly hasMedia = computed(() => {
+    const stats = this.libraries.stats();
+    return !!stats && stats.photos + stats.videos > 0;
+  });
 
   protected readonly subtitle = computed(() => {
     const lib = this.library();
-    const stats = this.libraries.stats();
     if (!lib) return '';
-    if (!stats) return lib.name;
-    const photos = `${formatCount(stats.photos)} ${stats.photos === 1 ? 'foto' : 'fotos'}`;
-    const videos = `${formatCount(stats.videos)} ${stats.videos === 1 ? 'vídeo' : 'vídeos'}`;
-    return `${lib.name} · ${photos} · ${videos}`;
+    const count = this.gallery.count();
+    if (!count) return lib.name;
+    const photos = `${formatCount(count.photos)} ${count.photos === 1 ? 'foto' : 'fotos'}`;
+    const videos = `${formatCount(count.videos)} ${count.videos === 1 ? 'vídeo' : 'vídeos'}`;
+    return `${lib.name} · ${photos} · ${videos}${this.browse.filtered() ? ' (filtrado)' : ''}`;
   });
 
   protected readonly percent = computed(() => {
@@ -161,15 +135,11 @@ export class PhotosPage {
   });
 
   constructor() {
-    // Infinite scroll: load the next page when the sentinel approaches the viewport.
-    afterNextRender(() => {
-      const observer = new IntersectionObserver(
-        (entries) => entries.some((e) => e.isIntersecting) && void this.media.loadMore(),
-        { rootMargin: '800px' },
-      );
-      observer.observe(this.sentinel().nativeElement);
-      this.destroyRef.onDestroy(() => observer.disconnect());
-    });
+    effect(() => this.gallery.userQuery.set(this.browse.query()));
+  }
+
+  protected setSort(sort: MediaSort | undefined) {
+    if (sort) this.browse.sort.set(sort);
   }
 
   protected startScan() {
@@ -177,13 +147,7 @@ export class PhotosPage {
     if (id) void this.scan.start(id);
   }
 
-  protected select(item: MediaItem) {
-    this.media.select(item);
-    this.ui.infoPanelOpen.set(true);
-  }
-
   protected open(item: MediaItem) {
-    this.media.select(item);
-    void this.router.navigate(['/viewer', item.id]);
+    this.viewer.open(item, this.gallery.query());
   }
 }

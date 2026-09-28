@@ -1,17 +1,35 @@
 use super::AppStateRef;
 use crate::error::ApiResult;
-use photovault_core::catalog::{MediaItem, MediaNavigation, MediaPage, media};
+use photovault_core::catalog::albums::{self, AlbumRef};
+use photovault_core::catalog::overview::{
+    self, CameraOption, LibraryOverview, PlaceOption, TimelineBucket,
+};
+use photovault_core::catalog::{
+    MediaContext, MediaCount, MediaFilter, MediaItem, MediaPage, MediaQuery, media,
+};
 
-/// A page of the gallery. Pass `nextCursor` from the previous page to continue.
+/// A page of the gallery. Pass `nextCursor` from the previous page to continue
+/// (with the same query).
 #[tauri::command]
 #[specta::specta]
 pub async fn list_media(
     library_id: String,
+    query: MediaQuery,
     cursor: Option<String>,
     limit: u32,
     state: AppStateRef<'_>,
 ) -> ApiResult<MediaPage> {
-    Ok(media::list(&state.pool, &library_id, cursor.as_deref(), limit).await?)
+    Ok(media::list(&state.pool, &library_id, &query, cursor.as_deref(), limit).await?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn count_media(
+    library_id: String,
+    filter: MediaFilter,
+    state: AppStateRef<'_>,
+) -> ApiResult<MediaCount> {
+    Ok(media::count(&state.pool, &library_id, &filter).await?)
 }
 
 #[tauri::command]
@@ -20,11 +38,73 @@ pub async fn get_media(media_id: String, state: AppStateRef<'_>) -> ApiResult<Me
     Ok(media::get(&state.pool, &media_id).await?)
 }
 
+/// Position, total and neighbours of an item inside a gallery context (viewer).
 #[tauri::command]
 #[specta::specta]
-pub async fn get_media_navigation(
+pub async fn get_media_context(
+    media_id: String,
+    query: MediaQuery,
+    radius: u32,
+    state: AppStateRef<'_>,
+) -> ApiResult<MediaContext> {
+    Ok(media::context(&state.pool, &media_id, &query, radius).await?)
+}
+
+/// Returns the updated items.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_favorite(
+    media_ids: Vec<String>,
+    favorite: bool,
+    state: AppStateRef<'_>,
+) -> ApiResult<Vec<MediaItem>> {
+    Ok(media::set_favorite(&state.pool, &media_ids, favorite).await?)
+}
+
+/// Manual albums containing the item.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_media_albums(
     media_id: String,
     state: AppStateRef<'_>,
-) -> ApiResult<MediaNavigation> {
-    Ok(media::navigation(&state.pool, &media_id).await?)
+) -> ApiResult<Vec<AlbumRef>> {
+    Ok(albums::containing(&state.pool, &media_id).await?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_overview(
+    library_id: String,
+    state: AppStateRef<'_>,
+) -> ApiResult<LibraryOverview> {
+    Ok(overview::overview(&state.pool, &library_id).await?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_timeline(
+    library_id: String,
+    filter: MediaFilter,
+    state: AppStateRef<'_>,
+) -> ApiResult<Vec<TimelineBucket>> {
+    Ok(overview::timeline(&state.pool, &library_id, &filter).await?)
+}
+
+/// Filter menu options.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_places(
+    library_id: String,
+    state: AppStateRef<'_>,
+) -> ApiResult<Vec<PlaceOption>> {
+    Ok(overview::places(&state.pool, &library_id).await?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_cameras(
+    library_id: String,
+    state: AppStateRef<'_>,
+) -> ApiResult<Vec<CameraOption>> {
+    Ok(overview::cameras(&state.pool, &library_id).await?)
 }

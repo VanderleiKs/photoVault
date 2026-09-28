@@ -1,5 +1,7 @@
 const numberFormat = new Intl.NumberFormat('pt-BR');
 
+export const MONTH_NAMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
 /** 48293 → "48.293" */
 export function formatCount(n: number): string {
   return numberFormat.format(n);

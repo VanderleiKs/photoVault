@@ -1,10 +1,19 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+import { ConfirmDialogModule } from '@openng/optimus-ui/confirmdialog';
+import { ToastModule } from '@openng/optimus-ui/toast';
+import { AlbumPickerComponent } from './shared/album-picker.component';
 
+/** Overlays live here so they work in the shell and in the full-screen viewer. */
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet],
+  imports: [RouterOutlet, ToastModule, ConfirmDialogModule, AlbumPickerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<router-outlet />`,
+  template: `
+    <router-outlet />
+    <p-toast position="bottom-right" />
+    <p-confirmdialog />
+    <app-album-picker />
+  `,
 })
 export class AppComponent {}

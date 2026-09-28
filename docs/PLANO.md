@@ -207,19 +207,34 @@ catálogo v0.x arquivado com as 3 bibliotecas mantidas; onboarding numa instala�
 
 ---
 
-### Fase 3 — Catálogo e navegação (≈ 3 semanas) → `v0.5` (primeira versão útil para o usuário)
+### Fase 3 — Catálogo e navegação (≈ 3 semanas) → `v0.5` (primeira versão útil para o usuário) ✅ implementada (branch `fase-3-catalogo`)
 
-- [ ] **Início:** hero, cards de estatística, carrossel de anos, fotos recentes (slider de tamanho, ordenação)
-- [ ] **Todas as fotos:** grade virtualizada com keyset pagination, seleção múltipla, favorito na miniatura, duração do vídeo
-- [ ] **Painel de informações:** metadados, chips, local
-- [ ] **Visualizador:** imagem 1024 e original no zoom, contador "n / total" no contexto atual, tira de miniaturas, teclado, player de vídeo, painel de Detalhes
-- [ ] **Timeline:** Ano → Mês → Dia, scrubber de anos
-- [ ] **Favoritos:** toggle em todos os lugares, filtro e tela
-- [ ] **Filtros combinados** (chips, persistência por biblioteca) e **busca Ctrl+K** com FTS5
-- [ ] **Álbuns:** manuais (CRUD, adicionar e remover fotos, capa) e inteligentes (editor de regra reusando os filtros)
-- [ ] Menus ainda não implementados (Viagens, Pessoas, Organizar) com estado vazio explicativo, sem links quebrados
+- [x] **Início:** hero com foto de destaque (favorita em paisagem, senão uma recente), cards Fotos/Vídeos/Favoritos/Álbuns (Viagens entra na Fase 6), carrossel de anos com capa (leva à timeline no ano) e fotos recentes com slider e ordenação
+- [x] **Todas as fotos:** grade virtualizada própria (linhas de altura conhecida; ~90 tiles no DOM com 50 mil itens), keyset em 4 ordenações, seleção múltipla (círculo, Ctrl/Shift+clique, Ctrl+A, Esc), coração na miniatura, duração do vídeo, barra de ações em lote
+- [x] **Painel de informações:** metadados, local, favoritar, álbuns da foto, "Adicionar ao álbum"
+- [x] **Visualizador:** preview de 1024 na hora e troca para o original quando carrega (HEIC/TIFF ficam no preview), "n / total" no contexto de origem (filtro, álbum, favoritos, timeline), tira de miniaturas, teclado (← → Esc F I + − 0), vídeo, painel Detalhes com ações; Esc volta para a página de origem com a rolagem restaurada
+- [x] **Timeline:** Ano → Mês → Dia (cabeçalhos com totais do backend), scrubber de anos que carrega até o ano escolhido, deep link `?year=`
+- [x] **Favoritos:** toggle na miniatura, no painel, no visualizador (F) e em lote; filtro e tela
+- [x] **Filtros combinados** (tipo, favoritas, ano, mês, local, câmera) com chips removíveis, persistidos por biblioteca, e **busca Ctrl+K** com FTS5 (nome, pasta, local, álbum; "julho 2025"/"2019" viram filtro de data)
+- [x] **Álbuns:** manuais (criar, renomear, excluir, adicionar/remover em lote, capa automática ou escolhida) e inteligentes (criados a partir dos filtros com "Salvar como álbum"; "Editar regra" reabre os filtros com a regra carregada)
+- [x] Menus ainda não implementados (Viagens, Pessoas, Organizar) com estado vazio explicativo (desde a Fase 1)
+- [ ] Alternância grade/lista da topbar: não implementada (a grade cobre os fluxos do mockup; lista fica para quando houver colunas úteis, como qualidade, na Fase 4)
 
 **Aceite:** navegar 50 mil fotos a 60 fps, busca em menos de 100 ms, todos os fluxos do mockup desktop (exceto os dados de análise) funcionando.
+
+**Medições (2026-09-28, catálogo sintético de 50 mil itens):**
+- Consultas no core (`query_bench`, release): primeira página 1,5–6 ms em qualquer ordenação; contagem 2–8 ms; contexto do visualizador 1–25 ms; busca FTS 3–9 ms; resumo da Início 48 ms. Antes dos índices de expressão, as ordenações não padrão levavam 50–110 ms (e o contexto 250 ms).
+- App (`tauri dev`, WebKitGTK em Xephyr, renderização por software): rolagem contínua por 5 s com **mediana de 17 ms e p95 de 20 ms por quadro** (60 fps), ~90 tiles no DOM; busca de ponta a ponta (tecla → tiles) **28–79 ms**; salto da timeline para o ano mais antigo 4,3 s (carrega quase toda a biblioteca em páginas de 500).
+
+**Validação no app:** ✅ catálogo v0.4 migrado (FTS populado pela migration); todos os fluxos acima executados pela UI.
+**Bugs encontrados e corrigidos na validação:**
+- Favoritar duas fotos seguidas atualizava só a segunda na tela: o barramento de atualizações era um signal ("último valor") e perdia publicações anteriores à detecção de mudanças. Virou um log numerado com `subscribe` (teste `media-bus.spec`).
+- Voltar do visualizador levava a galeria ao topo: agora itens e rolagem são restaurados (`GalleryCache`).
+- O cabeçalho do último dia carregado mostrava contagem parcial: agora é omitida até a página seguinte chegar.
+
+**Achados:**
+- O salto para anos muito antigos em bibliotecas grandes carrega as páginas intermediárias (4,3 s com 50 mil itens). Se incomodar, a próxima etapa é paginar a partir de uma data (cursor sintético) sem carregar o meio.
+- A contagem por dia nos cabeçalhos da timeline só é exata para dias já carregados por inteiro.
 
 ---
 
@@ -312,6 +327,6 @@ catálogo v0.x arquivado com as 3 bibliotecas mantidas; onboarding numa instala�
 
 ## 6. Próximo passo imediato
 
-1. Validar as Fases 0–2 no Windows 11 (zip do `release.yml` ou `npx tauri build --no-bundle && npm run package:portable`), incluindo um HD USB real para o aceite de 50 mil arquivos.
-2. Decidir o empacotamento da libheif (HEIC) e do ffmpeg (miniaturas de vídeo): os dois pendentes da Fase 2.
-3. Iniciar a **Fase 3** (catálogo e navegação: busca FTS5, favoritos, álbuns, filtros).
+1. Validar as Fases 0–3 no Windows 11 (zip do `release.yml`), incluindo um HD USB real para o aceite de 50 mil arquivos da Fase 2.
+2. Decidir o empacotamento da libheif (HEIC) e do ffmpeg (miniaturas de vídeo), pendentes da Fase 2.
+3. Iniciar a **Fase 4** (análise: duplicatas exatas e visuais com os hashes já calculados, qualidade técnica, screenshots e fotos momentâneas).
