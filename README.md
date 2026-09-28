@@ -53,30 +53,25 @@ PhotoVault/
 
 Sem o `portable.flag`, os dados vão para a pasta de dados do sistema. O CI gera os dois pacotes automaticamente a cada tag `v*` (`.github/workflows/release.yml`).
 
-## Estado atual (v0.4, Fase 2)
+## Estado atual (v0.5, Fase 3)
 
 Funciona hoje:
 
-- Layout novo (sidebar, topbar, painel de informações), tema claro e escuro, layout responsivo
-- Várias bibliotecas: adicionar, trocar a ativa, renomear, relocalizar (quando o disco muda de letra ou de ponto de montagem) e remover do catálogo
-- Scan incremental rápido (novos, modificados, ausentes, restaurados e movidos, preservando favoritos)
-- Análise em segundo plano, com pausa e retomada, que continua depois de fechar o app:
-  - data do EXIF (ou do nome do arquivo);
-  - câmera, lente e exposição;
-  - local offline a partir do GPS;
-  - miniaturas corretamente orientadas;
-  - hashes para duplicatas.
-- Galeria com rolagem infinita, timeline por mês e visualizador (zoom, teclado, vídeo)
-- Diagnóstico de arquivos com problema em Configurações
+- **Início** com foto de destaque, totais, anos e fotos recentes
+- **Todas as fotos** com grade rápida mesmo com dezenas de milhares de itens, filtros (tipo, favoritas, ano, mês, local, câmera), ordenação e **busca (Ctrl+K)** por nome, pasta, local, álbum ou data ("julho 2025")
+- **Seleção múltipla** (círculo na miniatura, Shift/Ctrl+clique) com ações em lote
+- **Favoritos** em qualquer lugar (coração, tecla F, em lote)
+- **Álbuns** manuais e inteligentes (salve os filtros atuais como álbum que se atualiza sozinho)
+- **Timeline** por ano, mês e dia, com navegação rápida por ano
+- **Visualizador** com contador no contexto, tira de miniaturas, zoom, teclado e vídeo
+- Várias bibliotecas, scan incremental e análise em segundo plano (EXIF, local, miniaturas, hashes)
 - Modo portátil real no Windows e no Linux
 
 Ainda não funciona:
 
-- Miniaturas de HEIC (os metadados já são lidos)
-- Miniaturas de vídeo
-- Busca
-- Álbuns
-- Tela de duplicatas
+- Miniaturas de HEIC (os metadados já são lidos) e de vídeo
+- Duplicatas, fotos semelhantes e qualidade (Fase 4)
+- Lixeira e revisão (Fase 5), viagens (Fase 6), pessoas (Fase 7)
 
 Veja o [plano](docs/PLANO.md).
 

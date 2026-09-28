@@ -20,10 +20,15 @@ export const routes: Routes = [
     path: '',
     component: ShellComponent,
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'photos' },
+      { path: '', pathMatch: 'full', redirectTo: 'home' },
       {
         path: 'welcome',
         loadComponent: () => import('./features/welcome/welcome.page').then((m) => m.WelcomePage),
+      },
+      {
+        path: 'home',
+        canActivate: [requireLibrary],
+        loadComponent: () => import('./features/home/home.page').then((m) => m.HomePage),
       },
       {
         path: 'photos',
@@ -35,6 +40,22 @@ export const routes: Routes = [
         canActivate: [requireLibrary],
         loadComponent: () =>
           import('./features/timeline/timeline.page').then((m) => m.TimelinePage),
+      },
+      {
+        path: 'favorites',
+        canActivate: [requireLibrary],
+        loadComponent: () =>
+          import('./features/favorites/favorites.page').then((m) => m.FavoritesPage),
+      },
+      {
+        path: 'albums',
+        canActivate: [requireLibrary],
+        loadComponent: () => import('./features/albums/albums.page').then((m) => m.AlbumsPage),
+      },
+      {
+        path: 'albums/:id',
+        canActivate: [requireLibrary],
+        loadComponent: () => import('./features/albums/album.page').then((m) => m.AlbumPage),
       },
       {
         path: 'libraries',
@@ -52,7 +73,7 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/coming-soon/coming-soon.page').then((m) => m.ComingSoonPage),
       })),
-      { path: '**', redirectTo: 'photos' },
+      { path: '**', redirectTo: 'home' },
     ],
   },
 ];

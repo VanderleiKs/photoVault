@@ -2,9 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter, map } from 'rxjs';
-import { ConfirmDialogModule } from '@openng/optimus-ui/confirmdialog';
-import { ToastModule } from '@openng/optimus-ui/toast';
-import { MediaStore } from '../core/stores/media.store';
+import { SelectionStore } from '../core/stores/selection.store';
 import { UiStore } from '../core/stores/ui.store';
 import { BottomNavComponent } from './bottom-nav.component';
 import { InfoPanelComponent } from './info-panel.component';
@@ -16,15 +14,13 @@ import { TopbarComponent } from './topbar.component';
   selector: 'app-shell',
   imports: [
     RouterOutlet,
-    ToastModule,
-    ConfirmDialogModule,
     SidebarComponent,
     TopbarComponent,
     InfoPanelComponent,
     BottomNavComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'flex h-full bg-canvas text-ink' },
+  host: { class: 'flex h-full bg-canvas text-ink', '(window:keydown.escape)': 'onEscape($event)' },
   template: `
     <app-sidebar class="hidden md:flex" />
     <div class="flex min-w-0 flex-1 flex-col">
@@ -39,13 +35,11 @@ import { TopbarComponent } from './topbar.component';
       </div>
       <app-bottom-nav class="md:hidden" />
     </div>
-    <p-toast position="bottom-right" />
-    <p-confirmdialog />
   `,
 })
 export class ShellComponent {
   private readonly ui = inject(UiStore);
-  private readonly media = inject(MediaStore);
+  private readonly selection = inject(SelectionStore);
   private readonly router = inject(Router);
 
   private readonly url = toSignal(
@@ -56,9 +50,16 @@ export class ShellComponent {
     { initialValue: this.router.url },
   );
   /** Pages that show media and therefore the "Informações" panel. */
-  private readonly mediaPage = computed(() => /^\/(photos|timeline)\b/.test(this.url()));
+  private readonly mediaPage = computed(() => /^\/(home|photos|timeline|favorites|albums\/)/.test(this.url()));
 
   protected readonly showInfo = computed(
-    () => this.mediaPage() && this.ui.infoPanelOpen() && !!this.media.selected(),
+    () => this.mediaPage() && this.ui.infoPanelOpen() && !!this.selection.focused(),
   );
+
+  /** Esc leaves selection mode (dialogs and inputs handle their own Esc). */
+  protected onEscape(event: Event) {
+    const target = event.target;
+    if (target instanceof Element && target.closest('input, textarea, .p-dialog, .p-select-overlay')) return;
+    if (this.selection.active()) this.selection.clear();
+  }
 }

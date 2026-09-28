@@ -18,6 +18,7 @@ cargo test --workspace            # testes Rust; também regenera os bindings TS
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all
 cargo run --release -p photovault-core --example ingest_bench -- <pasta> [cpu] [io]   # vazão scan+análise
+cargo run --release -p photovault-core --example query_bench                          # latência das consultas (50 mil itens)
 
 npx tauri build --bundles appimage   # Linux  → depois: npm run package:portable
 npx tauri build --no-bundle          # Windows → depois: npm run package:portable
@@ -29,18 +30,20 @@ npx tauri build --no-bundle          # Windows → depois: npm run package:porta
 ## Arquitetura
 
 ```text
-crates/photovault-core/   domínio, SEM Tauri: db, catalog, ingestion (MediaSource, scanner,
+crates/photovault-core/   domínio, SEM Tauri: db, catalog (query, media, albums, overview, libraries,
+                          settings), ingestion (MediaSource, scanner,
                           metadata, processor, geo), jobs (fila de análise), thumbnails, paths,
                           volume, analysis (VisionAnalyzer)
 src-tauri/                camada fina: commands/, events.rs, protocol.rs (pv://), state.rs, lib.rs
 src/app/core/             ipc/ (bindings.ts gerado, ipc.ts, backend.ts), stores/ (signals), format, notify
-src/app/layout/           shell, sidebar, topbar, info-panel, bottom-nav, nav.ts (itens do menu)
-src/app/features/         photos, timeline, viewer, libraries, settings, welcome, coming-soon
-src/app/shared/           media-tile, media-details, library-form, empty-state
+src/app/layout/           shell, sidebar, topbar (busca Ctrl+K), info-panel, bottom-nav, nav.ts
+src/app/features/         home, photos, timeline, favorites, albums, viewer, libraries, settings, welcome
+src/app/shared/           media-grid/ (grade virtualizada), media-tile, filter-bar, selection-bar,
+                          album-picker, gallery-controls, media-details, job-status, empty-state
 ```
 
 - **Regra de negócio vai no core** (`photovault-core`), com teste. Os commands só adaptam para IPC.
-- **Estado do frontend fica nas stores** (`AppStore`, `LibraryStore`, `ScanStore`, `JobStore`, `MediaStore`, `UiStore`). Os componentes não chamam IPC direto, exceto em casos pontuais pelo `Backend`.
+- **Estado do frontend fica nas stores.** Globais: `AppStore`, `LibraryStore`, `ScanStore`, `JobStore`, `SelectionStore` (foco do painel + seleção múltipla), `BrowseStore` (filtros de "Todas as fotos", persistidos por biblioteca, e busca), `AlbumStore`, `ViewerContext`, `UiStore`. Por página: `GalleryStore` (`providers: [GalleryStore]`), que junta o filtro fixo da página ao do usuário, pagina e se atualiza sozinho. Os componentes não chamam IPC direto, exceto em casos pontuais pelo `Backend`.
 
 ## Gotchas
 
@@ -64,4 +67,11 @@ src/app/shared/           media-tile, media-details, library-form, empty-state
 - **Tema:** preset `PhotoVaultPreset` (Aura azul) em `app.config.ts`. Sem preset, o Optimus renderiza sem estilo. O modo escuro é a classe `.dark-mode` no `<html>`, controlada pelo `AppStore`. Tokens de cor (`bg-canvas`, `bg-panel`, `text-muted`, `bg-side`…) ficam em `src/styles.css`.
 - **Zoneless:** não há `zone.js`. Estado reativo sempre em signals; componentes `OnPush`.
 - **Menu:** itens futuros ficam em `layout/nav.ts` com `phase`, e caem na página "em breve". Não crie links quebrados.
-- **`pkill -f`** com um padrão que aparece no próprio comando mata o shell. Prefira `pgrep -x photovault`.
+- **Uma consulta para tudo:** `MediaFilter` + `MediaSort` (`catalog::query`) servem galeria, contagem, contexto do visualizador e regra de álbum inteligente (`rule_json` = `MediaFilter` serializado). Novo filtro = campo em `MediaFilter` + cláusula em `push_where` + teste em `filters_combine`. O texto da busca é interpretado em `parse_text` ("julho 2025" vira data; o resto vai para FTS5).
+- **Cada ordenação tem índice** (migration 0003) com a *mesma expressão* de `MediaSort::spec`. Mudou a expressão, crie o índice correspondente e rode o `query_bench` (meta: < 100 ms com 50 mil itens).
+- **FTS5 (`media_fts`)** é mantido por triggers, com `rowid` = `media.rowid`. Nunca rode `VACUUM` sem reconstruir o índice depois.
+- **Atualizações de mídia passam pelo `MediaBus`:** use `bus.subscribe(fn)`, nunca leia um signal de "último valor", porque duas publicações antes da detecção de mudanças perderiam a primeira. Edição local (ex.: favoritar via `MediaActions`) publica no bus; galerias, seleção e visualizador se atualizam.
+- **Grade virtualizada** (`shared/media-grid`): linhas de altura conhecida (`layoutGrid`, função pura com teste), rolagem pelo `#main` do shell. Não coloque a grade dentro de outro contêiner com `overflow`. Cabeçalhos fixos de página levam `data-sticky-header` (o salto da timeline desconta a altura).
+- **Visualizador fora do shell:** toast, confirmação e "Adicionar ao álbum" (`AlbumPicker`) ficam no `AppComponent`. Abra sempre por `ViewerContext.open(item, query)`, que guarda a consulta (para ←/→ e "12 / 426") e a URL de volta.
+- **Voltar do visualizador** restaura itens e rolagem pelo `GalleryCache` (por página e consulta, 10 min).
+- **`pkill -f`/`pgrep -f`** com um padrão que aparece no próprio comando (ex.: "tauri dev", "ng serve") mata o shell. Use `pgrep -x photovault`/`pgrep -x Xephyr` ou filtre `ps -eo pid,comm`.

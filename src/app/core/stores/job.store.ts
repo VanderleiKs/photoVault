@@ -1,13 +1,9 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { isTauri } from '@tauri-apps/api/core';
 import { Backend } from '../ipc/backend';
-import { unwrap, type JobFailure, type JobProgress, type MediaItem } from '../ipc/ipc';
+import { unwrap, type JobFailure, type JobProgress } from '../ipc/ipc';
 import { NotifyService } from '../notify.service';
-
-export interface MediaUpdate {
-  items: MediaItem[];
-  removedIds: string[];
-}
+import { MediaBus } from './media-bus';
 
 /** Background analysis queue (EXIF, thumbnails, hashes), driven by backend events. */
 @Injectable({ providedIn: 'root' })
@@ -15,9 +11,9 @@ export class JobStore {
   private readonly backend = inject(Backend);
   private readonly notify = inject(NotifyService);
 
+  private readonly bus = inject(MediaBus);
+
   readonly progress = signal<JobProgress | null>(null);
-  /** Latest batch of processed items; stores patch their copies from it. */
-  readonly lastUpdate = signal<MediaUpdate | null>(null);
   readonly failures = signal<JobFailure[]>([]);
 
   readonly busy = computed(() => {
@@ -33,7 +29,7 @@ export class JobStore {
     const { events, commands } = this.backend;
     await Promise.all([
       events.jobProgressEvent.listen(({ payload }) => this.progress.set(payload)),
-      events.mediaUpdatedEvent.listen(({ payload }) => this.lastUpdate.set(payload)),
+      events.mediaUpdatedEvent.listen(({ payload }) => this.bus.publish(payload.items, payload.removedIds)),
     ]);
     this.progress.set(await unwrap(commands.getJobProgress()).catch(() => null));
   }

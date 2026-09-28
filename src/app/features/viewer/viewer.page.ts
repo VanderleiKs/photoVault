@@ -1,53 +1,75 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   computed,
   effect,
   inject,
   input,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { ButtonModule } from '@openng/optimus-ui/button';
 import { TooltipModule } from '@openng/optimus-ui/tooltip';
 import { Backend } from '../../core/ipc/backend';
 import {
   mediaUrl,
   previewUrl,
+  thumbnailUrl,
   unwrap,
+  type AlbumRef,
+  type MediaContext,
   type MediaItem,
-  type MediaNavigation,
 } from '../../core/ipc/ipc';
 import { NotifyService } from '../../core/notify.service';
-import { MediaStore } from '../../core/stores/media.store';
+import { MediaActions } from '../../core/stores/media-actions.service';
+import { MediaBus } from '../../core/stores/media-bus';
+import { SelectionStore } from '../../core/stores/selection.store';
+import { ViewerContext } from '../../core/stores/viewer-context';
+import { AlbumPicker } from '../../shared/album-picker.component';
 import { MediaDetailsComponent } from '../../shared/media-details.component';
 
 const ZOOM_STEPS = [0.5, 0.75, 1, 1.5, 2, 3, 4];
+/** Neighbours fetched per side for the thumbnail strip. */
+const STRIP_RADIUS = 12;
 
 /** Full-screen dark viewer (PRD §23.3). Route: /viewer/:id */
 @Component({
   selector: 'app-viewer-page',
-  imports: [ButtonModule, TooltipModule, MediaDetailsComponent],
+  imports: [RouterLink, ButtonModule, TooltipModule, MediaDetailsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'flex h-full flex-col bg-[#0b0f17] text-slate-100',
     '(window:keydown)': 'onKey($event)',
   },
   template: `
-    <header class="flex h-14 shrink-0 items-center gap-2 border-b border-white/5 px-3">
-      <p-button icon="pi pi-arrow-left" [text]="true" [rounded]="true" severity="contrast" ariaLabel="Voltar" pTooltip="Voltar (Esc)" (onClick)="close()" />
-      @if (nav(); as n) {
-        <span class="text-sm tabular-nums text-slate-300">{{ n.position }} / {{ n.total }}</span>
+    <header class="flex h-14 shrink-0 items-center gap-1 border-b border-white/5 px-3">
+      <p-button icon="pi pi-arrow-left" [text]="true" [rounded]="true" severity="contrast" ariaLabel="Voltar" pTooltip="Voltar (Esc)" tooltipPosition="bottom" (onClick)="close()" />
+      @if (ctx(); as c) {
+        <span data-counter class="ml-1 text-sm tabular-nums text-slate-300">{{ c.position }} / {{ c.total }}</span>
       }
-      <span class="ml-2 min-w-0 flex-1 truncate text-sm text-slate-400">{{ item()?.filename }}</span>
+      <span class="ml-3 min-w-0 flex-1 truncate text-sm text-slate-400">{{ item()?.filename }}</span>
 
-      @if (item()?.mediaType === 'image') {
-        <p-button icon="pi pi-minus" [text]="true" [rounded]="true" severity="contrast" ariaLabel="Diminuir zoom" (onClick)="zoomBy(-1)" />
-        <button type="button" class="w-12 text-center text-xs tabular-nums text-slate-300" (click)="zoom.set(1)" title="Zoom 100% (0)">
-          {{ zoomLabel() }}
-        </button>
-        <p-button icon="pi pi-plus" [text]="true" [rounded]="true" severity="contrast" ariaLabel="Aumentar zoom" (onClick)="zoomBy(1)" />
+      @if (item(); as m) {
+        @if (m.mediaType === 'image') {
+          <p-button icon="pi pi-minus" [text]="true" [rounded]="true" severity="contrast" ariaLabel="Diminuir zoom" (onClick)="zoomBy(-1)" />
+          <button type="button" class="w-12 text-center text-xs tabular-nums text-slate-300" (click)="zoom.set(1)" title="Zoom 100% (0)">{{ zoomLabel() }}</button>
+          <p-button icon="pi pi-plus" [text]="true" [rounded]="true" severity="contrast" ariaLabel="Aumentar zoom" (onClick)="zoomBy(1)" />
+          <span class="mx-1 h-5 w-px bg-white/10"></span>
+        }
+        <p-button
+          [icon]="m.isFavorite ? 'pi pi-heart-fill' : 'pi pi-heart'"
+          [text]="true"
+          [rounded]="true"
+          [severity]="m.isFavorite ? 'danger' : 'contrast'"
+          [ariaLabel]="m.isFavorite ? 'Remover dos favoritos' : 'Favoritar'"
+          [pTooltip]="m.isFavorite ? 'Remover dos favoritos (F)' : 'Favoritar (F)'"
+          tooltipPosition="bottom"
+          (onClick)="toggleFavorite()"
+        />
+        <p-button icon="pi pi-book" [text]="true" [rounded]="true" severity="contrast" ariaLabel="Adicionar ao álbum" pTooltip="Adicionar ao álbum" tooltipPosition="bottom" (onClick)="picker.open([m.id])" />
       }
       <p-button
         icon="pi pi-info-circle"
@@ -56,40 +78,70 @@ const ZOOM_STEPS = [0.5, 0.75, 1, 1.5, 2, 3, 4];
         severity="contrast"
         ariaLabel="Detalhes"
         pTooltip="Detalhes (I)"
+        tooltipPosition="bottom"
         (onClick)="showDetails.set(!showDetails())"
       />
     </header>
 
     <div class="flex min-h-0 flex-1">
-      <div class="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden" (wheel)="onWheel($event)">
-        @if (item(); as m) {
-          @if (m.mediaType === 'image') {
-            <img
-              [src]="src()"
-              [alt]="m.filename"
-              class="max-h-full max-w-full select-none object-contain transition-transform duration-150"
-              [style.transform]="'scale(' + zoom() + ')'"
-              (dblclick)="zoom.set(zoom() === 1 ? 2 : 1)"
-              (error)="onImageError()"
-              draggable="false"
-            />
-          } @else {
-            <video [src]="original()" controls autoplay class="max-h-full max-w-full" (error)="videoError.set(true)"></video>
-            @if (videoError()) {
-              <p class="absolute bottom-6 rounded bg-black/70 px-3 py-2 text-sm text-slate-300">
-                Este formato de vídeo não é suportado pelo visualizador.
-              </p>
+      <div class="flex min-w-0 flex-1 flex-col">
+        <div class="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden" (wheel)="onWheel($event)">
+          @if (item(); as m) {
+            @if (m.mediaType === 'image') {
+              @if (src()) {
+                <img
+                  [src]="src()"
+                  [alt]="m.filename"
+                  class="max-h-full max-w-full select-none object-contain transition-transform duration-150"
+                  [style.transform]="'scale(' + zoom() + ')'"
+                  (dblclick)="zoom.set(zoom() === 1 ? 2 : 1)"
+                  (error)="onImageError()"
+                  draggable="false"
+                />
+              } @else {
+                <p class="text-slate-400">Pré-visualização indisponível para este formato ({{ m.extension.toUpperCase() }}).</p>
+              }
+            } @else {
+              <video [src]="original()" controls autoplay class="max-h-full max-w-full" (error)="videoError.set(true)"></video>
+              @if (videoError()) {
+                <p class="absolute bottom-6 rounded bg-black/70 px-3 py-2 text-sm text-slate-300">Este formato de vídeo não é suportado pelo visualizador.</p>
+              }
             }
+          } @else if (failed()) {
+            <p class="text-slate-400">Não foi possível abrir este item.</p>
           }
-        } @else if (failed()) {
-          <p class="text-slate-400">Não foi possível abrir este item.</p>
-        }
 
-        @if (nav()?.prevId) {
-          <p-button icon="pi pi-chevron-left" [rounded]="true" severity="secondary" ariaLabel="Anterior" styleClass="!absolute left-4 top-1/2 -translate-y-1/2 !bg-black/50 !border-0 !text-white" (onClick)="go(nav()!.prevId)" />
-        }
-        @if (nav()?.nextId) {
-          <p-button icon="pi pi-chevron-right" [rounded]="true" severity="secondary" ariaLabel="Próxima" styleClass="!absolute right-4 top-1/2 -translate-y-1/2 !bg-black/50 !border-0 !text-white" (onClick)="go(nav()!.nextId)" />
+          @if (prev(); as p) {
+            <p-button icon="pi pi-chevron-left" [rounded]="true" severity="secondary" ariaLabel="Anterior (←)" styleClass="!absolute left-4 top-1/2 -translate-y-1/2 !bg-black/50 !border-0 !text-white" (onClick)="go(p.id)" />
+          }
+          @if (next(); as n) {
+            <p-button icon="pi pi-chevron-right" [rounded]="true" severity="secondary" ariaLabel="Próxima (→)" styleClass="!absolute right-4 top-1/2 -translate-y-1/2 !bg-black/50 !border-0 !text-white" (onClick)="go(n.id)" />
+          }
+        </div>
+
+        @if ((ctx()?.items?.length ?? 0) > 1) {
+          <div #strip class="flex h-20 shrink-0 items-center gap-1.5 overflow-x-auto border-t border-white/5 px-3" role="listbox" aria-label="Miniaturas">
+            @for (s of ctx()!.items; track s.id) {
+              <button
+                type="button"
+                role="option"
+                class="relative size-14 shrink-0 overflow-hidden rounded-md opacity-60 outline-none transition hover:opacity-100 focus-visible:ring-2 focus-visible:ring-primary"
+                [class.!opacity-100]="s.id === id()"
+                [class.ring-2]="s.id === id()"
+                [class.ring-primary]="s.id === id()"
+                [attr.aria-selected]="s.id === id()"
+                [attr.aria-label]="s.filename"
+                [attr.data-current]="s.id === id() ? '' : null"
+                (click)="go(s.id)"
+              >
+                @if (s.mediaType === 'image') {
+                  <img [src]="thumb(s)" alt="" class="size-full object-cover" loading="lazy" />
+                } @else {
+                  <span class="flex size-full items-center justify-center bg-slate-800"><i class="pi pi-video text-slate-400"></i></span>
+                }
+              </button>
+            }
+          </div>
         }
       </div>
 
@@ -97,6 +149,21 @@ const ZOOM_STEPS = [0.5, 0.75, 1, 1.5, 2, 3, 4];
         <aside class="w-80 shrink-0 overflow-y-auto border-l border-white/5 bg-[#111827] p-5">
           <h2 class="mb-4 text-sm font-semibold text-white">Detalhes</h2>
           <app-media-details [item]="m" [dark]="true" />
+
+          @if (albums().length) {
+            <h4 class="mb-2 mt-5 text-sm font-semibold text-white">Álbuns</h4>
+            <div class="flex flex-wrap gap-1.5">
+              @for (a of albums(); track a.id) {
+                <a [routerLink]="['/albums', a.id]" class="rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-slate-200 hover:bg-white/20">{{ a.name }}</a>
+              }
+            </div>
+          }
+
+          <h4 class="mb-2 mt-5 text-sm font-semibold text-white">Ações</h4>
+          <div class="flex flex-col gap-2">
+            <p-button [label]="m.isFavorite ? 'Remover dos favoritos' : 'Favoritar'" [icon]="m.isFavorite ? 'pi pi-heart-fill' : 'pi pi-heart'" severity="secondary" [outlined]="true" styleClass="w-full !justify-start" (onClick)="toggleFavorite()" />
+            <p-button label="Adicionar ao álbum" icon="pi pi-book" severity="secondary" [outlined]="true" styleClass="w-full !justify-start" (onClick)="picker.open([m.id])" />
+          </div>
         </aside>
       }
     </div>
@@ -105,25 +172,51 @@ const ZOOM_STEPS = [0.5, 0.75, 1, 1.5, 2, 3, 4];
 export class ViewerPage {
   private readonly backend = inject(Backend);
   private readonly notify = inject(NotifyService);
-  private readonly media = inject(MediaStore);
+  private readonly selection = inject(SelectionStore);
+  private readonly context = inject(ViewerContext);
+  private readonly actions = inject(MediaActions);
   private readonly router = inject(Router);
+  protected readonly picker = inject(AlbumPicker);
+  private readonly strip = viewChild<ElementRef<HTMLElement>>('strip');
 
   /** Route parameter (bound by `withComponentInputBinding`). */
   readonly id = input.required<string>();
 
-  protected readonly item = signal<MediaItem | null>(null);
-  protected readonly nav = signal<MediaNavigation | null>(null);
+  protected readonly ctx = signal<MediaContext | null>(null);
+  protected readonly item = computed(() => {
+    const c = this.ctx();
+    return c?.items[c.index] ?? null;
+  });
+  protected readonly prev = computed(() => {
+    const c = this.ctx();
+    return c && c.index > 0 ? c.items[c.index - 1] : null;
+  });
+  protected readonly next = computed(() => {
+    const c = this.ctx();
+    return c ? (c.items[c.index + 1] ?? null) : null;
+  });
+  protected readonly albums = signal<AlbumRef[]>([]);
   protected readonly failed = signal(false);
   protected readonly zoom = signal(1);
   protected readonly showDetails = signal(true);
   protected readonly videoError = signal(false);
-  /** Falls back to the 1024px preview when the WebView cannot decode the original (HEIC/TIFF). */
-  private readonly useThumbnail = signal(false);
 
+  /** preview (1024 WebP, instant) → original (full quality) → none (undecodable). */
+  private readonly stage = signal<'preview' | 'original' | 'none'>('preview');
+  private failedStages = new Set<'preview' | 'original'>();
   protected readonly original = computed(() => mediaUrl(this.id()));
-  protected readonly src = computed(() =>
-    this.useThumbnail() ? previewUrl(this.id(), this.item()?.thumbVersion) : this.original(),
-  );
+  protected readonly src = computed(() => {
+    const m = this.item();
+    if (!m) return '';
+    switch (this.stage()) {
+      case 'original':
+        return this.original();
+      case 'preview':
+        return previewUrl(m.id, m.thumbVersion);
+      default:
+        return '';
+    }
+  });
   protected readonly zoomLabel = computed(() => `${Math.round(this.zoom() * 100)}%`);
 
   constructor() {
@@ -131,26 +224,61 @@ export class ViewerPage {
       const id = this.id();
       untracked(() => void this.load(id));
     });
+    // Favorites and analysis results update the item and the strip.
+    const bus = inject(MediaBus);
+    bus.subscribe((update) => {
+      const c = this.ctx();
+      if (!c) return;
+      const byId = new Map(update.items.map((m) => [m.id, m]));
+      if (c.items.some((m) => byId.has(m.id))) {
+        this.ctx.set({ ...c, items: c.items.map((m) => byId.get(m.id) ?? m) });
+      }
+    });
+    // Keep the current thumbnail visible in the strip.
+    effect(() => {
+      this.ctx();
+      const strip = this.strip()?.nativeElement;
+      requestAnimationFrame(() =>
+        strip?.querySelector('[data-current]')?.scrollIntoView({ block: 'nearest', inline: 'center' }),
+      );
+    });
   }
 
   private async load(id: string) {
     this.zoom.set(1);
-    this.useThumbnail.set(false);
     this.videoError.set(false);
     this.failed.set(false);
     try {
-      const [item, nav] = await Promise.all([
-        unwrap(this.backend.commands.getMedia(id)),
-        unwrap(this.backend.commands.getMediaNavigation(id)),
-      ]);
+      const ctx = await unwrap(
+        this.backend.commands.getMediaContext(id, this.context.state().query, STRIP_RADIUS),
+      );
       if (id !== this.id()) return;
-      this.item.set(item);
-      this.nav.set(nav);
-      this.media.select(item);
+      this.ctx.set(ctx);
+      const item = ctx.items[ctx.index];
+      this.selection.focus(item);
+      this.startImage(item);
+      this.albums.set(await unwrap(this.backend.commands.getMediaAlbums(id)).catch(() => []));
     } catch (e) {
       this.failed.set(true);
       this.notify.error('Não foi possível abrir o item', e);
     }
+  }
+
+  /** Show the preview at once, then swap in the original when it has loaded. */
+  private startImage(item: MediaItem) {
+    this.failedStages = new Set();
+    if (item.mediaType !== 'image') return;
+    if (!item.thumbVersion) {
+      this.stage.set('original');
+      return;
+    }
+    this.stage.set('preview');
+    const full = new Image();
+    full.decoding = 'async';
+    full.onload = () => {
+      if (this.id() === item.id && !this.failedStages.has('original')) this.stage.set('original');
+    };
+    full.src = mediaUrl(item.id);
   }
 
   protected go(id: string | null | undefined) {
@@ -158,7 +286,16 @@ export class ViewerPage {
   }
 
   protected close() {
-    void this.router.navigate(['/photos']);
+    void this.router.navigateByUrl(this.context.state().returnUrl);
+  }
+
+  protected toggleFavorite() {
+    const m = this.item();
+    if (m) void this.actions.setFavorite([m.id], !m.isFavorite);
+  }
+
+  protected thumb(m: MediaItem) {
+    return thumbnailUrl(m.id, m.thumbVersion);
   }
 
   protected zoomBy(direction: 1 | -1) {
@@ -173,18 +310,24 @@ export class ViewerPage {
     this.zoomBy(event.deltaY < 0 ? 1 : -1);
   }
 
+  /** Original undecodable (HEIC/TIFF) → preview; preview missing → original; else none. */
   protected onImageError() {
-    if (!this.useThumbnail()) this.useThumbnail.set(true);
+    const stage = this.stage();
+    if (stage === 'none') return;
+    this.failedStages.add(stage);
+    const other = stage === 'preview' ? 'original' : 'preview';
+    this.stage.set(this.failedStages.has(other) ? 'none' : other);
   }
 
   protected onKey(event: KeyboardEvent) {
-    if ((event.target as HTMLElement | null)?.tagName === 'INPUT') return;
+    const target = event.target;
+    if (target instanceof Element && target.closest('input, textarea, .p-dialog')) return;
     switch (event.key) {
       case 'ArrowLeft':
-        this.go(this.nav()?.prevId);
+        this.go(this.prev()?.id);
         break;
       case 'ArrowRight':
-        this.go(this.nav()?.nextId);
+        this.go(this.next()?.id);
         break;
       case 'Escape':
         this.close();
@@ -198,6 +341,10 @@ export class ViewerPage {
         break;
       case '0':
         this.zoom.set(1);
+        break;
+      case 'f':
+      case 'F':
+        this.toggleFavorite();
         break;
       case 'i':
       case 'I':

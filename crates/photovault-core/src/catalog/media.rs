@@ -1,9 +1,10 @@
+use super::query::{self, MediaFilter, MediaQuery, MediaSort};
 use crate::error::{Error, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
-use sqlx::SqlitePool;
+use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
 #[sqlx(type_name = "TEXT", rename_all = "lowercase")]
 pub enum MediaType {
@@ -132,16 +133,24 @@ pub struct MediaPage {
     pub next_cursor: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaCount {
+    pub total: u32,
+    pub photos: u32,
+    pub videos: u32,
+}
+
+/// Where an item sits in a gallery context (filter + order), for the viewer.
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct MediaNavigation {
-    /// Previous item in gallery order (newer).
-    pub prev_id: Option<String>,
-    /// Next item in gallery order (older).
-    pub next_id: Option<String>,
+pub struct MediaContext {
     /// 1-based position and total, for "12 / 426".
     pub position: u32,
     pub total: u32,
+    /// Neighbours in order (thumbnail strip); `items[index]` is the item itself.
+    pub items: Vec<MediaItem>,
+    pub index: u32,
 }
 
 /// Columns of `MediaRow`, selected `FROM media m LEFT JOIN places p`.
@@ -153,10 +162,11 @@ const COLUMNS: &str = "m.id, m.library_id, m.relative_path, m.filename, m.extens
 const FROM: &str = "FROM media m LEFT JOIN places p ON p.id = m.place_id";
 
 const MAX_PAGE: u32 = 500;
+const MAX_RADIUS: u32 = 50;
 const CURSOR_SEP: char = '\u{1f}';
 
-fn encode_cursor(sort_key: &str, id: &str) -> String {
-    format!("{sort_key}{CURSOR_SEP}{id}")
+fn encode_cursor(key: &str, id: &str) -> String {
+    format!("{key}{CURSOR_SEP}{id}")
 }
 
 fn decode_cursor(cursor: &str) -> Result<(String, String)> {
@@ -166,51 +176,171 @@ fn decode_cursor(cursor: &str) -> Result<(String, String)> {
         .ok_or_else(|| Error::InvalidInput("Cursor de paginação inválido.".into()))
 }
 
-/// Active media of a library in gallery order: newest first, undated last.
+#[derive(sqlx::FromRow)]
+struct KeyedRow {
+    #[sqlx(flatten)]
+    row: MediaRow,
+    sort_value: String,
+}
+
+/// Rows matching `filter` in `sort` order, after (or before, reversed) a keyset position.
+async fn fetch_keyed(
+    pool: &SqlitePool,
+    library_id: &str,
+    filter: &MediaFilter,
+    sort: MediaSort,
+    from: Option<(&str, &str)>,
+    forward: bool,
+    limit: u32,
+) -> Result<Vec<KeyedRow>> {
+    let spec = sort.spec();
+    let mut qb = QueryBuilder::<Sqlite>::new(format!(
+        "SELECT {COLUMNS}, CAST({} AS TEXT) AS sort_value {FROM}",
+        spec.key
+    ));
+    query::push_where(&mut qb, library_id, filter);
+    if let Some((key, id)) = from {
+        spec.push_keyset(&mut qb, key, id, forward)?;
+    }
+    qb.push(format!(" {} LIMIT ", spec.order_by(!forward)))
+        .push_bind(i64::from(limit));
+    Ok(qb.build_query_as::<KeyedRow>().fetch_all(pool).await?)
+}
+
+/// A page of active media of a library matching `query`.
 pub async fn list(
     pool: &SqlitePool,
     library_id: &str,
+    query: &MediaQuery,
     cursor: Option<&str>,
     limit: u32,
 ) -> Result<MediaPage> {
     let limit = limit.clamp(1, MAX_PAGE);
-    let (key, id) = match cursor {
-        Some(c) => {
-            let (k, i) = decode_cursor(c)?;
-            (Some(k), Some(i))
-        }
-        None => (None, None),
-    };
+    query::validate(&query.filter)?;
+    let filter = query::resolve(pool, query.filter.clone()).await?;
+    let from = cursor.map(decode_cursor).transpose()?;
+    let from_ref = from.as_ref().map(|(k, i)| (k.as_str(), i.as_str()));
 
-    let mut rows: Vec<(MediaRow, String)> = sqlx::query_as::<_, MediaRow>(&format!(
-        "SELECT {COLUMNS} {FROM}
-         WHERE m.library_id = ?1 AND m.status = 'active'
-           AND (?2 IS NULL OR (m.sort_key, m.id) < (?2, ?3))
-         ORDER BY m.sort_key DESC, m.id DESC
-         LIMIT ?4"
-    ))
-    .bind(library_id)
-    .bind(&key)
-    .bind(&id)
-    .bind(limit as i64 + 1)
-    .fetch_all(pool)
-    .await?
-    .into_iter()
-    .map(|row| {
-        let key = row.captured_at.clone().unwrap_or_default();
-        (row, key)
-    })
-    .collect();
-
+    let mut rows = fetch_keyed(
+        pool,
+        library_id,
+        &filter,
+        query.sort,
+        from_ref,
+        true,
+        limit + 1,
+    )
+    .await?;
     let has_more = rows.len() > limit as usize;
     rows.truncate(limit as usize);
     let next_cursor = has_more
-        .then(|| rows.last().map(|(row, key)| encode_cursor(key, &row.id)))
+        .then(|| rows.last().map(|r| encode_cursor(&r.sort_value, &r.row.id)))
         .flatten();
 
     Ok(MediaPage {
-        items: rows.into_iter().map(|(row, _)| row.into()).collect(),
+        items: rows.into_iter().map(|r| r.row.into()).collect(),
         next_cursor,
+    })
+}
+
+/// How many items match (total, photos, videos).
+pub async fn count(
+    pool: &SqlitePool,
+    library_id: &str,
+    filter: &MediaFilter,
+) -> Result<MediaCount> {
+    query::validate(filter)?;
+    let filter = query::resolve(pool, filter.clone()).await?;
+    let mut qb = QueryBuilder::<Sqlite>::new(
+        "SELECT COUNT(*), COUNT(CASE WHEN m.media_type = 'video' THEN 1 END) FROM media m",
+    );
+    query::push_where(&mut qb, library_id, &filter);
+    let (total, videos): (i64, i64) = qb.build_query_as().fetch_one(pool).await?;
+    Ok(MediaCount {
+        total: total as u32,
+        photos: (total - videos) as u32,
+        videos: videos as u32,
+    })
+}
+
+/// Position of `id` inside the gallery context, plus up to `radius` neighbours per side.
+/// An item that doesn't match the context (e.g. opened from a link) gets its own context.
+pub async fn context(
+    pool: &SqlitePool,
+    id: &str,
+    query: &MediaQuery,
+    radius: u32,
+) -> Result<MediaContext> {
+    let radius = radius.min(MAX_RADIUS);
+    query::validate(&query.filter)?;
+    let filter = query::resolve(pool, query.filter.clone()).await?;
+    let spec = query.sort.spec();
+
+    let library_id: String = sqlx::query_scalar("SELECT library_id FROM media WHERE id = ?1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or(Error::MediaNotFound)?;
+
+    // The item itself, only if it matches the context.
+    let mut qb = QueryBuilder::<Sqlite>::new(format!(
+        "SELECT {COLUMNS}, CAST({} AS TEXT) AS sort_value {FROM}",
+        spec.key
+    ));
+    query::push_where(&mut qb, &library_id, &filter);
+    qb.push(" AND m.id = ").push_bind(id.to_string());
+    let Some(current) = qb.build_query_as::<KeyedRow>().fetch_optional(pool).await? else {
+        let item = get(pool, id).await?;
+        return Ok(MediaContext {
+            position: 1,
+            total: 1,
+            items: vec![item],
+            index: 0,
+        });
+    };
+    let key = (current.sort_value.as_str(), id);
+
+    let mut before = fetch_keyed(
+        pool,
+        &library_id,
+        &filter,
+        query.sort,
+        Some(key),
+        false,
+        radius,
+    )
+    .await?;
+    before.reverse();
+    let after = fetch_keyed(
+        pool,
+        &library_id,
+        &filter,
+        query.sort,
+        Some(key),
+        true,
+        radius,
+    )
+    .await?;
+
+    // Position = rows strictly before the item in this order.
+    let mut qb = QueryBuilder::<Sqlite>::new("SELECT COUNT(*) FROM media m");
+    query::push_where(&mut qb, &library_id, &filter);
+    spec.push_keyset(&mut qb, key.0, key.1, false)?;
+    let position: i64 = qb.build_query_scalar().fetch_one(pool).await?;
+    let total = count(pool, &library_id, &filter).await?.total;
+
+    let index = before.len() as u32;
+    let items = before
+        .into_iter()
+        .chain(std::iter::once(current))
+        .chain(after)
+        .map(|r| r.row.into())
+        .collect();
+    Ok(MediaContext {
+        position: position as u32 + 1,
+        total,
+        items,
+        index,
     })
 }
 
@@ -245,56 +375,28 @@ pub async fn get_many(pool: &SqlitePool, ids: &[String]) -> Result<Vec<MediaItem
     Ok(items)
 }
 
-/// Neighbours and position of a media item in gallery order, within its library.
-pub async fn navigation(pool: &SqlitePool, id: &str) -> Result<MediaNavigation> {
-    let (library_id, key): (String, String) =
-        sqlx::query_as("SELECT library_id, sort_key FROM media WHERE id = ?1")
-            .bind(id)
-            .fetch_optional(pool)
-            .await?
-            .ok_or(Error::MediaNotFound)?;
-
-    let neighbour = |cmp: &str, dir: &str| {
-        format!(
-            "SELECT id FROM media
-             WHERE library_id = ?1 AND status = 'active' AND (sort_key, id) {cmp} (?2, ?3)
-             ORDER BY sort_key {dir}, id {dir}
-             LIMIT 1"
-        )
-    };
-    let fetch = |sql: String| {
-        let (library_id, key) = (library_id.clone(), key.clone());
-        async move {
-            sqlx::query_scalar::<_, String>(&sql)
-                .bind(library_id)
-                .bind(key)
-                .bind(id)
-                .fetch_optional(pool)
-                .await
+/// Mark or unmark favorites. Returns the updated items.
+pub async fn set_favorite(
+    pool: &SqlitePool,
+    ids: &[String],
+    favorite: bool,
+) -> Result<Vec<MediaItem>> {
+    let mut tx = pool.begin().await?;
+    for chunk in ids.chunks(500) {
+        let mut qb = QueryBuilder::<Sqlite>::new("UPDATE media SET is_favorite = ");
+        qb.push_bind(favorite)
+            .push(", updated_at = ")
+            .push_bind(chrono::Utc::now().to_rfc3339());
+        qb.push(" WHERE id IN (");
+        let mut list = qb.separated(", ");
+        for id in chunk {
+            list.push_bind(id.clone());
         }
-    };
-
-    let prev_id = fetch(neighbour(">", "ASC")).await?;
-    let next_id = fetch(neighbour("<", "DESC")).await?;
-
-    let (before, total): (i64, i64) = sqlx::query_as(
-        "SELECT
-            COUNT(CASE WHEN (sort_key, id) > (?2, ?3) THEN 1 END),
-            COUNT(*)
-         FROM media WHERE library_id = ?1 AND status = 'active'",
-    )
-    .bind(&library_id)
-    .bind(&key)
-    .bind(id)
-    .fetch_one(pool)
-    .await?;
-
-    Ok(MediaNavigation {
-        prev_id,
-        next_id,
-        position: before as u32 + 1,
-        total: total as u32,
-    })
+        qb.push(")");
+        qb.build().execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
+    get_many(pool, ids).await
 }
 
 /// Where a media file lives: (library root, relative path, media type).
@@ -311,27 +413,88 @@ pub async fn location(pool: &SqlitePool, id: &str) -> Result<(String, String, Me
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::catalog::libraries;
     use crate::db::tests::{temp_dir, test_db};
 
-    async fn insert(pool: &SqlitePool, library_id: &str, id: &str, captured_at: Option<&str>) {
+    /// Minimal media row for query tests.
+    pub(crate) struct Row<'a> {
+        pub id: &'a str,
+        pub captured_at: Option<&'a str>,
+        pub filename: &'a str,
+        pub media_type: &'a str,
+        pub size: i64,
+        pub favorite: bool,
+        pub camera: Option<&'a str>,
+    }
+
+    impl Default for Row<'_> {
+        fn default() -> Self {
+            Row {
+                id: "",
+                captured_at: None,
+                filename: "",
+                media_type: "image",
+                size: 1,
+                favorite: false,
+                camera: None,
+            }
+        }
+    }
+
+    pub(crate) async fn insert(pool: &SqlitePool, library_id: &str, r: Row<'_>) {
+        let filename = if r.filename.is_empty() {
+            format!("{}.jpg", r.id)
+        } else {
+            r.filename.to_string()
+        };
         sqlx::query(
             "INSERT INTO media (id, library_id, relative_path, filename, extension, media_type,
-                                file_size, captured_at, indexed_at, updated_at)
-             VALUES (?1, ?2, ?1, ?1, 'jpg', 'image', 1, ?3, '', '')",
+                                file_size, captured_at, is_favorite, camera_model, indexed_at, updated_at)
+             VALUES (?1, ?2, ?3, ?3, 'jpg', ?4, ?5, ?6, ?7, ?8, '', '')",
         )
-        .bind(id)
+        .bind(r.id)
         .bind(library_id)
-        .bind(captured_at)
+        .bind(filename)
+        .bind(r.media_type)
+        .bind(r.size)
+        .bind(r.captured_at)
+        .bind(r.favorite)
+        .bind(r.camera)
         .execute(pool)
         .await
         .unwrap();
     }
 
-    #[tokio::test]
-    async fn keyset_pages_and_navigation_agree() {
+    async fn all_ids(
+        pool: &SqlitePool,
+        library_id: &str,
+        query: &MediaQuery,
+        page: u32,
+    ) -> Vec<String> {
+        let mut ids = Vec::new();
+        let mut cursor = None;
+        loop {
+            let p = list(pool, library_id, query, cursor.as_deref(), page)
+                .await
+                .unwrap();
+            ids.extend(p.items.into_iter().map(|m| m.id));
+            match p.next_cursor {
+                Some(c) => cursor = Some(c),
+                None => return ids,
+            }
+        }
+    }
+
+    fn by(filter: MediaFilter) -> MediaQuery {
+        MediaQuery {
+            filter,
+            ..Default::default()
+        }
+    }
+
+    async fn sample() -> (SqlitePool, std::path::PathBuf, String) {
         let (pool, dir) = test_db().await;
         let lib = libraries::create(&pool, "A", temp_dir().to_str().unwrap())
             .await
@@ -339,53 +502,325 @@ mod tests {
         let other = libraries::create(&pool, "B", temp_dir().to_str().unwrap())
             .await
             .unwrap();
+        let rows = [
+            Row {
+                id: "a",
+                captured_at: Some("2025-07-12T10:00:00"),
+                filename: "Gramado_serra.jpg",
+                size: 30,
+                favorite: true,
+                camera: Some("iPhone 15 Pro"),
+                ..Default::default()
+            },
+            Row {
+                id: "b",
+                captured_at: Some("2025-07-11T10:00:00"),
+                filename: "IMG_0002.jpg",
+                size: 10,
+                ..Default::default()
+            },
+            Row {
+                id: "c",
+                captured_at: Some("2025-07-11T10:00:00"),
+                filename: "clip.mp4",
+                media_type: "video",
+                size: 99,
+                ..Default::default()
+            },
+            Row {
+                id: "d",
+                captured_at: Some("2024-12-31T23:59:59"),
+                filename: "reveillon.jpg",
+                size: 20,
+                favorite: true,
+                camera: Some("Canon EOS R6"),
+                ..Default::default()
+            },
+            Row {
+                id: "e",
+                captured_at: Some("2024-07-01T08:00:00"),
+                filename: "praia.jpg",
+                size: 5,
+                ..Default::default()
+            },
+            Row {
+                id: "f",
+                filename: "sem_data.jpg",
+                size: 1,
+                ..Default::default()
+            },
+        ];
+        for r in rows {
+            insert(&pool, &lib.id, r).await;
+        }
+        insert(
+            &pool,
+            &other.id,
+            Row {
+                id: "z",
+                captured_at: Some("2025-07-11T12:00:00"),
+                ..Default::default()
+            },
+        )
+        .await;
+        (pool, dir, lib.id)
+    }
 
-        insert(&pool, &lib.id, "a", Some("2025-07-12T10:00:00Z")).await;
-        insert(&pool, &lib.id, "b", Some("2025-07-11T10:00:00Z")).await;
-        insert(&pool, &lib.id, "c", Some("2025-07-11T10:00:00Z")).await; // same date as b
-        insert(&pool, &lib.id, "d", None).await;
-        insert(&pool, &lib.id, "e", None).await;
-        insert(&pool, &other.id, "z", Some("2025-07-11T12:00:00Z")).await;
-
-        // Page through two at a time.
-        let mut ids = Vec::new();
-        let mut cursor = None;
-        loop {
-            let page = list(&pool, &lib.id, cursor.as_deref(), 2).await.unwrap();
-            ids.extend(page.items.into_iter().map(|m| m.id));
-            match page.next_cursor {
-                Some(c) => cursor = Some(c),
-                None => break,
+    #[tokio::test]
+    async fn every_sort_pages_consistently() {
+        let (pool, dir, lib) = sample().await;
+        let expected = [
+            (MediaSort::Newest, vec!["a", "c", "b", "d", "e", "f"]),
+            (MediaSort::Oldest, vec!["e", "d", "b", "c", "a", "f"]),
+            (MediaSort::Name, vec!["c", "a", "b", "e", "d", "f"]),
+            (MediaSort::Largest, vec!["c", "a", "d", "b", "e", "f"]),
+        ];
+        for (sort, ids) in expected {
+            let q = MediaQuery {
+                sort,
+                ..Default::default()
+            };
+            for page in [1, 2, 4, 100] {
+                assert_eq!(
+                    all_ids(&pool, &lib, &q, page).await,
+                    ids,
+                    "{sort:?} page {page}"
+                );
             }
         }
-        assert_eq!(ids, ["a", "c", "b", "e", "d"]);
-
-        // Walking `next_id` visits the same order, with correct positions.
-        let mut walked = vec!["a".to_string()];
-        loop {
-            let nav = navigation(&pool, walked.last().unwrap()).await.unwrap();
-            assert_eq!(nav.position as usize, walked.len());
-            assert_eq!(nav.total, 5);
-            match nav.next_id {
-                Some(next) => walked.push(next),
-                None => break,
-            }
-        }
-        assert_eq!(walked, ids);
-
-        let nav = navigation(&pool, "c").await.unwrap();
-        assert_eq!(nav.prev_id.as_deref(), Some("a"));
-        assert_eq!(nav.next_id.as_deref(), Some("b"));
+        assert!(matches!(
+            list(&pool, &lib, &MediaQuery::default(), Some("garbage"), 10).await,
+            Err(Error::InvalidInput(_))
+        ));
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]
-    async fn invalid_cursor_is_rejected() {
-        let (pool, dir) = test_db().await;
-        assert!(matches!(
-            list(&pool, "x", Some("garbage"), 10).await,
-            Err(Error::InvalidInput(_))
-        ));
+    async fn filters_combine() {
+        let (pool, dir, lib) = sample().await;
+        let cases: Vec<(MediaFilter, Vec<&str>)> = vec![
+            (
+                MediaFilter {
+                    favorite: Some(true),
+                    ..Default::default()
+                },
+                vec!["a", "d"],
+            ),
+            (
+                MediaFilter {
+                    media_type: Some(MediaType::Video),
+                    ..Default::default()
+                },
+                vec!["c"],
+            ),
+            (
+                MediaFilter {
+                    year: Some(2024),
+                    ..Default::default()
+                },
+                vec!["d", "e"],
+            ),
+            (
+                MediaFilter {
+                    year: Some(2025),
+                    month: Some(7),
+                    day: Some(11),
+                    ..Default::default()
+                },
+                vec!["c", "b"],
+            ),
+            (
+                MediaFilter {
+                    month: Some(7),
+                    ..Default::default()
+                },
+                vec!["a", "c", "b", "e"],
+            ),
+            (
+                MediaFilter {
+                    month: Some(12),
+                    year: Some(2024),
+                    ..Default::default()
+                },
+                vec!["d"],
+            ),
+            (
+                MediaFilter {
+                    date_from: Some("2024-12-31".into()),
+                    date_to: Some("2025-07-11".into()),
+                    ..Default::default()
+                },
+                vec!["c", "b", "d"],
+            ),
+            (
+                MediaFilter {
+                    camera: Some("Canon EOS R6".into()),
+                    ..Default::default()
+                },
+                vec!["d"],
+            ),
+            (
+                MediaFilter {
+                    favorite: Some(true),
+                    year: Some(2025),
+                    ..Default::default()
+                },
+                vec!["a"],
+            ),
+        ];
+        for (filter, ids) in cases {
+            assert_eq!(
+                all_ids(&pool, &lib, &by(filter.clone()), 2).await,
+                ids,
+                "{filter:?}"
+            );
+            let n = count(&pool, &lib, &filter).await.unwrap();
+            assert_eq!(n.total as usize, ids.len());
+        }
+        let n = count(&pool, &lib, &MediaFilter::default()).await.unwrap();
+        assert_eq!(
+            n,
+            MediaCount {
+                total: 6,
+                photos: 5,
+                videos: 1
+            }
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn text_search_uses_names_places_albums_and_dates() {
+        let (pool, dir, lib) = sample().await;
+        let text = |t: &str| {
+            by(MediaFilter {
+                text: Some(t.into()),
+                ..Default::default()
+            })
+        };
+
+        assert_eq!(
+            all_ids(&pool, &lib, &text("gram"), 10).await,
+            ["a"],
+            "prefix, case-insensitive"
+        );
+        assert_eq!(all_ids(&pool, &lib, &text("REVEILLON"), 10).await, ["d"]);
+        assert_eq!(
+            all_ids(&pool, &lib, &text("julho 2025"), 10).await,
+            ["a", "c", "b"]
+        );
+        assert_eq!(all_ids(&pool, &lib, &text("2024"), 10).await, ["d", "e"]);
+        assert_eq!(all_ids(&pool, &lib, &text("praia julho"), 10).await, ["e"]);
+        assert!(
+            all_ids(&pool, &lib, &text("inexistente"), 10)
+                .await
+                .is_empty()
+        );
+
+        // Places are indexed when the ingest sets place_id (accents ignored).
+        sqlx::query("INSERT INTO places (id, name, admin1, country_code, lat, lon) VALUES (1, 'São Paulo', 'SP', 'BR', 0, 0)")
+            .execute(&pool).await.unwrap();
+        sqlx::query("UPDATE media SET place_id = 1 WHERE id = 'e'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(all_ids(&pool, &lib, &text("sao paulo"), 10).await, ["e"]);
+
+        // Album names: added, renamed, and removed on cascade (album deleted).
+        let album = crate::catalog::albums::create(&pool, &lib, "Férias na serra", None)
+            .await
+            .unwrap();
+        crate::catalog::albums::add_media(&pool, &album.id, &["b".into()])
+            .await
+            .unwrap();
+        assert_eq!(all_ids(&pool, &lib, &text("ferias"), 10).await, ["b"]);
+        crate::catalog::albums::rename(&pool, &album.id, "Inverno")
+            .await
+            .unwrap();
+        assert!(all_ids(&pool, &lib, &text("ferias"), 10).await.is_empty());
+        assert_eq!(all_ids(&pool, &lib, &text("inverno"), 10).await, ["b"]);
+        crate::catalog::albums::delete(&pool, &album.id)
+            .await
+            .unwrap();
+        assert!(all_ids(&pool, &lib, &text("inverno"), 10).await.is_empty());
+
+        // Renames on disk (relinked moves) update the index; deleted rows leave it.
+        sqlx::query("UPDATE media SET filename = 'natal.jpg' WHERE id = 'd'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(all_ids(&pool, &lib, &text("natal"), 10).await, ["d"]);
+        sqlx::query("DELETE FROM media WHERE id = 'd'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(all_ids(&pool, &lib, &text("natal"), 10).await.is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn context_matches_list_order() {
+        let (pool, dir, lib) = sample().await;
+        for query in [
+            MediaQuery::default(),
+            MediaQuery {
+                sort: MediaSort::Name,
+                ..Default::default()
+            },
+            by(MediaFilter {
+                favorite: Some(true),
+                ..Default::default()
+            }),
+        ] {
+            let ids = all_ids(&pool, &lib, &query, 100).await;
+            for (i, id) in ids.iter().enumerate() {
+                let ctx = context(&pool, id, &query, 2).await.unwrap();
+                assert_eq!(
+                    (ctx.position as usize, ctx.total as usize),
+                    (i + 1, ids.len()),
+                    "{query:?} {id}"
+                );
+                let window: Vec<_> = ctx.items.iter().map(|m| m.id.clone()).collect();
+                let lo = i.saturating_sub(2);
+                assert_eq!(window, ids[lo..(i + 3).min(ids.len())], "{query:?} {id}");
+                assert_eq!(ctx.items[ctx.index as usize].id, *id);
+            }
+        }
+        // Outside the context: standalone.
+        let ctx = context(
+            &pool,
+            "b",
+            &by(MediaFilter {
+                favorite: Some(true),
+                ..Default::default()
+            }),
+            2,
+        )
+        .await
+        .unwrap();
+        assert_eq!((ctx.position, ctx.total, ctx.items.len()), (1, 1, 1));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn favorites_toggle_in_batch() {
+        let (pool, dir, lib) = sample().await;
+        let items = set_favorite(&pool, &["b".into(), "c".into()], true)
+            .await
+            .unwrap();
+        assert!(items.iter().all(|m| m.is_favorite) && items.len() == 2);
+        set_favorite(&pool, &["a".into()], false).await.unwrap();
+        let favs = all_ids(
+            &pool,
+            &lib,
+            &by(MediaFilter {
+                favorite: Some(true),
+                ..Default::default()
+            }),
+            10,
+        )
+        .await;
+        assert_eq!(favs, ["c", "b", "d"]);
         let _ = std::fs::remove_dir_all(dir);
     }
 }
