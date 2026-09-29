@@ -53,7 +53,7 @@ PhotoVault/
 
 Sem o `portable.flag`, os dados vão para a pasta de dados do sistema. O CI gera os dois pacotes automaticamente a cada tag `v*` (`.github/workflows/release.yml`).
 
-## Estado atual (v1.1, Fase 6)
+## Estado atual (v1.2, Fase 6.1)
 
 Funciona hoje:
 
