@@ -1,7 +1,7 @@
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { isTauri } from '@tauri-apps/api/core';
 import { Backend } from '../ipc/backend';
-import { unwrap, type EventSummary, type EventUpdate } from '../ipc/ipc';
+import { unwrap, type EventCounts, type EventSummary, type EventUpdate, type ReclassifyOptions } from '../ipc/ipc';
 import { NotifyService } from '../notify.service';
 import { LibraryStore } from './library.store';
 import { OrganizeStore } from './organize.store';
@@ -70,6 +70,18 @@ export class EventStore {
 
   removeMedia(id: string, mediaIds: readonly string[]) {
     return this.decide(() => this.backend.commands.removeFromEvent(id, [...mediaIds]), 'Fotos removidas do evento', 'Os arquivos continuam na biblioteca.');
+  }
+
+  /** Detect again now, in every library (Settings). `null` on error. */
+  async reclassify(options: ReclassifyOptions): Promise<EventCounts | null> {
+    try {
+      const counts = await unwrap(this.backend.commands.reclassifyEvents(options));
+      this.organize.touch();
+      return counts;
+    } catch (e) {
+      this.notify.error('Não foi possível reclassificar', e);
+      return null;
+    }
   }
 
   private async decide(

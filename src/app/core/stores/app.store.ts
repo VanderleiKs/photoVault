@@ -47,6 +47,7 @@ export const DEFAULT_EVENTS: EventSettings = {
   tripJoinHours: 48,
   minEventItems: 20,
   minTripItems: 10,
+  homes: [],
 };
 
 const DEFAULT_SETTINGS: AppSettings = {

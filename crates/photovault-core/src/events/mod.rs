@@ -11,8 +11,9 @@
 pub mod detect;
 
 use crate::catalog::media::{self, MediaItem};
-use crate::catalog::settings::AppSettings;
+use crate::catalog::settings::{AppSettings, Home};
 use crate::error::{Error, Result};
+use crate::ingestion::geo;
 use chrono::{Datelike, NaiveDateTime, Utc};
 use detect::{Detected, Kind, Shot};
 use serde::{Deserialize, Serialize};
@@ -113,6 +114,9 @@ pub struct EventUpdate {
     pub start_date: Option<String>,
     #[specta(optional)]
     pub end_date: Option<String>,
+    /// The detection got it wrong: a trip that is an event, or the other way round.
+    #[specta(optional)]
+    pub kind: Option<EventKind>,
 }
 
 const MAX_TITLE: usize = 120;
@@ -147,33 +151,12 @@ fn parse_time(s: &str) -> Option<NaiveDateTime> {
 /// Recompute the suggestions of a library (global pass). Idempotent.
 pub async fn rebuild(pool: &SqlitePool, library_id: &str, s: &AppSettings) -> Result<()> {
     let settings = &s.events;
-    // Real capture dates only: files dated by mtime (copies, downloads) say nothing.
-    let rows: Vec<ShotRow> = sqlx::query_as(
-        "SELECT m.id, m.captured_at, m.gps_lat, m.gps_lon, p.name AS place, p.admin1
-         FROM media m LEFT JOIN places p ON p.id = m.place_id
-         WHERE m.library_id = ?1 AND m.status = 'active' AND m.captured_at IS NOT NULL
-           AND m.date_source IS NOT NULL AND m.date_source != 'mtime'
-         ORDER BY m.captured_at, m.id",
-    )
-    .bind(library_id)
-    .fetch_all(pool)
-    .await?;
-    let rows: Vec<(ShotRow, NaiveDateTime)> = rows
-        .into_iter()
-        .filter_map(|r| {
-            let t = parse_time(&r.captured_at)?;
-            Some((r, t))
-        })
-        .collect();
-    let home = detect::home_base(
-        &rows
-            .iter()
-            .map(|(r, t)| Shot {
-                time: *t,
-                gps: r.gps_lat.zip(r.gps_lon),
-            })
-            .collect::<Vec<_>>(),
-    );
+    let rows = dated_shots(pool, library_id).await?;
+    let homes: Vec<(f64, f64)> = if settings.homes.is_empty() {
+        detect::home_base(&shots_of(&rows)).into_iter().collect()
+    } else {
+        settings.homes.iter().map(|h| (h.lat, h.lon)).collect()
+    };
 
     let mut tx = pool.begin().await?;
     // Accepted events take in new photos of their dates (not claimed by another).
@@ -210,7 +193,7 @@ pub async fn rebuild(pool: &SqlitePool, library_id: &str, s: &AppSettings) -> Re
             gps: r.gps_lat.zip(r.gps_lon),
         })
         .collect();
-    let found = detect::detect(&shots, home, settings);
+    let found = detect::detect(&shots, &homes, settings);
 
     // Previous suggestions (to keep their ids) and ignored events (not to repeat them).
     let mut previous: HashMap<String, (String, HashSet<String>)> = HashMap::new();
@@ -264,6 +247,149 @@ pub async fn rebuild(pool: &SqlitePool, library_id: &str, s: &AppSettings) -> Re
     }
     tx.commit().await?;
     Ok(())
+}
+
+/// Real capture dates only: files dated by mtime (copies, downloads) say nothing.
+async fn dated_shots(pool: &SqlitePool, library_id: &str) -> Result<Vec<(ShotRow, NaiveDateTime)>> {
+    let rows: Vec<ShotRow> = sqlx::query_as(
+        "SELECT m.id, m.captured_at, m.gps_lat, m.gps_lon, p.name AS place, p.admin1
+         FROM media m LEFT JOIN places p ON p.id = m.place_id
+         WHERE m.library_id = ?1 AND m.status = 'active' AND m.captured_at IS NOT NULL
+           AND m.date_source IS NOT NULL AND m.date_source != 'mtime'
+         ORDER BY m.captured_at, m.id",
+    )
+    .bind(library_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|r| {
+            let t = parse_time(&r.captured_at)?;
+            Some((r, t))
+        })
+        .collect())
+}
+
+fn shots_of(rows: &[(ShotRow, NaiveDateTime)]) -> Vec<Shot> {
+    rows.iter()
+        .map(|(r, t)| Shot {
+            time: *t,
+            gps: r.gps_lat.zip(r.gps_lon),
+        })
+        .collect()
+}
+
+/// The home the photos point to (Settings: "Sua casa parece ser…").
+pub async fn detected_home(pool: &SqlitePool, library_id: &str) -> Result<Option<Home>> {
+    let rows = dated_shots(pool, library_id).await?;
+    Ok(detect::home_base(&shots_of(&rows)).map(|(lat, lon)| home_at(lat, lon)))
+}
+
+/// A home here, named after the place it is in.
+pub fn home_at(lat: f64, lon: f64) -> Home {
+    let place = geo::nearest_place(lat, lon);
+    Home {
+        name: place
+            .as_ref()
+            .map(place_name)
+            .unwrap_or_else(|| format!("{lat:.3}, {lon:.3}")),
+        country_code: place.map(|p| p.country_code),
+        lat,
+        lon,
+    }
+}
+
+/// Places for the home search (Settings), most populous first.
+pub fn search_homes(query: &str) -> Vec<Home> {
+    geo::search(query, 8)
+        .into_iter()
+        .map(|p| Home {
+            name: place_name(&p),
+            country_code: Some(p.country_code),
+            lat: p.lat,
+            lon: p.lon,
+        })
+        .collect()
+}
+
+fn place_name(p: &geo::Place) -> String {
+    match &p.admin1 {
+        Some(a) if !a.is_empty() => format!("{}, {a}", p.name),
+        _ => p.name.clone(),
+    }
+}
+
+/// What "Reclassificar" redoes besides the suggestions (always redone).
+#[derive(Debug, Clone, Copy, Default, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ReclassifyOptions {
+    /// Accepted (not edited) events are detected again: those that come back keep their id
+    /// and stay accepted, the others go away. Edited events never change.
+    pub accepted: bool,
+    /// Forget the ignored events: they can be suggested again.
+    pub ignored: bool,
+}
+
+/// After a reclassification, in the library (ignored events not counted).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EventCounts {
+    pub trips: u32,
+    pub events: u32,
+    /// Of those, waiting for a decision.
+    pub suggested: u32,
+}
+
+/// Detect again now, with the current settings (the global pass only redoes suggestions).
+pub async fn reclassify(
+    pool: &SqlitePool,
+    library_id: &str,
+    s: &AppSettings,
+    opts: ReclassifyOptions,
+) -> Result<EventCounts> {
+    if opts.ignored {
+        sqlx::query("DELETE FROM events WHERE library_id = ?1 AND status = 'ignored'")
+            .bind(library_id)
+            .execute(pool)
+            .await?;
+    }
+    let accepted: Vec<String> = if opts.accepted {
+        sqlx::query_scalar(
+            "UPDATE events SET status = 'suggested' WHERE library_id = ?1 AND status = 'accepted'
+             RETURNING id",
+        )
+        .bind(library_id)
+        .fetch_all(pool)
+        .await?
+    } else {
+        Vec::new()
+    };
+    let rebuilt = rebuild(pool, library_id, s).await;
+    // Back to accepted, also when the rebuild failed (then nothing was replaced).
+    for id in &accepted {
+        sqlx::query("UPDATE events SET status = 'accepted' WHERE id = ?1")
+            .bind(id)
+            .execute(pool)
+            .await?;
+    }
+    rebuilt?;
+    counts(pool, library_id).await
+}
+
+pub async fn counts(pool: &SqlitePool, library_id: &str) -> Result<EventCounts> {
+    let (trips, events, suggested): (i64, i64, i64) = sqlx::query_as(
+        "SELECT COALESCE(SUM(kind = 'trip'), 0), COALESCE(SUM(kind = 'event'), 0),
+                COALESCE(SUM(status = 'suggested'), 0)
+         FROM events WHERE library_id = ?1 AND status != 'ignored'",
+    )
+    .bind(library_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(EventCounts {
+        trips: trips as u32,
+        events: events as u32,
+        suggested: suggested as u32,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -631,9 +757,33 @@ pub async fn update(pool: &SqlitePool, id: &str, change: &EventUpdate) -> Result
         .await?;
         refresh_range(&mut tx, id).await?;
     }
+    if let Some(kind) = change.kind.filter(|&k| k != current.kind) {
+        // An automatic title follows the new kind; one the user wrote stays.
+        let title = match &change.title {
+            None => retitle(kind, &current.title),
+            Some(_) => None,
+        };
+        sqlx::query("UPDATE events SET kind = ?1, title = COALESCE(?2, title) WHERE id = ?3")
+            .bind(kind.as_str())
+            .bind(title)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
     mark_edited(&mut tx, id).await?;
     tx.commit().await?;
     get(pool, id).await
+}
+
+/// "Evento em Gramado" → "Viagem para Gramado" (and back); `None` for a title of the user.
+fn retitle(kind: EventKind, title: &str) -> Option<String> {
+    let (from, to) = match kind {
+        EventKind::Trip => (["Evento em ", "Evento de "], ["Viagem para ", "Viagem de "]),
+        EventKind::Event => (["Viagem para ", "Viagem de "], ["Evento em ", "Evento de "]),
+    };
+    from.iter()
+        .zip(to)
+        .find_map(|(f, t)| title.strip_prefix(f).map(|rest| format!("{t}{rest}")))
 }
 
 /// Take photos out of an event (it becomes "edited").
@@ -683,6 +833,7 @@ async fn refresh_range(tx: &mut Transaction<'_, Sqlite>, id: &str) -> Result<()>
 mod tests {
     use super::*;
 
+    use crate::catalog::settings::EventSettings;
     use crate::catalog::{MediaFilter, MediaQuery, libraries};
     use crate::db::tests::test_db;
 
@@ -717,10 +868,11 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn decisions_survive_rebuilds() {
-        let (pool, dir) = test_db().await;
-        let lib = libraries::create(&pool, "A", dir.to_str().unwrap())
+    const FLORIPA: Option<(i64, f64, f64)> = Some((2, -27.59, -48.55));
+
+    /// Home in Porto Alegre, 2 days in Florianópolis, a party at home.
+    async fn floripa_library(pool: &SqlitePool, dir: &std::path::Path) -> String {
+        let lib = libraries::create(pool, "A", dir.to_str().unwrap())
             .await
             .unwrap()
             .id;
@@ -728,14 +880,13 @@ mod tests {
             "INSERT INTO places (id, name, admin1, country_code, lat, lon) VALUES
              (1, 'Porto Alegre', 'RS', 'BR', -30.03, -51.23), (2, 'Florianópolis', 'SC', 'BR', -27.59, -48.55)",
         )
-        .execute(&pool)
+        .execute(pool)
         .await
         .unwrap();
         let home = Some((1, -30.03, -51.23));
-        let floripa = Some((2, -27.59, -48.55));
         for d in 1..=20 {
             shoot(
-                &pool,
+                pool,
                 &lib,
                 &format!("h{d:02}-"),
                 &format!("2025-03-{d:02} 12:00"),
@@ -744,9 +895,16 @@ mod tests {
             )
             .await;
         }
-        shoot(&pool, &lib, "t1-", "2025-07-10 09:00", 15, floripa).await;
-        shoot(&pool, &lib, "t2-", "2025-07-11 09:00", 15, floripa).await;
-        shoot(&pool, &lib, "party-", "2025-08-02 19:00", 25, home).await;
+        shoot(pool, &lib, "t1-", "2025-07-10 09:00", 15, FLORIPA).await;
+        shoot(pool, &lib, "t2-", "2025-07-11 09:00", 15, FLORIPA).await;
+        shoot(pool, &lib, "party-", "2025-08-02 19:00", 25, home).await;
+        lib
+    }
+
+    #[tokio::test]
+    async fn decisions_survive_rebuilds() {
+        let (pool, dir) = test_db().await;
+        let lib = floripa_library(&pool, &dir).await;
         let s = AppSettings::default();
         rebuild(&pool, &lib, &s).await.unwrap();
 
@@ -803,7 +961,7 @@ mod tests {
         // Accepted: new photos of those dates join it; ignored: not suggested again.
         accept(&pool, &trip.id).await.unwrap();
         ignore(&pool, &party.id).await.unwrap();
-        shoot(&pool, &lib, "late-", "2025-07-10 12:00", 3, floripa).await;
+        shoot(&pool, &lib, "late-", "2025-07-10 12:00", 3, FLORIPA).await;
         rebuild(&pool, &lib, &s).await.unwrap();
         let now = list(&pool, &lib, false).await.unwrap();
         assert_eq!(now.len(), 1, "the party stays ignored: {now:?}");
@@ -825,6 +983,21 @@ mod tests {
         assert_eq!(
             (edited.title.as_str(), edited.status),
             ("Férias em Floripa", EventStatus::Edited)
+        );
+        // Kind: a title of the user stays.
+        let as_event = update(
+            &pool,
+            &trip.id,
+            &EventUpdate {
+                kind: Some(EventKind::Event),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            (as_event.kind, as_event.title.as_str()),
+            (EventKind::Event, "Férias em Floripa")
         );
         let fewer = remove_media(&pool, &trip.id, &["t2-014".into()])
             .await
@@ -887,5 +1060,105 @@ mod tests {
             suggest_title(EventKind::Event, &[], at),
             "Evento de 12 de julho de 2025"
         );
+    }
+
+    #[tokio::test]
+    async fn reclassify_redoes_what_was_asked() {
+        let (pool, dir) = test_db().await;
+        let lib = floripa_library(&pool, &dir).await;
+        let s = AppSettings::default();
+        rebuild(&pool, &lib, &s).await.unwrap();
+        let events = list(&pool, &lib, false).await.unwrap();
+        let (party, trip) = (events[0].id.clone(), events[1].id.clone());
+        accept(&pool, &trip).await.unwrap();
+        ignore(&pool, &party).await.unwrap();
+        let count = |trips, events, suggested| EventCounts {
+            trips,
+            events,
+            suggested,
+        };
+
+        // Accepted again from the same photos: same id, still accepted.
+        let same = reclassify(
+            &pool,
+            &lib,
+            &s,
+            ReclassifyOptions {
+                accepted: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(same, count(1, 0, 0));
+        assert_eq!(
+            get(&pool, &trip).await.unwrap().status,
+            EventStatus::Accepted
+        );
+
+        // Florianópolis no longer "away": only suggestions are redone by default...
+        let far = AppSettings {
+            events: EventSettings {
+                trip_min_km: 1000,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let kept = reclassify(&pool, &lib, &far, ReclassifyOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(kept, count(1, 0, 0));
+        // ...unless asked to redo the accepted ones too.
+        let redone = reclassify(
+            &pool,
+            &lib,
+            &far,
+            ReclassifyOptions {
+                accepted: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(redone, count(0, 0, 0));
+        // Forgetting the ignored ones brings the party back.
+        let all = reclassify(
+            &pool,
+            &lib,
+            &s,
+            ReclassifyOptions {
+                ignored: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(all, count(1, 1, 2));
+        // Florianópolis as a second home: no trip there.
+        let two_homes = AppSettings {
+            events: EventSettings {
+                homes: vec![home_at(-30.03, -51.23), home_at(-27.59, -48.55)],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(two_homes.events.homes[1].name, "Florianópolis, SC");
+        let at_home = reclassify(&pool, &lib, &two_homes, ReclassifyOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(at_home, count(0, 1, 1));
+    }
+
+    #[test]
+    fn automatic_titles_follow_the_kind() {
+        assert_eq!(
+            retitle(EventKind::Trip, "Evento em Gramado e Canela").as_deref(),
+            Some("Viagem para Gramado e Canela")
+        );
+        assert_eq!(
+            retitle(EventKind::Event, "Viagem de 12 de julho de 2025").as_deref(),
+            Some("Evento de 12 de julho de 2025")
+        );
+        assert_eq!(retitle(EventKind::Trip, "Aniversário da Ana"), None);
     }
 }

@@ -348,6 +348,17 @@ Exemplos (2 fotos da categoria como exemplo "remover", limiar 0,70):
 
 ---
 
+### Fase 6.1 — Ajustes do teste no Windows → `v1.2` 🚧 em andamento (branch `fase-6.1-ajustes`)
+
+- [x] **Bug:** um trecho sem lacuna de 6 h que começa em casa e segue longe (festa à noite, estrada de madrugada) era decidido inteiro pela mediana: ou virava um "evento em casa" com as fotos da viagem, ou a viagem engolia a festa. Agora o trecho também é cortado onde as fotos cruzam a linha de `trip_min_km` (`detect::place_cuts`), na maior lacuna entre o último GPS de um lado e o primeiro do outro; menos de 3 fotos seguidas do outro lado são ruído (posição antiga) e não cortam. Aceite do `trips.py` inalterado (2 viagens, 2 eventos)
+- [x] Trocar o tipo (viagem ⇄ evento) na tela do evento (`EventUpdate.kind`): congela o evento; o título automático acompanha ("Evento em Gramado" → "Viagem para Gramado"), um título do usuário fica
+- [x] Reclassificar agora (Configurações → Viagens e eventos, `events::reclassify`): refaz as sugestões e mostra quantas viagens/eventos saíram; opções "refazer também os aceitos" (os que voltam mantêm id e ficam aceitos; os outros saem) e "sugerir de novo os ignorados". Editados nunca mudam
+- [x] Sua casa (`EventSettings.homes`, até 5): confirmar a detectada pelas fotos ("Pelas fotos, sua casa parece ser…"), escolher outra cidade pela base do GeoNames embutida (`geo::search`, sem acento, por população) e ter mais de uma casa; distâncias até a casa mais próxima. Sem casa definida vale a detectada, como antes
+- [x] Miniatura de vídeo por captura de quadro no WebView, sem ffmpeg (`ingestion::frames`, `VideoFrameService`): o vídeo é aberto escondido, o quadro de 1 s (ou 10 % da duração) vai para um canvas e o JPEG vira as miniaturas 256/1024 como nas fotos; o `pv:` responde com CORS para o canvas poder ser lido. Vídeo que o WebView não toca (codec) fica com `frame_error` (migration 0007) e o ícone; "Reprocessar" tenta de novo. O visualizador usa a miniatura como `poster`
+- [ ] **Validação no app** (Linux e Windows): captura de quadro (H.264; HEVC no Windows depende da extensão da Microsoft), Sua casa, Reclassificar, trocar tipo
+
+**Limites:** um vídeo modificado mantém o quadro antigo (a miniatura só é capturada quando ainda não existe).
+
 ### Fase 7 — IA local (≈ 4 semanas) → `v2.0`
 
 - [ ] `ort` + download de modelos sob demanda com consentimento

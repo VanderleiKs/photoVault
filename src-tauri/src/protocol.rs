@@ -92,6 +92,9 @@ async fn serve_range(path: &Path, range: &str, mime: &str) -> Served {
         .header(header::ACCEPT_RANGES, "bytes")
         .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{size}"))
         .header(header::CONTENT_LENGTH, buf.len())
+        // The WebView draws video frames to a canvas (thumbnails): without this the
+        // canvas is "tainted" by another origin and can't be read.
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .body(buf)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
@@ -106,6 +109,10 @@ fn ok(bytes: Vec<u8>, mime: &str) -> Served {
     headers.insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("max-age=300"),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
     );
     Ok(response)
 }

@@ -7,6 +7,7 @@ use photovault_core::catalog::overview::{
 use photovault_core::catalog::{
     MediaContext, MediaCount, MediaFilter, MediaItem, MediaPage, MediaQuery, media,
 };
+use photovault_core::ingestion::frames;
 
 /// A page of the gallery. Pass `nextCursor` from the previous page to continue
 /// (with the same query).
@@ -110,4 +111,43 @@ pub async fn list_cameras(
     state: AppStateRef<'_>,
 ) -> ApiResult<Vec<CameraOption>> {
     Ok(overview::cameras(&state.pool, &library_id).await?)
+}
+
+/// Videos waiting for a thumbnail frame (captured by the WebView).
+#[tauri::command]
+#[specta::specta]
+pub async fn list_pending_video_frames(
+    limit: u32,
+    state: AppStateRef<'_>,
+) -> ApiResult<Vec<String>> {
+    Ok(frames::pending(&state.pool, limit.min(100)).await?)
+}
+
+/// A frame of the video (`data:image/jpeg;base64,…`) becomes its thumbnails.
+#[tauri::command]
+#[specta::specta]
+pub async fn save_video_frame(
+    media_id: String,
+    frame: String,
+    state: AppStateRef<'_>,
+) -> ApiResult<MediaItem> {
+    let bytes = frames::from_data_url(&frame)?;
+    Ok(frames::store(
+        &state.pool,
+        state.paths.thumbnails_dir.clone(),
+        &media_id,
+        bytes,
+    )
+    .await?)
+}
+
+/// The WebView can't play this video: keep the icon.
+#[tauri::command]
+#[specta::specta]
+pub async fn fail_video_frame(
+    media_id: String,
+    reason: String,
+    state: AppStateRef<'_>,
+) -> ApiResult<()> {
+    Ok(frames::fail(&state.pool, &media_id, &reason).await?)
 }

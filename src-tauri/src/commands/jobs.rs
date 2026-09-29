@@ -35,6 +35,8 @@ pub async fn list_job_failures(limit: u32, state: AppStateRef<'_>) -> ApiResult<
 #[specta::specta]
 pub async fn retry_failed_jobs(state: AppStateRef<'_>) -> ApiResult<u32> {
     let count = jobs::retry_failed(&state.pool).await?;
+    // Videos the WebView couldn't play: maybe a codec was installed since.
+    photovault_core::ingestion::frames::retry_failed(&state.pool).await?;
     state.jobs.wake();
     Ok(count)
 }

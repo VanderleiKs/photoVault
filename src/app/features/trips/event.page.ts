@@ -62,6 +62,15 @@ const HIGHLIGHTS = 12;
             @if (e.status === 'suggested') {
               <p-button label="Aceitar" icon="pi pi-check" size="small" (onClick)="store.accept(e.id)" />
             }
+            <p-button
+              [label]="e.kind === 'trip' ? 'É um evento' : 'É uma viagem'"
+              icon="pi pi-arrow-right-arrow-left"
+              size="small"
+              severity="contrast"
+              [outlined]="true"
+              [title]="e.kind === 'trip' ? 'Classificar como evento, e não como viagem' : 'Classificar como viagem, e não como evento'"
+              (onClick)="toggleKind(e)"
+            />
             <p-button label="Editar período" icon="pi pi-calendar" size="small" severity="contrast" [outlined]="true" (onClick)="openDates(e)" />
             <p-button label="Criar álbum" icon="pi pi-book" size="small" severity="contrast" [outlined]="true" (onClick)="createAlbum(e)" />
             <p-button label="Ignorar" icon="pi pi-times" size="small" severity="contrast" [text]="true" (onClick)="ignore(e)" />
@@ -312,6 +321,15 @@ export class EventPage {
     if (updated) {
       this.event.set(updated);
       this.editingTitle.set(false);
+    }
+  }
+
+  protected async toggleKind(e: EventSummary) {
+    const kind = e.kind === 'trip' ? 'event' : 'trip';
+    const updated = await this.store.update(e.id, { kind });
+    if (updated) {
+      this.event.set(updated);
+      this.notify.success(kind === 'trip' ? 'Agora é uma viagem' : 'Agora é um evento', 'O app não vai mais alterar esta classificação.');
     }
   }
 

@@ -230,7 +230,23 @@ pub struct EventSettings {
     /// Smallest event / trip worth suggesting.
     pub min_event_items: u32,
     pub min_trip_items: u32,
+    /// Where the user lives; empty = the place photographed on the most days.
+    pub homes: Vec<Home>,
 }
+
+/// A place the user calls home: trips are measured from the closest one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Home {
+    /// "Porto Alegre, RS"
+    pub name: String,
+    #[specta(optional)]
+    pub country_code: Option<String>,
+    pub lat: f64,
+    pub lon: f64,
+}
+
+pub const MAX_HOMES: usize = 5;
 
 impl Default for EventSettings {
     fn default() -> Self {
@@ -240,6 +256,7 @@ impl Default for EventSettings {
             trip_join_hours: 48,
             min_event_items: 20,
             min_trip_items: 10,
+            homes: Vec::new(),
         }
     }
 }
@@ -250,7 +267,13 @@ impl EventSettings {
             && (5..=5000).contains(&self.trip_min_km)
             && (self.gap_hours..=240).contains(&self.trip_join_hours)
             && (2..=1000).contains(&self.min_event_items)
-            && (2..=1000).contains(&self.min_trip_items);
+            && (2..=1000).contains(&self.min_trip_items)
+            && self.homes.len() <= MAX_HOMES
+            && self.homes.iter().all(|h| {
+                (-90.0..=90.0).contains(&h.lat)
+                    && (-180.0..=180.0).contains(&h.lon)
+                    && (1..=120).contains(&h.name.trim().chars().count())
+            });
         if ok {
             Ok(())
         } else {

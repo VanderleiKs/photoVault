@@ -66,8 +66,8 @@ pub fn process_image(bytes: &[u8], file: &SourceFile<'_>) -> Processed {
     out
 }
 
-/// Process a video: streamed SHA-256 plus container metadata. No thumbnail
-/// without an external decoder (planned: optional ffmpeg sidecar).
+/// Process a video: streamed SHA-256 plus container metadata. The thumbnail comes later,
+/// from a frame the WebView captures (`ingestion::frames`).
 pub fn process_video(path: &Path, file: &SourceFile<'_>) -> std::io::Result<Processed> {
     let sha256 = sha256_file(path)?;
     let mut capture = metadata::read_video(path);
@@ -79,6 +79,12 @@ pub fn process_video(path: &Path, file: &SourceFile<'_>) -> std::io::Result<Proc
         capture,
         ..Default::default()
     })
+}
+
+/// Thumbnails of a still frame (a JPEG/PNG captured from a video).
+pub fn frame_thumbnails(bytes: &[u8]) -> Result<Thumbnails, String> {
+    let img = decode_oriented(bytes)?;
+    make_thumbnails(img).map(|(thumbs, _)| thumbs)
 }
 
 pub fn sha256_file(path: &Path) -> std::io::Result<String> {

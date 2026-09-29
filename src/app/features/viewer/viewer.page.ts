@@ -109,7 +109,7 @@ const STRIP_RADIUS = 12;
                 <p class="text-slate-400">Pré-visualização indisponível para este formato ({{ m.extension.toUpperCase() }}).</p>
               }
             } @else {
-              <video [src]="original()" controls autoplay class="max-h-full max-w-full" (error)="videoError.set(true)"></video>
+              <video [src]="original()" [attr.poster]="m.thumbVersion > 0 ? preview(m) : null" controls autoplay class="max-h-full max-w-full" (error)="videoError.set(true)"></video>
               @if (videoError()) {
                 <p class="absolute bottom-6 rounded bg-black/70 px-3 py-2 text-sm text-slate-300">Este formato de vídeo não é suportado pelo visualizador.</p>
               }
@@ -196,6 +196,10 @@ export class ViewerPage {
   readonly id = input.required<string>();
 
   protected readonly ctx = signal<MediaContext | null>(null);
+  protected preview(m: MediaItem): string {
+    return previewUrl(m.id, m.thumbVersion);
+  }
+
   protected readonly item = computed(() => {
     const c = this.ctx();
     return c?.items[c.index] ?? null;

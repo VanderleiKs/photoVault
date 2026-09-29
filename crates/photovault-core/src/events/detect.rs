@@ -1,7 +1,9 @@
 //! Trip and event detection (PRD §17). Pure: photos in, suggested groups out.
 //!
 //! 1. Photos split into stretches wherever more than `gap_hours` pass without one.
-//! 2. "Home" is the ~20 km GPS cell photographed on the most distinct days.
+//! 2. "Home" is the ~20 km GPS cell photographed on the most distinct days, unless the user
+//!    set their homes (distances are then to the closest one).
+//!    A stretch is also split where its photos cross the away line (see `place_cuts`).
 //! 3. A stretch is *away* when the median distance of its GPS photos from home exceeds
 //!    `trip_min_km`; without GPS it is *unknown*.
 //! 4. Consecutive away stretches (nights in between, up to `trip_join_hours`) form one
@@ -12,6 +14,7 @@
 use crate::catalog::settings::EventSettings;
 use chrono::NaiveDateTime;
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 #[derive(Debug, Clone)]
 pub struct Shot {
@@ -82,6 +85,11 @@ struct Stretch {
     place: Where,
 }
 
+/// To the closest home.
+fn from_home(homes: &[(f64, f64)], g: (f64, f64)) -> f64 {
+    homes.iter().map(|&h| meters(h, g)).fold(f64::MAX, f64::min)
+}
+
 fn median(mut v: Vec<f64>) -> Option<f64> {
     if v.is_empty() {
         return None;
@@ -90,8 +98,59 @@ fn median(mut v: Vec<f64>) -> Option<f64> {
     Some(v[v.len() / 2])
 }
 
+/// Fewer GPS photos in a row than this on the other side of the away line are noise
+/// (a stale position), not a departure or an arrival.
+const MIN_SIDE_RUN: usize = 3;
+
+/// Where, inside `range`, the photos cross the away line: leaving home without a long
+/// gap (a party in the evening, driving at dawn) starts a new stretch. Each cut goes in the
+/// largest time gap between the last GPS photo on one side and the first on the other.
+fn place_cuts(
+    shots: &[Shot],
+    range: Range<usize>,
+    homes: &[(f64, f64)],
+    away_m: f64,
+) -> Vec<usize> {
+    struct Run {
+        away: bool,
+        first: usize,
+        last: usize,
+        len: usize,
+    }
+    let mut runs: Vec<Run> = Vec::new();
+    for i in range {
+        let Some(g) = shots[i].gps else { continue };
+        let away = from_home(homes, g) > away_m;
+        match runs.last_mut() {
+            Some(r) if r.away == away => {
+                r.last = i;
+                r.len += 1;
+            }
+            _ => runs.push(Run {
+                away,
+                first: i,
+                last: i,
+                len: 1,
+            }),
+        }
+    }
+    let mut sides: Vec<Run> = Vec::new();
+    for r in runs.into_iter().filter(|r| r.len >= MIN_SIDE_RUN) {
+        match sides.last_mut() {
+            Some(s) if s.away == r.away => s.last = r.last,
+            _ => sides.push(r),
+        }
+    }
+    sides
+        .windows(2)
+        .filter_map(|w| {
+            (w[0].last + 1..=w[1].first).max_by_key(|&k| shots[k].time - shots[k - 1].time)
+        })
+        .collect()
+}
+
 /// `shots` must be sorted by time.
-pub fn detect(shots: &[Shot], home: Option<(f64, f64)>, s: &EventSettings) -> Vec<Detected> {
+pub fn detect(shots: &[Shot], homes: &[(f64, f64)], s: &EventSettings) -> Vec<Detected> {
     if shots.is_empty() {
         return Vec::new();
     }
@@ -99,28 +158,39 @@ pub fn detect(shots: &[Shot], home: Option<(f64, f64)>, s: &EventSettings) -> Ve
     let join = chrono::Duration::hours(i64::from(s.trip_join_hours));
     let away_m = f64::from(s.trip_min_km) * 1000.0;
 
-    // 1. Stretches.
-    let mut stretches = Vec::new();
+    // 1. Stretches: split by long gaps, then where the photos cross the away line.
+    let mut cuts = Vec::new();
     let mut from = 0;
     for i in 1..=shots.len() {
         if i == shots.len() || shots[i].time - shots[i - 1].time > gap {
-            let distance = home.and_then(|h| {
-                median(
-                    shots[from..i]
-                        .iter()
-                        .filter_map(|s| s.gps)
-                        .map(|g| meters(h, g))
-                        .collect(),
-                )
-            });
-            let place = match distance {
-                Some(d) if d > away_m => Where::Away(d / 1000.0),
-                Some(_) => Where::Home,
-                None => Where::Unknown,
-            };
-            stretches.push(Stretch { from, to: i, place });
+            if !homes.is_empty() {
+                cuts.extend(place_cuts(shots, from..i, homes, away_m));
+            }
+            cuts.push(i);
             from = i;
         }
+    }
+    let mut stretches = Vec::new();
+    let mut from = 0;
+    for to in cuts {
+        let distance = if homes.is_empty() {
+            None
+        } else {
+            median(
+                shots[from..to]
+                    .iter()
+                    .filter_map(|s| s.gps)
+                    .map(|g| from_home(homes, g))
+                    .collect(),
+            )
+        };
+        let place = match distance {
+            Some(d) if d > away_m => Where::Away(d / 1000.0),
+            Some(_) => Where::Home,
+            None => Where::Unknown,
+        };
+        stretches.push(Stretch { from, to, place });
+        from = to;
     }
 
     // 2. Trips: runs of away (and, inside them, unknown) stretches close in time.
@@ -250,7 +320,7 @@ mod tests {
 
         let home = home_base(&shots).unwrap();
         assert!(meters(home, HOME) < 1000.0);
-        let found = detect(&shots, Some(home), &EventSettings::default());
+        let found = detect(&shots, &[home], &EventSettings::default());
         assert_eq!(
             kinds(&found),
             [(Kind::Trip, 75), (Kind::Event, 40)],
@@ -274,7 +344,7 @@ mod tests {
         shots.extend(burst("2025-10-05 10:00", 12, 60, Some(FLORIPA)));
         shots.sort_by_key(|s| s.time);
         let home = home_base(&shots);
-        let found = detect(&shots, home, &EventSettings::default());
+        let found = detect(&shots, home.as_slice(), &EventSettings::default());
         assert_eq!(
             kinds(&found),
             [
@@ -290,7 +360,63 @@ mod tests {
             trip_min_km: 30,
             ..Default::default()
         };
-        assert_eq!(detect(&shots, home, &near)[0].kind, Kind::Event);
+        assert_eq!(detect(&shots, home.as_slice(), &near)[0].kind, Kind::Event);
+    }
+
+    #[test]
+    fn leaving_home_without_a_long_gap_splits_the_stretch() {
+        let mut shots = everyday_life();
+        // Party at home in the afternoon, driving at dawn (no 6 h gap), 2 days away.
+        shots.extend(burst("2025-07-10 14:00", 25, 20, Some(HOME)));
+        shots.extend(burst("2025-07-11 03:00", 30, 20, Some(FLORIPA)));
+        shots.extend(burst("2025-07-11 17:00", 10, 20, None));
+        shots.extend(burst("2025-07-12 08:00", 20, 20, Some(FLORIPA)));
+        // Home until past midnight, then a day far away: the median said "home" and the
+        // whole thing was one event at home.
+        shots.extend(burst("2025-08-01 16:00", 31, 20, Some(HOME)));
+        shots.extend(burst("2025-08-02 04:00", 30, 20, Some(FLORIPA)));
+        shots.sort_by_key(|s| s.time);
+        let home = home_base(&shots);
+        let found = detect(&shots, home.as_slice(), &EventSettings::default());
+        assert_eq!(
+            kinds(&found),
+            [
+                (Kind::Event, 25),
+                (Kind::Trip, 60),
+                (Kind::Event, 31),
+                (Kind::Event, 30)
+            ],
+            "{found:?}"
+        );
+        assert!(found[0].distance_km.is_none());
+        assert!(found[3].distance_km.unwrap() > 300.0);
+    }
+
+    #[test]
+    fn a_few_stray_positions_do_not_split_a_trip() {
+        let mut shots = everyday_life();
+        let mut trip = burst("2025-07-10 09:00", 40, 30, Some(FLORIPA));
+        // Two photos with a stale position from home, in the middle of the trip.
+        trip[15].gps = Some(HOME);
+        trip[16].gps = Some(HOME);
+        shots.extend(trip);
+        shots.sort_by_key(|s| s.time);
+        let home = home_base(&shots);
+        let found = detect(&shots, home.as_slice(), &EventSettings::default());
+        assert_eq!(kinds(&found), [(Kind::Trip, 40)], "{found:?}");
+    }
+
+    #[test]
+    fn a_second_home_is_not_a_trip() {
+        let mut shots = everyday_life();
+        shots.extend(burst("2025-07-10 09:00", 30, 60, Some(FLORIPA)));
+        shots.sort_by_key(|s| s.time);
+        let home = home_base(&shots).unwrap();
+        let s = EventSettings::default();
+        assert_eq!(kinds(&detect(&shots, &[home], &s)), [(Kind::Trip, 30)]);
+        let two = detect(&shots, &[home, FLORIPA], &s);
+        assert_eq!(kinds(&two), [(Kind::Event, 30)], "{two:?}");
+        assert!(two[0].distance_km.is_none());
     }
 
     #[test]
@@ -298,9 +424,9 @@ mod tests {
         let shots = burst("2025-01-01 10:00", 50, 5, None);
         assert_eq!(home_base(&shots), None);
         assert_eq!(
-            kinds(&detect(&shots, None, &EventSettings::default())),
+            kinds(&detect(&shots, &[], &EventSettings::default())),
             [(Kind::Event, 50)]
         );
-        assert!(detect(&[], None, &EventSettings::default()).is_empty());
+        assert!(detect(&[], &[], &EventSettings::default()).is_empty());
     }
 }
