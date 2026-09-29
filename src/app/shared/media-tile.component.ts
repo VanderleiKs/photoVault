@@ -49,9 +49,23 @@ import { JobStore } from '../core/stores/job.store';
         </div>
       }
     } @else {
-      <div class="flex size-full items-center justify-center bg-slate-800 text-slate-400">
-        <i class="pi pi-video text-3xl"></i>
-      </div>
+      @if (item().thumbVersion > 0 && failedSrc() !== src()) {
+        <img
+          [src]="src()"
+          [alt]="item().filename"
+          loading="lazy"
+          decoding="async"
+          draggable="false"
+          (error)="failedSrc.set(src())"
+          class="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+          [class.scale-90]="checked()"
+          [class.rounded-lg]="checked()"
+        />
+      } @else {
+        <div class="flex size-full items-center justify-center bg-slate-800 text-slate-400">
+          <i class="pi pi-video text-3xl"></i>
+        </div>
+      }
       <span class="absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white">
         <i class="pi pi-video text-[10px]"></i>{{ duration() ?? 'Vídeo' }}
       </span>

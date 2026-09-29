@@ -16,6 +16,7 @@ import { LibraryStore } from './core/stores/library.store';
 import { ScanStore } from './core/stores/scan.store';
 import { JobStore } from './core/stores/job.store';
 import { OrganizeStore } from './core/stores/organize.store';
+import { VideoFrameService } from './core/video-frames.service';
 
 /** Aura with a blue primary palette. */
 const PhotoVaultPreset = definePreset(Aura, {
@@ -43,6 +44,7 @@ async function bootstrapStores() {
   const scan = inject(ScanStore);
   const jobs = inject(JobStore);
   const organize = inject(OrganizeStore);
+  inject(VideoFrameService).init();
   await app.init();
   await Promise.all([
     libraries.load().catch(() => {}),

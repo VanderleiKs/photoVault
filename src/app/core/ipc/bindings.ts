@@ -43,6 +43,12 @@ export const commands = {
 	 *  (with the same query).
 	 */
 	listMedia: (libraryId: string, query: MediaQuery, cursor: string | null, limit: number) => typedError<MediaPage, ApiError>(__TAURI_INVOKE("list_media", { libraryId, query, cursor, limit })),
+	/**  Videos waiting for a thumbnail frame (captured by the WebView). */
+	listPendingVideoFrames: (limit: number) => typedError<string[], ApiError>(__TAURI_INVOKE("list_pending_video_frames", { limit })),
+	/**  A frame of the video (`data:image/jpeg;base64,…`) becomes its thumbnails. */
+	saveVideoFrame: (mediaId: string, frame: string) => typedError<MediaItem, ApiError>(__TAURI_INVOKE("save_video_frame", { mediaId, frame })),
+	/**  The WebView can't play this video: keep the icon. */
+	failVideoFrame: (mediaId: string, reason: string) => typedError<null, ApiError>(__TAURI_INVOKE("fail_video_frame", { mediaId, reason })),
 	countMedia: (libraryId: string, filter: MediaFilter) => typedError<MediaCount, ApiError>(__TAURI_INVOKE("count_media", { libraryId, filter })),
 	getMedia: (mediaId: string) => typedError<MediaItem, ApiError>(__TAURI_INVOKE("get_media", { mediaId })),
 	/**  Position, total and neighbours of an item inside a gallery context (viewer). */
@@ -135,6 +141,12 @@ export const commands = {
 	/**  Title and/or dates; the event becomes "edited" (not changed by the app anymore). */
 	updateEvent: (eventId: string, change: EventUpdate) => typedError<EventSummary, ApiError>(__TAURI_INVOKE("update_event", { eventId, change })),
 	removeFromEvent: (eventId: string, mediaIds: string[]) => typedError<EventSummary, ApiError>(__TAURI_INVOKE("remove_from_event", { eventId, mediaIds })),
+	/**  Detect trips and events again in every library, now, with the current settings. */
+	reclassifyEvents: (options: ReclassifyOptions) => typedError<EventCounts, ApiError>(__TAURI_INVOKE("reclassify_events", { options })),
+	/**  Homes the photos point to, one per library (Settings: "Sua casa parece ser…"). */
+	getDetectedHomes: () => typedError<Home[], ApiError>(__TAURI_INVOKE("get_detected_homes")),
+	/**  Cities of the embedded GeoNames table, for choosing a home. */
+	searchHomePlaces: (query: string) => typedError<Home[], ApiError>(__TAURI_INVOKE("search_home_places", { query })),
 	/**  Counters of the Review screen (pending photos, per reason). */
 	getReviewSummary: (libraryId: string) => typedError<ReviewSummary, ApiError>(__TAURI_INVOKE("get_review_summary", { libraryId })),
 	/**  Every suggestion of one photo, decided or not (info panel). */
@@ -317,6 +329,14 @@ export type Decision =
 /**  Undo a keep/ignore (history): the suggestion comes back if it still applies. */
 "reopen";
 
+/**  After a reclassification, in the library (ignored events not counted). */
+export type EventCounts = {
+	trips: number,
+	events: number,
+	/**  Of those, waiting for a decision. */
+	suggested: number,
+};
+
 export type EventDay = {
 	/**  "2025-07-11" */
 	date: string,
@@ -346,6 +366,8 @@ export type EventSettings = {
 	/**  Smallest event / trip worth suggesting. */
 	minEventItems?: number,
 	minTripItems?: number,
+	/**  Where the user lives; empty = the place photographed on the most days. */
+	homes?: Home[],
 };
 
 export type EventStatus = "suggested" | "accepted" | "edited" | "ignored";
@@ -373,6 +395,8 @@ export type EventUpdate = {
 	/**  "YYYY-MM-DD" (inclusive): the photos of these days become the event's photos. */
 	startDate?: string | null,
 	endDate?: string | null,
+	/**  The detection got it wrong: a trip that is an event, or the other way round. */
+	kind?: EventKind | null,
 };
 
 export type ExampleIntent = 
@@ -413,6 +437,15 @@ export type HistoryEntry = {
 export type HistoryPage = {
 	entries: HistoryEntry[],
 	nextCursor: string | null,
+};
+
+/**  A place the user calls home: trips are measured from the closest one. */
+export type Home = {
+	/**  "Porto Alegre, RS" */
+	name: string,
+	countryCode?: string | null,
+	lat: number | null,
+	lon: number | null,
 };
 
 export type JobFailure = {
@@ -714,6 +747,17 @@ export type ReasonWeights = {
 	accidental?: number | null,
 	lowInformation?: number | null,
 	example?: number | null,
+};
+
+/**  What "Reclassificar" redoes besides the suggestions (always redone). */
+export type ReclassifyOptions = {
+	/**
+	 *  Accepted (not edited) events are detected again: those that come back keep their id
+	 *  and stay accepted, the others go away. Edited events never change.
+	 */
+	accepted?: boolean,
+	/**  Forget the ignored events: they can be suggested again. */
+	ignored?: boolean,
 };
 
 export type RestoreConflict = {

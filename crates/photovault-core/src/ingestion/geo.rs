@@ -145,6 +145,62 @@ fn km(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     6371.0 * 2.0 * a.sqrt().asin()
 }
 
+/// Places whose name starts with `query` (or has a word starting with it), ignoring case
+/// and accents, most populous first ("sao pa" → São Paulo, São Pedro da Aldeia…).
+pub fn search(query: &str, limit: usize) -> Vec<Place> {
+    let q = fold(query.trim());
+    if q.chars().count() < 2 {
+        return Vec::new();
+    }
+    let index = &*INDEX;
+    let mut hits: Vec<(bool, u32, &City)> = index
+        .cities
+        .iter()
+        .filter_map(|c| {
+            let name = fold(&c.name);
+            if name.starts_with(&q) {
+                Some((true, c.population, c))
+            } else if name
+                .match_indices(&q)
+                .any(|(i, _)| name[..i].ends_with([' ', '-', '\'']))
+            {
+                Some((false, c.population, c))
+            } else {
+                None
+            }
+        })
+        .collect();
+    // Name matches first, then by population.
+    hits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+    hits.into_iter()
+        .take(limit)
+        .map(|(_, _, c)| Place {
+            name: c.name.to_string(),
+            admin1: c.admin.map(|a| index.admins[a as usize].to_string()),
+            country_code: String::from_utf8_lossy(&c.cc).into_owned(),
+            lat: f64::from(c.lat),
+            lon: f64::from(c.lon),
+        })
+        .collect()
+}
+
+/// Lowercase without accents ("São" → "sao"), for matching typed names.
+fn fold(s: &str) -> String {
+    s.chars()
+        .flat_map(char::to_lowercase)
+        .map(|c| match c {
+            'á' | 'à' | 'â' | 'ã' | 'ä' | 'å' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'í' | 'ì' | 'î' | 'ï' => 'i',
+            'ó' | 'ò' | 'ô' | 'õ' | 'ö' => 'o',
+            'ú' | 'ù' | 'û' | 'ü' => 'u',
+            'ç' => 'c',
+            'ñ' => 'n',
+            c => c,
+        })
+        .collect()
+}
+
 /// The place a photo taken here is "in" (within 150 km): among the places near the
 /// closest one, the most populous relative to distance, so a district or village next to
 /// a city doesn't stand for it, while a town where the photo was taken still wins over a
@@ -291,6 +347,24 @@ pub async fn refresh_places(pool: &SqlitePool) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_ignores_accents_and_prefers_big_places() {
+        let found = search("sao pau", 3);
+        assert_eq!(found[0].name, "São Paulo", "{found:?}");
+        let found = search("tramandai", 3);
+        assert_eq!(
+            (found[0].name.as_str(), found[0].admin1.as_deref()),
+            ("Tramandaí", Some("RS"))
+        );
+        // A word inside the name: "Alegre" finds Porto Alegre.
+        assert!(
+            search("alegre", 20)
+                .iter()
+                .any(|p| p.name == "Porto Alegre")
+        );
+        assert!(search("x", 5).is_empty());
+    }
 
     #[test]
     fn resolves_serra_gaucha_with_accents() {

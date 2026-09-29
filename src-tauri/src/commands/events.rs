@@ -1,7 +1,11 @@
 use super::AppStateRef;
-use crate::error::ApiResult;
+use crate::error::{ApiError, ApiResult};
 use photovault_core::catalog::MediaItem;
-use photovault_core::events::{self, EventDay, EventSummary, EventUpdate};
+use photovault_core::catalog::libraries;
+use photovault_core::catalog::settings::{self, Home};
+use photovault_core::events::{
+    self, EventCounts, EventDay, EventSummary, EventUpdate, ReclassifyOptions,
+};
 
 /// Trips and events of a library, newest first (`ignored = true`: only the ignored ones).
 #[tauri::command]
@@ -76,4 +80,46 @@ pub async fn remove_from_event(
     state: AppStateRef<'_>,
 ) -> ApiResult<EventSummary> {
     Ok(events::remove_media(&state.pool, &event_id, &media_ids).await?)
+}
+
+/// Detect trips and events again in every library, now, with the current settings.
+#[tauri::command]
+#[specta::specta]
+pub async fn reclassify_events(
+    options: ReclassifyOptions,
+    state: AppStateRef<'_>,
+) -> ApiResult<EventCounts> {
+    let s = settings::get(&state.pool).await?;
+    let mut total = EventCounts::default();
+    for lib in libraries::list(&state.pool).await? {
+        let c = events::reclassify(&state.pool, &lib.id, &s, options).await?;
+        total.trips += c.trips;
+        total.events += c.events;
+        total.suggested += c.suggested;
+    }
+    Ok(total)
+}
+
+/// Homes the photos point to, one per library (Settings: "Sua casa parece ser…").
+#[tauri::command]
+#[specta::specta]
+pub async fn get_detected_homes(state: AppStateRef<'_>) -> ApiResult<Vec<Home>> {
+    let mut homes: Vec<Home> = Vec::new();
+    for lib in libraries::list(&state.pool).await? {
+        if let Some(h) = events::detected_home(&state.pool, &lib.id).await?
+            && !homes.iter().any(|o| o.name == h.name)
+        {
+            homes.push(h);
+        }
+    }
+    Ok(homes)
+}
+
+/// Cities of the embedded GeoNames table, for choosing a home.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_home_places(query: String) -> ApiResult<Vec<Home>> {
+    tokio::task::spawn_blocking(move || events::search_homes(&query))
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))
 }
