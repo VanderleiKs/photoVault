@@ -57,6 +57,8 @@ export const commands = {
 	listPlaces: (libraryId: string) => typedError<PlaceOption[], ApiError>(__TAURI_INVOKE("list_places", { libraryId })),
 	listCameras: (libraryId: string) => typedError<CameraOption[], ApiError>(__TAURI_INVOKE("list_cameras", { libraryId })),
 	listAlbums: (libraryId: string) => typedError<Album[], ApiError>(__TAURI_INVOKE("list_albums", { libraryId })),
+	/**  Smart albums worth creating (trips, favorites/best per year, screenshots…). */
+	listAlbumSuggestions: (libraryId: string) => typedError<AlbumSuggestion[], ApiError>(__TAURI_INVOKE("list_album_suggestions", { libraryId })),
 	getAlbum: (albumId: string) => typedError<Album, ApiError>(__TAURI_INVOKE("get_album", { albumId })),
 	/**  `rule` set = smart album (filled by the rule); otherwise a manual album. */
 	createAlbum: (libraryId: string, name: string, rule: {
@@ -97,6 +99,8 @@ export const commands = {
 	reviewReason?: ReviewReason | null,
 	/**  `true` = the trash instead of the active photos. */
 	trashed?: boolean | null,
+	/**  Photos of a trip/event (phase 6). */
+	eventId?: string | null,
 } | null) => typedError<Album, ApiError>(__TAURI_INVOKE("create_album", { libraryId, name, rule })),
 	renameAlbum: (albumId: string, name: string) => typedError<Album, ApiError>(__TAURI_INVOKE("rename_album", { albumId, name })),
 	updateAlbumRule: (albumId: string, rule: MediaFilter) => typedError<Album, ApiError>(__TAURI_INVOKE("update_album_rule", { albumId, rule })),
@@ -117,6 +121,20 @@ export const commands = {
 	addTag: (mediaIds: string[], tag: string) => typedError<string, ApiError>(__TAURI_INVOKE("add_tag", { mediaIds, tag })),
 	removeTag: (mediaIds: string[], tag: string) => typedError<null, ApiError>(__TAURI_INVOKE("remove_tag", { mediaIds, tag })),
 	listTags: (libraryId: string) => typedError<TagCount[], ApiError>(__TAURI_INVOKE("list_tags", { libraryId })),
+	/**  Trips and events of a library, newest first (`ignored = true`: only the ignored ones). */
+	listEvents: (libraryId: string, ignored: boolean) => typedError<EventSummary[], ApiError>(__TAURI_INVOKE("list_events", { libraryId, ignored })),
+	getEvent: (eventId: string) => typedError<EventSummary, ApiError>(__TAURI_INVOKE("get_event", { eventId })),
+	/**  One card per day of the event. */
+	getEventDays: (eventId: string) => typedError<EventDay[], ApiError>(__TAURI_INVOKE("get_event_days", { eventId })),
+	/**  Best photos of the event (highlight carousel). */
+	getEventHighlights: (eventId: string, limit: number) => typedError<MediaItem[], ApiError>(__TAURI_INVOKE("get_event_highlights", { eventId, limit })),
+	acceptEvent: (eventId: string) => typedError<EventSummary, ApiError>(__TAURI_INVOKE("accept_event", { eventId })),
+	/**  Hide a suggestion; it is not suggested again. */
+	ignoreEvent: (eventId: string) => typedError<EventSummary, ApiError>(__TAURI_INVOKE("ignore_event", { eventId })),
+	restoreEvent: (eventId: string) => typedError<EventSummary, ApiError>(__TAURI_INVOKE("restore_event", { eventId })),
+	/**  Title and/or dates; the event becomes "edited" (not changed by the app anymore). */
+	updateEvent: (eventId: string, change: EventUpdate) => typedError<EventSummary, ApiError>(__TAURI_INVOKE("update_event", { eventId, change })),
+	removeFromEvent: (eventId: string, mediaIds: string[]) => typedError<EventSummary, ApiError>(__TAURI_INVOKE("remove_from_event", { eventId, mediaIds })),
 	/**  Counters of the Review screen (pending photos, per reason). */
 	getReviewSummary: (libraryId: string) => typedError<ReviewSummary, ApiError>(__TAURI_INVOKE("get_review_summary", { libraryId })),
 	/**  Every suggestion of one photo, decided or not (info panel). */
@@ -200,6 +218,14 @@ export type AlbumRef = {
 	name: string,
 };
 
+/**  A smart album the app proposes (PRD §18 "sugeridos"); created only on request. */
+export type AlbumSuggestion = {
+	name: string,
+	rule: MediaFilter,
+	count: number,
+	cover: MediaItem | null,
+};
+
 /**
  *  Applied when groups and flags are recomputed, so changing them never requires
  *  re-reading the photos (raw metrics are stored).
@@ -263,6 +289,8 @@ export type AppSettings = {
 	analysis?: AnalysisSettings,
 	/**  Suggestions and trash (PRD §15–16). Absent before v1.0. */
 	review?: ReviewSettings,
+	/**  Trips and events (PRD §17). Absent before v1.1. */
+	events?: EventSettings,
 };
 
 export type CameraOption = {
@@ -288,6 +316,64 @@ export type Decision =
 "ignore" | 
 /**  Undo a keep/ignore (history): the suggestion comes back if it still applies. */
 "reopen";
+
+export type EventDay = {
+	/**  "2025-07-11" */
+	date: string,
+	count: number,
+	/**  Most photographed place of the day. */
+	place: string | null,
+	cover: MediaItem | null,
+};
+
+export type EventKind = "trip" | "event";
+
+export type EventRef = {
+	id: string,
+	kind: EventKind,
+	status: EventStatus,
+	title: string,
+};
+
+/**  Thresholds of the trip/event detection (PRD §17). */
+export type EventSettings = {
+	/**  A gap longer than this between two photos starts a new event. */
+	gapHours?: number,
+	/**  Farther than this from home (the most photographed place) = away. */
+	tripMinKm?: number,
+	/**  Away stretches this close in time (nights) belong to the same trip. */
+	tripJoinHours?: number,
+	/**  Smallest event / trip worth suggesting. */
+	minEventItems?: number,
+	minTripItems?: number,
+};
+
+export type EventStatus = "suggested" | "accepted" | "edited" | "ignored";
+
+export type EventSummary = {
+	id: string,
+	kind: EventKind,
+	status: EventStatus,
+	title: string,
+	/**  Local wall-clock times of the first and last photo. */
+	startedAt: string,
+	endedAt: string,
+	/**  "Gramado, RS · Canela, RS" */
+	placeSummary: string | null,
+	photos: number,
+	videos: number,
+	/**  Distance from home (trips). */
+	distanceKm: number | null,
+	cover: MediaItem | null,
+};
+
+/**  What the user changes; unset fields stay. */
+export type EventUpdate = {
+	title?: string | null,
+	/**  "YYYY-MM-DD" (inclusive): the photos of these days become the event's photos. */
+	startDate?: string | null,
+	endDate?: string | null,
+};
 
 export type ExampleIntent = 
 /**  Suggest photos like this one for removal. */
@@ -381,6 +467,8 @@ export type LibraryOverview = {
 	videos: number,
 	favorites: number,
 	albums: number,
+	/**  Trips not ignored (suggested or accepted). */
+	trips: number,
 	/**  Newest first. */
 	years: YearSummary[],
 	/**  Hero image: a landscape favorite if there is one, else any landscape photo. */
@@ -404,6 +492,8 @@ export type MediaAnalysis = {
 	/**  Active labels only (automatic above threshold, and manual tags). */
 	labels: LabelInfo[],
 	groups: GroupRef[],
+	/**  Trips/events it belongs to (phase 6). */
+	events: EventRef[],
 };
 
 /**  Where an item sits in a gallery context (filter + order), for the viewer. */
@@ -461,6 +551,8 @@ export type MediaFilter = {
 	reviewReason?: ReviewReason | null,
 	/**  `true` = the trash instead of the active photos. */
 	trashed?: boolean | null,
+	/**  Photos of a trip/event (phase 6). */
+	eventId?: string | null,
 };
 
 export type MediaGroup = {
@@ -577,6 +669,8 @@ export type OrganizeCounts = {
 	/**  Photos with pending review suggestions, and photos in the trash (phase 5). */
 	review: number,
 	trash: number,
+	/**  Trips/events waiting for "aceitar" or "ignorar" (phase 6). */
+	eventSuggestions: number,
 };
 
 export type PlaceOption = {

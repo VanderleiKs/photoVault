@@ -29,6 +29,9 @@ pub struct AppSettings {
     /// Suggestions and trash (PRD §15–16). Absent before v1.0.
     #[serde(default)]
     pub review: ReviewSettings,
+    /// Trips and events (PRD §17). Absent before v1.1.
+    #[serde(default)]
+    pub events: EventSettings,
 }
 
 impl Default for AppSettings {
@@ -40,6 +43,7 @@ impl Default for AppSettings {
             cpu_concurrency: 0,
             analysis: AnalysisSettings::default(),
             review: ReviewSettings::default(),
+            events: EventSettings::default(),
         }
     }
 }
@@ -213,6 +217,50 @@ impl ReviewSettings {
     }
 }
 
+/// Thresholds of the trip/event detection (PRD §17).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EventSettings {
+    /// A gap longer than this between two photos starts a new event.
+    pub gap_hours: u32,
+    /// Farther than this from home (the most photographed place) = away.
+    pub trip_min_km: u32,
+    /// Away stretches this close in time (nights) belong to the same trip.
+    pub trip_join_hours: u32,
+    /// Smallest event / trip worth suggesting.
+    pub min_event_items: u32,
+    pub min_trip_items: u32,
+}
+
+impl Default for EventSettings {
+    fn default() -> Self {
+        Self {
+            gap_hours: 6,
+            trip_min_km: 50,
+            trip_join_hours: 48,
+            min_event_items: 20,
+            min_trip_items: 10,
+        }
+    }
+}
+
+impl EventSettings {
+    fn validate(&self) -> Result<()> {
+        let ok = (1..=72).contains(&self.gap_hours)
+            && (5..=5000).contains(&self.trip_min_km)
+            && (self.gap_hours..=240).contains(&self.trip_join_hours)
+            && (2..=1000).contains(&self.min_event_items)
+            && (2..=1000).contains(&self.min_trip_items);
+        if ok {
+            Ok(())
+        } else {
+            Err(Error::InvalidInput(
+                "Configuração de viagens fora do intervalo permitido.".into(),
+            ))
+        }
+    }
+}
+
 const KEY: &str = "app";
 
 pub async fn get(pool: &SqlitePool) -> Result<AppSettings> {
@@ -234,6 +282,7 @@ pub async fn save(pool: &SqlitePool, settings: &AppSettings) -> Result<AppSettin
     }
     settings.analysis.validate()?;
     settings.review.validate()?;
+    settings.events.validate()?;
     let json = serde_json::to_string(settings).map_err(|e| Error::Internal(e.to_string()))?;
     sqlx::query(
         "INSERT INTO settings (key, value) VALUES (?1, ?2)
@@ -269,6 +318,10 @@ mod tests {
                 use_system_trash: true,
                 ..Default::default()
             },
+            events: EventSettings {
+                trip_min_km: 80,
+                ..Default::default()
+            },
         };
         save(&pool, &custom).await.unwrap();
         assert_eq!(get(&pool).await.unwrap(), custom);
@@ -294,6 +347,7 @@ mod tests {
         .unwrap();
         assert_eq!(old.analysis, AnalysisSettings::default());
         assert_eq!(old.review, ReviewSettings::default());
+        assert_eq!(old.events, EventSettings::default());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

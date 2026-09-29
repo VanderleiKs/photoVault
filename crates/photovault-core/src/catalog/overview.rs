@@ -22,6 +22,8 @@ pub struct LibraryOverview {
     pub videos: u32,
     pub favorites: u32,
     pub albums: u32,
+    /// Trips not ignored (suggested or accepted).
+    pub trips: u32,
     /// Newest first.
     pub years: Vec<YearSummary>,
     /// Hero image: a landscape favorite if there is one, else any landscape photo.
@@ -73,6 +75,13 @@ pub async fn overview(pool: &SqlitePool, library_id: &str) -> Result<LibraryOver
         .bind(library_id)
         .fetch_one(pool)
         .await?;
+
+    let trips: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM events WHERE library_id = ?1 AND kind = 'trip' AND status != 'ignored'",
+    )
+    .bind(library_id)
+    .fetch_one(pool)
+    .await?;
 
     // Year cover: the newest favorite, else the newest photo (both walk an index backwards).
     let rows: Vec<(String, i64, Option<String>)> = sqlx::query_as(
@@ -135,6 +144,7 @@ pub async fn overview(pool: &SqlitePool, library_id: &str) -> Result<LibraryOver
         videos: videos as u32,
         favorites: favorites as u32,
         albums: albums as u32,
+        trips: trips as u32,
         years,
         highlight,
     })

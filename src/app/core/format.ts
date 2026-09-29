@@ -118,3 +118,29 @@ export function formatEta(seconds: number | null): string | null {
   const m = minutes % 60;
   return m ? `~${h} h ${m} min` : `~${h} h`;
 }
+
+const SHORT_MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+/**
+ * Period of an event from local wall-clock ISO times: "12 jul 2025", "10 a 12 jul 2025",
+ * "28 jun a 3 jul 2025", "28 dez 2024 a 2 jan 2025".
+ */
+export function formatPeriod(start: string, end: string): string {
+  const parse = (iso: string) => {
+    const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+    return { y, m, d };
+  };
+  const a = parse(start);
+  const b = parse(end);
+  const month = (m: number) => SHORT_MONTHS[m - 1] ?? '';
+  if (a.y !== b.y) return `${a.d} ${month(a.m)} ${a.y} a ${b.d} ${month(b.m)} ${b.y}`;
+  if (a.m !== b.m) return `${a.d} ${month(a.m)} a ${b.d} ${month(b.m)} ${b.y}`;
+  if (a.d !== b.d) return `${a.d} a ${b.d} ${month(b.m)} ${b.y}`;
+  return `${a.d} ${month(a.m)} ${a.y}`;
+}
+
+/** "2025-07-11" → "11 JUL" (day cards). */
+export function formatDayShort(date: string): string {
+  const [, m, d] = date.split('-').map(Number);
+  return `${d} ${(SHORT_MONTHS[m - 1] ?? '').toUpperCase()}`;
+}

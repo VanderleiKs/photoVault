@@ -113,6 +113,7 @@ pub struct JobRunner {
     paused: Arc<AtomicBool>,
     wake: Notify,
     session: Mutex<Session>,
+    geo_checked: AtomicBool,
 }
 
 #[derive(Default)]
@@ -156,6 +157,7 @@ impl JobRunner {
             paused: Arc::new(AtomicBool::new(false)),
             wake: Notify::new(),
             session: Mutex::new(Session::default()),
+            geo_checked: AtomicBool::new(false),
         }))
     }
 
@@ -392,6 +394,10 @@ impl JobRunner {
 
     /// Global pass (flags, labels, groups) for libraries changed since the last one.
     async fn step_groups(&self) -> Result<bool> {
+        // Once per run: places from an older geocoder table are recomputed.
+        if !self.geo_checked.swap(true, Ordering::AcqRel) {
+            geo::refresh_places(&self.pool).await?;
+        }
         let dirty = analysis::store::dirty_libraries(&self.pool).await?;
         let Some(library_id) = dirty.first() else {
             return Ok(false);
@@ -629,25 +635,8 @@ impl JobRunner {
         else {
             return Ok(None);
         };
-        sqlx::query(
-            "INSERT INTO places (name, admin1, country_code, lat, lon) VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT (name, admin1, country_code) DO NOTHING",
-        )
-        .bind(&place.name)
-        .bind(&place.admin1)
-        .bind(&place.country_code)
-        .bind(lat)
-        .bind(lon)
-        .execute(&self.pool)
-        .await?;
-        Ok(sqlx::query_scalar(
-            "SELECT id FROM places WHERE name = ?1 AND admin1 IS ?2 AND country_code = ?3",
-        )
-        .bind(&place.name)
-        .bind(&place.admin1)
-        .bind(&place.country_code)
-        .fetch_optional(&self.pool)
-        .await?)
+        let mut conn = self.pool.acquire().await?;
+        Ok(Some(geo::place_id(&mut conn, &place).await?))
     }
 
     async fn finish_job(&self, media_id: &str, stage: &str, outcome: Outcome<'_>) -> Result<()> {

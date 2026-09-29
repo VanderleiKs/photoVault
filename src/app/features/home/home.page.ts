@@ -14,6 +14,8 @@ import { MediaBus } from '../../core/stores/media-bus';
 import { ScanStore } from '../../core/stores/scan.store';
 import { ViewerContext } from '../../core/stores/viewer-context';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
+import { EventCardComponent } from '../../shared/event-card.component';
+import { EventStore } from '../../core/stores/event.store';
 import { GalleryControlsComponent } from '../../shared/gallery-controls.component';
 import { JobStatusComponent } from '../../shared/job-status.component';
 import { MediaGridComponent } from '../../shared/media-grid/media-grid.component';
@@ -21,6 +23,7 @@ import { SelectionBarComponent } from '../../shared/selection-bar.component';
 
 /** Recent photos shown on the home page (the rest is in "Todas as fotos"). */
 const RECENT = 60;
+const TRIPS = 4;
 
 interface Stat {
   label: string;
@@ -35,7 +38,7 @@ interface Stat {
 /** Início (PRD §23.2): hero, stats, years and recent photos. */
 @Component({
   selector: 'app-home-page',
-  imports: [RouterLink, ButtonModule, SkeletonModule, EmptyStateComponent, GalleryControlsComponent, JobStatusComponent, MediaGridComponent, SelectionBarComponent],
+  imports: [RouterLink, ButtonModule, SkeletonModule, EmptyStateComponent, EventCardComponent, GalleryControlsComponent, JobStatusComponent, MediaGridComponent, SelectionBarComponent],
   providers: [GalleryStore],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
@@ -53,7 +56,7 @@ interface Stat {
         <div class="absolute right-4 top-4"><app-job-status /></div>
       </section>
 
-      <section class="grid grid-cols-2 gap-4 lg:grid-cols-4" aria-label="Resumo">
+      <section class="grid grid-cols-2 gap-4 lg:grid-cols-5" aria-label="Resumo">
         @for (stat of stats(); track stat.label) {
           <a [routerLink]="stat.link" (click)="applyFilter(stat)" class="flex items-center gap-4 rounded-card border border-line bg-panel p-4 transition-shadow hover:shadow-md">
             <span class="flex size-11 shrink-0 items-center justify-center rounded-xl" [class]="stat.tone"><i [class]="stat.icon" class="text-lg"></i></span>
@@ -63,11 +66,25 @@ interface Stat {
             </span>
           </a>
         } @empty {
-          @for (i of [1, 2, 3, 4]; track i) {
+          @for (i of [1, 2, 3, 4, 5]; track i) {
             <p-skeleton height="5rem" styleClass="!rounded-card" />
           }
         }
       </section>
+
+      @if (trips().length) {
+        <section aria-label="Viagens">
+          <div class="mb-3 flex items-center gap-3">
+            <h2 class="flex-1 text-base font-semibold">Viagens</h2>
+            <p-button label="Ver todas" icon="pi pi-arrow-right" iconPos="right" [text]="true" routerLink="/trips" />
+          </div>
+          <div class="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(15rem,1fr))]">
+            @for (t of trips(); track t.id) {
+              <app-event-card [event]="t" />
+            }
+          </div>
+        </section>
+      }
 
       @if (overview()?.years?.length) {
         <section aria-label="Anos">
@@ -118,6 +135,9 @@ export class HomePage {
   protected readonly overview = signal<LibraryOverview | null>(null);
   protected readonly sort = signal<MediaSort | undefined>('newest');
   protected readonly recent = computed(() => this.gallery.items().slice(0, RECENT));
+  private readonly events = inject(EventStore);
+  /** Latest trips (accepted or suggested). */
+  protected readonly trips = computed(() => this.events.events().filter((e) => e.kind === 'trip').slice(0, TRIPS));
   protected readonly hero = computed(() => this.overview()?.highlight ?? null);
   protected readonly heroSrc = computed(() => {
     const h = this.hero();
@@ -139,6 +159,7 @@ export class HomePage {
     return [
       { label: 'Fotos', value: o.photos, icon: 'pi pi-image', tone: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', link: '/photos', filter: { mediaType: 'image' } },
       { label: 'Vídeos', value: o.videos, icon: 'pi pi-video', tone: 'bg-violet-500/10 text-violet-600 dark:text-violet-400', link: '/photos', filter: { mediaType: 'video' } },
+      { label: 'Viagens', value: o.trips, icon: 'pi pi-send', tone: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', link: '/trips' },
       { label: 'Favoritos', value: o.favorites, icon: 'pi pi-heart', tone: 'bg-rose-500/10 text-rose-600 dark:text-rose-400', link: '/favorites' },
       { label: 'Álbuns', value: o.albums, icon: 'pi pi-book', tone: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', link: '/albums' },
     ];

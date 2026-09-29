@@ -70,6 +70,9 @@ pub struct MediaFilter {
     /// `true` = the trash instead of the active photos.
     #[specta(optional)]
     pub trashed: Option<bool>,
+    /// Photos of a trip/event (phase 6).
+    #[specta(optional)]
+    pub event_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -110,7 +113,8 @@ impl MediaFilter {
             sequence_id,
             review,
             review_reason,
-            trashed
+            trashed,
+            event_id
         );
         self
     }
@@ -427,6 +431,11 @@ pub(super) fn push_where(
     }
     if let Some(sequence) = &filter.sequence_id {
         qb.push(" AND m.sequence_id = ").push_bind(sequence.clone());
+    }
+    if let Some(event) = &filter.event_id {
+        qb.push(" AND m.id IN (SELECT media_id FROM event_media WHERE event_id = ")
+            .push_bind(event.clone())
+            .push(")");
     }
     if filter.review == Some(true) || filter.review_reason.is_some() {
         qb.push(" AND m.review_priority IS NOT NULL");

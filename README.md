@@ -53,7 +53,7 @@ PhotoVault/
 
 Sem o `portable.flag`, os dados vão para a pasta de dados do sistema. O CI gera os dois pacotes automaticamente a cada tag `v*` (`.github/workflows/release.yml`).
 
-## Estado atual (v1.0, Fase 5)
+## Estado atual (v1.1, Fase 6)
 
 Funciona hoje:
 
@@ -66,6 +66,7 @@ Funciona hoje:
 - **Revisão**: todas as sugestões priorizadas, por motivo, com Manter, Ignorar, Favoritar e Enviar para a lixeira (por foto ou em lote) e histórico com Desfazer
 - **Exemplos**: dê fotos como exemplo do que você costuma apagar (ou manter) e as parecidas aparecem na Revisão
 - **Lixeira** reversível dentro da própria biblioteca (`.photovault-trash`), com restauração byte a byte, exclusão definitiva com confirmação dupla e opção de usar a lixeira do sistema
+- **Viagens e eventos** encontrados pelas datas e pela localização (ex.: "Viagem para Gramado e Canela · 10 a 12 jul 2025 · 90 fotos"): aceite, edite (título, período, fotos) ou ignore; tela do evento com destaques, cards por dia e linha do tempo; álbuns inteligentes sugeridos
 - **Tags** manuais, buscáveis e filtráveis; classificação de cada foto no painel de informações
 - Limiares e prioridades ajustáveis em Configurações (recalcula em segundos, sem reler as fotos)
 - Várias bibliotecas, scan incremental, análise em segundo plano, modo portátil no Windows e no Linux
@@ -75,10 +76,12 @@ Nada é apagado automaticamente: a organização só sugere, e toda operação n
 Ainda não funciona:
 
 - Miniaturas de HEIC (os metadados já são lidos) e de vídeo
-- Viagens (Fase 6), pessoas e IA local (Fase 7); os exemplos ainda comparam o aspecto das fotos, não o conteúdo
+- Pessoas e IA local (Fase 7), mapa das viagens; os exemplos ainda comparam o aspecto das fotos, não o conteúdo
 
 Veja o [plano](docs/PLANO.md).
 
 ## Licença
 
 Privado.
+
+Dados de terceiros: nomes de lugares do [GeoNames](https://www.geonames.org) (`cities1000`, licença [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), embutidos em `crates/photovault-core/data/cities.tsv.gz` (gerado por `data/build_cities.py`).

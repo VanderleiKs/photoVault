@@ -1,4 +1,4 @@
-import { formatBytes, formatCount, formatDimensions, formatDuration, formatCamera, formatExposure, formatPlace, formatEta } from './format';
+import { formatBytes, formatCount, formatDimensions, formatDuration, formatCamera, formatExposure, formatPlace, formatEta, formatPeriod, formatDayShort } from './format';
 
 describe('format', () => {
   it('formats counts with pt-BR grouping', () => {
@@ -48,5 +48,13 @@ describe('format', () => {
     expect(formatEta(12 * 60)).toBe('~12 min');
     expect(formatEta(125 * 60)).toBe('~2 h 5 min');
     expect(formatEta(null)).toBeNull();
+  });
+
+  it('formats event periods compactly', () => {
+    expect(formatPeriod('2025-07-12T09:00:00', '2025-07-12T20:00:00')).toBe('12 jul 2025');
+    expect(formatPeriod('2025-07-10T09:00:00', '2025-07-12T20:00:00')).toBe('10 a 12 jul 2025');
+    expect(formatPeriod('2025-06-28T09:00:00', '2025-07-03T20:00:00')).toBe('28 jun a 3 jul 2025');
+    expect(formatPeriod('2024-12-28T09:00:00', '2025-01-02T20:00:00')).toBe('28 dez 2024 a 2 jan 2025');
+    expect(formatDayShort('2025-07-11')).toBe('11 JUL');
   });
 });

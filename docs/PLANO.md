@@ -326,13 +326,27 @@ Exemplos (2 fotos da categoria como exemplo "remover", limiar 0,70):
 
 ---
 
-### Fase 6 — Viagens e eventos (≈ 2 semanas) → `v1.1`
+### Fase 6 — Viagens e eventos (≈ 2 semanas) → `v1.1` ✅ implementada (branch `fase-6-viagens`)
 
-- [ ] Detecção de eventos (lacunas temporais + GPS) e de viagens (distância do local base)
-- [ ] Títulos sugeridos a partir dos lugares
-- [ ] Aceitar, editar ou ignorar, sem sugerir de novo o que foi ignorado
-- [ ] Tela Viagens (lista) e tela do evento (abas, carrossel, cards por dia), conforme o mockup
-- [ ] Card de Viagens na home; álbuns inteligentes sugeridos
+- [x] Detecção (`events::detect`, pura): trechos separados por lacunas de mais de 6 h; "casa" = célula GPS de ~20 km fotografada em mais dias; trecho *longe* quando a mediana das fotos com GPS está a mais de 50 km de casa; trechos longe próximos no tempo (≤ 48 h, as noites) formam uma viagem, e trechos sem GPS no meio dela entram; viagem = ao menos 2 dias; um dia longe = evento (passeio); outros trechos com ≥ 20 itens = eventos. Só datas reais (fotos datadas pelo `mtime` ficam de fora). Limiares em Configurações → Viagens e eventos
+- [x] Títulos pelos lugares ("Viagem para Gramado e Canela", "Evento em Porto Alegre", "Evento de 12 de julho de 2025" sem GPS) e resumo de lugares
+- [x] Decisões: `suggested` (refeitas a cada passada, com o id mantido quando as mesmas fotos voltam), `accepted` (fotos novas desses dias entram sozinhas), `edited` (título, período ou fotos alterados: congelada), `ignored` (não volta: sugestão com ≥ 50 % das fotos de um evento ignorado não é refeita; "Restaurar" desfaz). Fotos de eventos aceitos/editados não geram novas sugestões
+- [x] Tela Viagens (sugestões com Aceitar/Ignorar, Suas viagens, Eventos, Ignorados) e tela do evento em tema escuro: título editável, período, contagens, distância de casa, carrossel de destaques (melhores fotos, uma por grupo/rajada), cards por dia com o dia selecionado destacado, abas Fotos · Linha do tempo · Informações (Mapa e Pessoas "em breve"), Editar período, Remover do evento, Criar álbum
+- [x] Card e seção de Viagens no Início; evento da foto no painel/visualizador; filtro `eventId` na consulta única (galeria, visualizador, álbum inteligente)
+- [x] Álbuns inteligentes sugeridos: viagens aceitas, "Favoritas de 2025", "Melhores de 2025", "Screenshots", "Para revisar" (só com ≥ 5 itens e sem álbum com a mesma regra)
+- [x] **Geocodificação trocada:** a tabela do crate `reverse_geocoder` não tinha Gramado nem Tramandaí e vinha sem acentos ("Tramandai", "Bage"). Agora é o GeoNames `cities1000` oficial (161 mil lugares, com acentos, sem bairros/arrondissements), embutido (`data/cities.tsv.gz`, 3 MB, gerado por `data/build_cities.py`) e escolhido pela população em relação à distância (um distrito ao lado de uma cidade não a substitui; uma cidade pequena onde a foto foi tirada não perde para a capital a 15 km). Catálogos antigos são regeocodificados uma vez (`geo::refresh_places`, ~0,25 s)
+
+**Aceite:** com a biblioteca de teste (`tests/labeled/trips.py`: casa em Porto Alegre, 3 dias em Gramado/Canela, festa em casa, 4 dias em Buenos Aires com um dia sem GPS, dia na praia), aparecem exatamente 2 viagens ("Viagem para Gramado e Canela", 90 fotos, a 80 km; "Viagem para Buenos Aires", 80 fotos, a 842 km) e 2 eventos ("Evento em Porto Alegre", "Evento em Tramandaí e Imbé"). ✅
+
+**Validação no app:** ✅ catálogo v0.7 migrado (0005 + 0006) e regeocodificado (a foto do fixture perto de Gramado passou de "Canela" para "Gramado"); biblioteca de viagens escaneada e analisada; aceitar, editar título, filtro por dia, destaques, Início com viagens, álbum criado a partir da sugestão (90 itens).
+
+**Achados / limites:**
+- "Casa" é um só lugar: quem mora em duas cidades verá as idas à segunda como viagens (basta ignorar; não voltam).
+- O título usa os dois lugares mais fotografados; lugares vizinhos (Tramandaí e Imbé) podem aparecer juntos.
+- Sem GPS não há viagens, só eventos (sequências densas de fotos).
+- Mapa e Pessoas ficam para a Fase 7; a busca por texto ainda não encontra o título do evento (encontra os lugares).
+
+---
 
 ### Fase 7 — IA local (≈ 4 semanas) → `v2.0`
 
@@ -387,6 +401,6 @@ Exemplos (2 fotos da categoria como exemplo "remover", limiar 0,70):
 
 ## 6. Próximo passo imediato
 
-1. Validar a v1.0 no Windows 11 (zip do `release.yml`) com fotos reais: duplicatas coloridas, documentos, lixeira num HD USB (inclusive desconectar no meio de um envio para a lixeira).
-2. Decidir o empacotamento da libheif (HEIC) e do ffmpeg (miniaturas de vídeo), pendentes da Fase 2.
-3. Iniciar a **Fase 6** (viagens e eventos).
+1. Validar a v1.1 no Windows 11 com fotos reais de celular (com GPS): viagens, títulos e o recálculo dos locais de um catálogo antigo.
+2. Decidir o empacotamento da libheif (HEIC) e do ffmpeg (miniaturas de vídeo), pendentes da Fase 2 (fotos de iPhone são HEIC: sem isso, viagens de iPhone ficam sem miniaturas).
+3. Iniciar a **Fase 7** (IA local: `ort`, cenas, rostos, busca semântica; os exemplos da Fase 5 passam a usar embeddings).

@@ -48,7 +48,10 @@ pub async fn save_settings(
     let before = settings::get(&state.pool).await?;
     let saved = settings::save(&state.pool, &settings).await?;
     // New thresholds or weights: recompute flags, groups and suggestions (no photo is re-read).
-    if before.analysis != saved.analysis || before.review != saved.review {
+    if before.analysis != saved.analysis
+        || before.review != saved.review
+        || before.events != saved.events
+    {
         photovault_core::analysis::store::mark_all_dirty(&state.pool).await?;
         state.jobs.wake();
     }

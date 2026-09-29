@@ -2,6 +2,7 @@
 //! `photovault-core`.
 
 pub mod albums;
+pub mod events;
 pub mod jobs;
 pub mod libraries;
 pub mod media;
