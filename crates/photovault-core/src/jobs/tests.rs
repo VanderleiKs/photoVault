@@ -1002,3 +1002,76 @@ mod review_and_trash {
         assert!(w.root.join("a.jpg").is_file());
     }
 }
+
+/// Scan → ingest → analysis → content analysis → search, with the real model.
+/// Needs the downloaded files and a content-labeled folder (`tests/labeled/content.py`):
+///     PHOTOVAULT_TEST_MODELS=<models> PHOTOVAULT_TEST_CONTENT=<content> \
+///     cargo test --release -p photovault-core content_search_end_to_end -- --ignored
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs the AI models (PHOTOVAULT_TEST_MODELS) and photos (PHOTOVAULT_TEST_CONTENT)"]
+async fn content_search_end_to_end() {
+    let models = PathBuf::from(std::env::var("PHOTOVAULT_TEST_MODELS").unwrap());
+    let content = PathBuf::from(std::env::var("PHOTOVAULT_TEST_CONTENT").unwrap());
+    let w = world().await;
+    for category in ["flores", "carro", "gato"] {
+        for entry in std::fs::read_dir(content.join(category))
+            .unwrap()
+            .flatten()
+            .take(6)
+        {
+            // Neutral names: only the content can find them.
+            std::fs::copy(
+                entry.path(),
+                w.root
+                    .join(format!("IMG_{}.jpg", uuid::Uuid::new_v4().simple())),
+            )
+            .unwrap();
+        }
+    }
+    w.scan().await;
+    assert!(crate::ai::load(&models, None).unwrap());
+    let runner = w.runner(Arc::new(Recorder::default())).await;
+    runner.drain().await.unwrap();
+    assert_eq!(crate::ai::index::pending_count(&w.pool).await.unwrap(), 0);
+    assert_eq!(crate::ai::index::indexed_count(&w.pool).await.unwrap(), 18);
+
+    let search = |text: &str| {
+        let (pool, lib) = (w.pool.clone(), w.library.id.clone());
+        let text = text.to_string();
+        async move {
+            media::list(
+                &pool,
+                &lib,
+                &crate::catalog::MediaQuery {
+                    filter: crate::catalog::MediaFilter {
+                        text: Some(text),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                None,
+                100,
+            )
+            .await
+            .unwrap()
+            .items
+        }
+    };
+    let flowers = search("flores").await;
+    assert!(
+        (4..=8).contains(&flowers.len()),
+        "{} results",
+        flowers.len()
+    );
+    let cats = search("gato").await;
+    assert!((4..=8).contains(&cats.len()), "{} results", cats.len());
+    assert!(cats.iter().all(|c| !flowers.iter().any(|f| f.id == c.id)));
+    // Dates and content together: nothing was taken in 1990.
+    assert!(search("gato 1990").await.is_empty());
+    // A scene chip on a photo.
+    let scenes = crate::ai::index::scenes_of(&w.pool, &cats[0].id)
+        .await
+        .unwrap();
+    assert!(scenes.iter().any(|s| s.value == "cat"), "{scenes:?}");
+    crate::ai::unload();
+}

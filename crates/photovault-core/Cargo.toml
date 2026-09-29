@@ -31,6 +31,15 @@ sha2 = "0.10"
 # Optional "send to the system trash" (PRD §16).
 trash = "5"
 base64 = "0.22"
+# Local AI (phase 7): ONNX Runtime, statically linked (portable: no DLL to ship).
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "download-binaries", "tracing"] }
+# Build-time download of the runtime over rustls (no OpenSSL needed on the build machine).
+ort-sys = { version = "=2.0.0-rc.13", default-features = false, features = ["tls-rustls"] }
+ndarray = "0.17"
+# Tokenizer of the multilingual text encoder; fancy-regex (pure Rust) instead of onig (C).
+tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
+# Model download (the only network access, on request); rustls, no OpenSSL.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

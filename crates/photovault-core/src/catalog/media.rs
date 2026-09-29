@@ -226,7 +226,7 @@ pub async fn list(
 ) -> Result<MediaPage> {
     let limit = limit.clamp(1, MAX_PAGE);
     query::validate(&query.filter)?;
-    let filter = query::resolve(pool, query.filter.clone()).await?;
+    let filter = query::resolve(pool, library_id, query.filter.clone()).await?;
     let from = cursor.map(decode_cursor).transpose()?;
     let from_ref = from.as_ref().map(|(k, i)| (k.as_str(), i.as_str()));
 
@@ -259,7 +259,7 @@ pub async fn count(
     filter: &MediaFilter,
 ) -> Result<MediaCount> {
     query::validate(filter)?;
-    let filter = query::resolve(pool, filter.clone()).await?;
+    let filter = query::resolve(pool, library_id, filter.clone()).await?;
     let mut qb = QueryBuilder::<Sqlite>::new(
         "SELECT COUNT(*), COUNT(CASE WHEN m.media_type = 'video' THEN 1 END) FROM media m",
     );
@@ -282,7 +282,6 @@ pub async fn context(
 ) -> Result<MediaContext> {
     let radius = radius.min(MAX_RADIUS);
     query::validate(&query.filter)?;
-    let filter = query::resolve(pool, query.filter.clone()).await?;
     let spec = query.sort.spec();
 
     let library_id: String = sqlx::query_scalar("SELECT library_id FROM media WHERE id = ?1")
@@ -290,6 +289,7 @@ pub async fn context(
         .fetch_optional(pool)
         .await?
         .ok_or(Error::MediaNotFound)?;
+    let filter = query::resolve(pool, &library_id, query.filter.clone()).await?;
 
     // The item itself, only if it matches the context.
     let mut qb = QueryBuilder::<Sqlite>::new(format!(

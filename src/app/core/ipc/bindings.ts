@@ -143,6 +143,16 @@ export const commands = {
 	removeFromEvent: (eventId: string, mediaIds: string[]) => typedError<EventSummary, ApiError>(__TAURI_INVOKE("remove_from_event", { eventId, mediaIds })),
 	/**  Several events become one (a trip without GPS split into days). */
 	mergeEvents: (merge: EventMerge) => typedError<EventSummary, ApiError>(__TAURI_INVOKE("merge_events", { merge })),
+	/**  Settings → IA local. */
+	getAiStatus: () => typedError<AiStatus, ApiError>(__TAURI_INVOKE("get_ai_status")),
+	/**
+	 *  The user agreed: download the models (the app's only network access), then load them
+	 *  and start the content analysis.
+	 */
+	downloadAiModels: () => typedError<null, ApiError>(__TAURI_INVOKE("download_ai_models")),
+	cancelAiDownload: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_ai_download")),
+	/**  Delete the models and the content analysis; the app goes back to working without them. */
+	removeAiModels: () => typedError<null, ApiError>(__TAURI_INVOKE("remove_ai_models")),
 	/**  Detect trips and events again in every library, now, with the current settings. */
 	reclassifyEvents: (options: ReclassifyOptions) => typedError<EventCounts, ApiError>(__TAURI_INVOKE("reclassify_events", { options })),
 	/**  Homes the photos point to, one per library (Settings: "Sua casa parece ser…"). */
@@ -212,6 +222,27 @@ export const events = {
 };
 
 /* Types */
+/**  Local AI: only used when the models were downloaded. */
+export type AiSettings = {
+	/**  Off: the model is unloaded (no content analysis, search by name only). */
+	enabled?: boolean,
+};
+
+export type AiStatus = {
+	/**  Files downloaded. */
+	installed: boolean,
+	/**  Loaded and in use (installed + enabled + loaded fine). */
+	ready: boolean,
+	/**  Download size of the models. */
+	sizeBytes: number,
+	/**  Photos with a content analysis / still waiting (all libraries). */
+	indexed: number,
+	pending: number,
+	download: DownloadState,
+	/**  Why the model couldn't be loaded. */
+	error: string | null,
+};
+
 export type Album = {
 	id: string,
 	libraryId: string,
@@ -305,6 +336,8 @@ export type AppSettings = {
 	review?: ReviewSettings,
 	/**  Trips and events (PRD §17). Absent before v1.1. */
 	events?: EventSettings,
+	/**  Local AI (PRD §21). Absent before v2.0. */
+	ai?: AiSettings,
 };
 
 export type CameraOption = {
@@ -330,6 +363,14 @@ export type Decision =
 "ignore" | 
 /**  Undo a keep/ignore (history): the suggestion comes back if it still applies. */
 "reopen";
+
+export type DownloadState = {
+	running: boolean,
+	doneBytes: number,
+	totalBytes: number,
+	/**  Last failure (network, checksum), for the settings page. */
+	error: string | null,
+};
 
 /**  After a reclassification, in the library (ignored events not counted). */
 export type EventCounts = {
@@ -488,6 +529,8 @@ export type JobProgress = {
 	currentPath: string | null,
 	/**  Recomputing duplicates, similar photos and bursts (after the queue drains). */
 	grouping: boolean,
+	/**  Photos waiting for the content analysis (local AI; 0 without the model). */
+	contentPending: number,
 };
 
 export type JobProgressEvent = JobProgress;
@@ -543,6 +586,8 @@ export type MediaAnalysis = {
 	groups: GroupRef[],
 	/**  Trips/events it belongs to (phase 6). */
 	events: EventRef[],
+	/**  What the photo shows (local AI, phase 7a); empty without the model. */
+	scenes: SceneScore[],
 };
 
 /**  Where an item sits in a gallery context (filter + order), for the viewer. */
@@ -871,6 +916,13 @@ export type ScanSummary = {
 	restoredFiles: number,
 	errors: number,
 	cancelled: boolean,
+};
+
+export type SceneScore = {
+	value: string,
+	label: string,
+	/**  0–1: share among the scenes. */
+	score: number | null,
 };
 
 export type TagCount = {

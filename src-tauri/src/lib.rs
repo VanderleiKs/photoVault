@@ -17,7 +17,8 @@ use tracing_subscriber::{EnvFilter, fmt};
 /// Commands and events exposed to the frontend (single source for the TS bindings).
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     use commands::{
-        albums, events as event_commands, jobs, libraries, media, organize, review, scan, system,
+        ai, albums, events as event_commands, jobs, libraries, media, organize, review, scan,
+        system,
     };
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(collect_commands![
@@ -75,6 +76,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             event_commands::update_event,
             event_commands::remove_from_event,
             event_commands::merge_events,
+            ai::get_ai_status,
+            ai::download_ai_models,
+            ai::cancel_ai_download,
+            ai::remove_ai_models,
             event_commands::reclassify_events,
             event_commands::get_detected_homes,
             event_commands::search_home_places,
@@ -181,6 +186,19 @@ pub fn run() {
                 Arc::new(events::TauriJobObserver(app.handle().clone())),
             ))?;
             tauri::async_runtime::spawn(Arc::clone(&jobs).run());
+            // Local AI, if downloaded and enabled: loaded in the background (~1 s).
+            tauri::async_runtime::spawn({
+                let (pool, models, jobs) = (
+                    database.pool.clone(),
+                    paths.models_dir.clone(),
+                    Arc::clone(&jobs),
+                );
+                async move {
+                    if matches!(photovault_core::ai::sync(&pool, &models).await, Ok(true)) {
+                        jobs.wake();
+                    }
+                }
+            });
             // Settle trash operations cut short last time, then the optional cleanup.
             tauri::async_runtime::spawn({
                 let (pool, thumbnails) = (database.pool.clone(), paths.thumbnails_dir.clone());

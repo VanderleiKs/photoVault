@@ -14,6 +14,7 @@ import { ActivatedRoute } from '@angular/router';
 import { ExamplesSettingsComponent } from './examples-settings.component';
 import { ReviewSettingsComponent } from './review-settings.component';
 import { EventSettingsComponent } from './event-settings.component';
+import { AiSettingsComponent } from './ai-settings.component';
 
 interface ThresholdField {
   key: Exclude<keyof AnalysisSettings, 'sequenceMinSize' | 'overexposedFraction'>;
@@ -28,7 +29,7 @@ interface ThresholdField {
 
 @Component({
   selector: 'app-settings-page',
-  imports: [FormsModule, ButtonModule, InputNumberModule, SelectButtonModule, TagModule, ReviewSettingsComponent, ExamplesSettingsComponent, EventSettingsComponent],
+  imports: [FormsModule, ButtonModule, InputNumberModule, SelectButtonModule, TagModule, ReviewSettingsComponent, ExamplesSettingsComponent, EventSettingsComponent, AiSettingsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -97,6 +98,7 @@ interface ThresholdField {
 
       <app-review-settings />
       <app-event-settings />
+      <app-ai-settings />
       <app-examples-settings />
 
       <section class="rounded-card border border-line bg-panel p-5">

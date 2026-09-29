@@ -521,6 +521,9 @@ Foto → Enviar para lixeira (confirmação) → <raiz>/.photovault-trash/<data>
 - Modular via `VisionAnalyzer`. O catálogo não depende de nenhum modelo específico.
 - Modelos ONNX opcionais em `models/`, baixados sob demanda **com consentimento**. O app funciona sem eles.
 - Usos: classificação de cena (chips "Paisagem 0.92"), detecção de rostos e olhos fechados, embeddings (CLIP) para busca semântica e melhor candidata por composição.
+- **Fase 7a (v1.3):** um modelo só, CLIP ViT-B/32 (imagem) + codificador de texto multilíngue treinado no mesmo espaço (a busca entende português). 228 MB, int8, CPU, ONNX Runtime embutido no executável. O download mostra o tamanho, a origem (Hugging Face) e as licenças antes de começar, e cada arquivo é conferido por SHA-256 fixado no código.
+- Busca por conteúdo é parte da busca normal: o texto casa com o nome/pasta/local/álbum **ou** com o conteúdo da foto; os resultados seguem a ordenação escolhida.
+- Desligar ou remover a IA volta o app ao comportamento sem ela; remover apaga os modelos e a análise de conteúdo.
 
 ---
 
@@ -628,7 +631,7 @@ Ficam para a fase 8: mover, renomear e reorganizar. Toda operação física:
 
 ## 25. Segurança e privacidade
 
-- Local-first, offline-first, privacy-first. **Nenhuma chamada de rede** na v1 (a CSP bloqueia `connect-src` externo).
+- Local-first, offline-first, privacy-first. **Nenhuma chamada de rede** na v1 (a CSP bloqueia `connect-src` externo). A partir da v1.3, a única exceção é o download dos modelos de IA (§21), feito pelo backend quando o usuário pede; nenhuma foto, metadado ou texto de busca sai do computador.
 - CSP restritiva: `default-src 'self'; img-src 'self' pv: data:; media-src pv:; connect-src ipc: http://ipc.localhost`.
 - Capabilities do Tauri 2 mínimas (`core:default`, `dialog:allow-open`). O frontend não tem acesso direto ao filesystem.
 - O protocolo `pv://` só serve arquivos resolvidos pelo catálogo.

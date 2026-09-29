@@ -3,6 +3,7 @@
 //! Has no Tauri dependency so it can be tested with `cargo test` and reused by
 //! the future Android build. The `src-tauri` crate only adapts it to IPC.
 
+pub mod ai;
 pub mod analysis;
 pub mod catalog;
 pub mod db;

@@ -35,6 +35,10 @@ pub enum Error {
     #[error("Erro de leitura/gravação: {0}")]
     Io(#[from] std::io::Error),
 
+    /// Local AI (phase 7): models missing, corrupt or failing.
+    #[error("IA local: {0}")]
+    Ai(String),
+
     #[error("{0}")]
     Internal(String),
 }
@@ -53,8 +57,15 @@ impl Error {
             Error::Database(_) => "DATABASE",
             Error::Migration(_) => "MIGRATION",
             Error::Io(_) => "IO",
+            Error::Ai(_) => "AI",
             Error::Internal(_) => "INTERNAL",
         }
+    }
+}
+
+impl From<ort::Error> for Error {
+    fn from(e: ort::Error) -> Self {
+        Error::Ai(e.to_string())
     }
 }
 

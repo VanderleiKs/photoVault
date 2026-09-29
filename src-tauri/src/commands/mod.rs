@@ -1,6 +1,7 @@
 //! IPC commands: the only public API of the backend. Keep them thin; logic lives in
 //! `photovault-core`.
 
+pub mod ai;
 pub mod albums;
 pub mod events;
 pub mod jobs;

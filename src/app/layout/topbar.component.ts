@@ -11,6 +11,7 @@ import { SelectModule } from '@openng/optimus-ui/select';
 import { TooltipModule } from '@openng/optimus-ui/tooltip';
 import { AppStore } from '../core/stores/app.store';
 import { BrowseStore } from '../core/stores/browse.store';
+import { AiStore } from '../core/stores/ai.store';
 import { LibraryStore } from '../core/stores/library.store';
 import { ScanStore } from '../core/stores/scan.store';
 import { UiStore } from '../core/stores/ui.store';
@@ -63,7 +64,7 @@ import { UiStore } from '../core/stores/ui.store';
         pInputText
         type="search"
         class="w-full pr-16"
-        placeholder="Buscar nomes, pastas, locais, álbuns, datas…"
+        [placeholder]="ai.ready() ? 'Buscar por conteúdo, nomes, locais, álbuns, datas…' : 'Buscar nomes, pastas, locais, álbuns, datas…'"
         aria-label="Buscar (Ctrl+K)"
         [value]="query()"
         (input)="onSearch($any($event.target).value)"
@@ -102,6 +103,7 @@ export class TopbarComponent {
   protected readonly app = inject(AppStore);
   protected readonly ui = inject(UiStore);
   protected readonly libraries = inject(LibraryStore);
+  protected readonly ai = inject(AiStore);
   private readonly scan = inject(ScanStore);
   private readonly router = inject(Router);
   private readonly browse = inject(BrowseStore);

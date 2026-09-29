@@ -113,6 +113,8 @@ pub struct MediaAnalysis {
     pub groups: Vec<GroupRef>,
     /// Trips/events it belongs to (phase 6).
     pub events: Vec<crate::events::EventRef>,
+    /// What the photo shows (local AI, phase 7a); empty without the model.
+    pub scenes: Vec<crate::ai::scenes::SceneScore>,
 }
 
 #[derive(Debug, Clone, Serialize, Type, sqlx::FromRow)]
@@ -370,6 +372,7 @@ pub async fn media_analysis(pool: &SqlitePool, media_id: &str) -> Result<MediaAn
     }
 
     let events = crate::events::of_media(pool, media_id).await?;
+    let scenes = crate::ai::index::scenes_of(pool, media_id).await?;
     let analyzed = quality.is_some();
     let (level, flags, sharpness, brightness) = match quality {
         Some((level, flags, sharpness, brightness)) => (level, flags, sharpness, brightness),
@@ -379,6 +382,7 @@ pub async fn media_analysis(pool: &SqlitePool, media_id: &str) -> Result<MediaAn
     Ok(MediaAnalysis {
         analyzed,
         events,
+        scenes,
         quality: level.as_deref().and_then(level_of),
         flags: flags.iter().filter_map(|f| flag_of(f)).collect(),
         sharpness,

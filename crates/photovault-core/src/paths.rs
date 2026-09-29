@@ -26,6 +26,8 @@ pub struct AppPaths {
     pub base_dir: PathBuf,
     pub db_path: PathBuf,
     pub thumbnails_dir: PathBuf,
+    /// Local AI models (phase 7), downloaded on request.
+    pub models_dir: PathBuf,
     pub logs_dir: PathBuf,
     pub cache_dir: PathBuf,
     /// WebView profile (WebView2/WebKitGTK). Must not live in %LOCALAPPDATA% / ~/.local.
@@ -97,6 +99,7 @@ impl AppPaths {
             mode,
             db_path: base_dir.join("data").join("catalog.db"),
             thumbnails_dir: base_dir.join("thumbnails"),
+            models_dir: base_dir.join("models"),
             logs_dir: base_dir.join("logs"),
             webview_dir: cache_dir.join("webview"),
             cache_dir,

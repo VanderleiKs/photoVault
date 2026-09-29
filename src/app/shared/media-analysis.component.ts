@@ -37,6 +37,11 @@ import { ViewerContext } from '../core/stores/viewer-context';
           @for (label of autoLabels(); track label.value) {
             <span class="rounded-full px-2.5 py-0.5 text-xs" [class]="chip()" [title]="label.score ? 'Confiança ' + (label.score * 100).toFixed(0) + '%' : ''">{{ text(label.dimension, label.value) }}</span>
           }
+          @for (scene of a.scenes; track scene.value) {
+            <span class="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs text-primary" title="Conteúdo reconhecido pela IA local">
+              <i class="pi pi-sparkles text-[10px]"></i>{{ scene.label }} {{ ((scene.score ?? 0) * 100).toFixed(0) }} %
+            </span>
+          }
         </div>
       }
 

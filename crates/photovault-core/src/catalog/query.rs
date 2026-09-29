@@ -73,6 +73,11 @@ pub struct MediaFilter {
     /// Photos of a trip/event (phase 6).
     #[specta(optional)]
     pub event_id: Option<String>,
+    /// Filled by `resolve` from `text` when the local AI is available: photos whose
+    /// content matches (phase 7a). Never part of the API or of a smart album's rule.
+    #[serde(skip)]
+    #[specta(skip)]
+    pub content_hits: Option<std::sync::Arc<Vec<String>>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -227,6 +232,9 @@ pub(super) struct ParsedText {
     pub month: Option<u32>,
     /// FTS5 MATCH expression (every term as a quoted prefix), if any terms remain.
     pub fts: Option<String>,
+    /// The text without the dates, as typed (stop words kept: "pôr do sol"), for the
+    /// content search.
+    pub content: Option<String>,
 }
 
 /// Full month names only: abbreviations ("mar", "set") are common words.
@@ -250,10 +258,15 @@ const STOP_WORDS: &[&str] = &["de", "do", "da", "dos", "das", "em", "e", "fotos"
 pub(super) fn parse_text(text: &str) -> ParsedText {
     let mut parsed = ParsedText::default();
     let mut terms = Vec::new();
+    let mut content: Vec<&str> = Vec::new();
     for raw in text.split_whitespace() {
         let word = raw.to_lowercase();
         let word = word.trim_matches(|c: char| !c.is_alphanumeric());
-        if word.is_empty() || STOP_WORDS.contains(&word) {
+        if word.is_empty() {
+            continue;
+        }
+        if STOP_WORDS.contains(&word) {
+            content.push(raw);
             continue;
         }
         if parsed.year.is_none()
@@ -270,6 +283,7 @@ pub(super) fn parse_text(text: &str) -> ParsedText {
             parsed.month = Some(index as u32 + 1);
             continue;
         }
+        content.push(raw);
         // FTS5 syntax is stripped; each term is a quoted prefix query.
         let clean: String = word
             .chars()
@@ -281,12 +295,42 @@ pub(super) fn parse_text(text: &str) -> ParsedText {
     }
     if !terms.is_empty() {
         parsed.fts = Some(terms.join(" "));
+        // Connectors at the edges go ("Gramado julho de 2025" → "Gramado"), inner ones stay
+        // ("pôr do sol").
+        let is_stop = |w: &&str| STOP_WORDS.contains(&w.to_lowercase().as_str());
+        while content.last().is_some_and(is_stop) {
+            content.pop();
+        }
+        let start = content
+            .iter()
+            .position(|w| !is_stop(w))
+            .unwrap_or(content.len());
+        parsed.content = Some(content[start..].join(" ")).filter(|c| !c.is_empty());
     }
     parsed
 }
 
-/// Smart album: the album's rule replaces the album reference (one level only).
-pub(super) async fn resolve(pool: &SqlitePool, mut filter: MediaFilter) -> Result<MediaFilter> {
+/// Smart album: the album's rule replaces the album reference (one level only). Then the
+/// text also searches the content of the photos, if the local AI is available.
+pub(super) async fn resolve(
+    pool: &SqlitePool,
+    library_id: &str,
+    filter: MediaFilter,
+) -> Result<MediaFilter> {
+    let mut filter = resolve_album(pool, filter).await?;
+    filter.content_hits = None;
+    if let Some(content) = filter
+        .text
+        .as_deref()
+        .map(parse_text)
+        .and_then(|p| p.content)
+    {
+        filter.content_hits = crate::ai::index::search(pool, library_id, &content).await?;
+    }
+    Ok(filter)
+}
+
+async fn resolve_album(pool: &SqlitePool, mut filter: MediaFilter) -> Result<MediaFilter> {
     let Some(album_id) = filter.album_id.clone() else {
         return Ok(filter);
     };
@@ -449,9 +493,16 @@ pub(super) fn push_where(
     }
 
     if let Some(fts) = parsed.fts {
-        qb.push(" AND m.rowid IN (SELECT rowid FROM media_fts WHERE media_fts MATCH ")
+        // Name, folder, place, album… or, with the local AI, what is in the photo.
+        qb.push(" AND (m.rowid IN (SELECT rowid FROM media_fts WHERE media_fts MATCH ")
             .push_bind(fts)
             .push(")");
+        if let Some(hits) = filter.content_hits.as_ref().filter(|h| !h.is_empty()) {
+            qb.push(" OR m.id IN (SELECT value FROM json_each(")
+                .push_bind(serde_json::to_string(hits.as_ref()).unwrap_or_else(|_| "[]".into()))
+                .push("))");
+        }
+        qb.push(")");
     }
 }
 
@@ -490,8 +541,14 @@ mod tests {
             ParsedText {
                 year: Some(2025),
                 month: Some(7),
-                fts: Some("\"gramado\"*".into())
+                fts: Some("\"gramado\"*".into()),
+                content: Some("Gramado".into()),
             }
+        );
+        // The content search keeps the words as typed, inner connectors included.
+        assert_eq!(
+            parse_text("fotos do pôr do sol 2024").content.as_deref(),
+            Some("pôr do sol")
         );
         assert_eq!(
             parse_text("março"),

@@ -16,6 +16,21 @@ import { JobStore } from '../core/stores/job.store';
         <div class="flex items-center gap-2 rounded-full border border-line bg-panel px-3 py-1 text-xs" role="status">
           <i class="pi pi-spin pi-spinner text-primary"></i>Agrupando duplicatas e semelhantes…
         </div>
+      } @else if (p.queued === 0 && p.contentPending > 0) {
+        <div class="flex items-center gap-1 rounded-full border border-line bg-panel py-0.5 pl-3 pr-0.5 text-xs" role="status">
+          <i [class]="p.paused ? 'pi pi-pause text-muted' : 'pi pi-sparkles text-primary'"></i>
+          <span class="ml-1 whitespace-nowrap">{{ p.paused ? 'Análise de conteúdo pausada' : 'Analisando o conteúdo' }} · {{ format(p.contentPending) }} {{ p.contentPending === 1 ? 'foto' : 'fotos' }}</span>
+          <p-button
+            [icon]="p.paused ? 'pi pi-play' : 'pi pi-pause'"
+            [text]="true"
+            [rounded]="true"
+            size="small"
+            [ariaLabel]="p.paused ? 'Retomar análise' : 'Pausar análise'"
+            [pTooltip]="p.paused ? 'Retomar análise' : 'Pausar análise (libera a CPU)'"
+            tooltipPosition="bottom"
+            (onClick)="p.paused ? jobs.resume() : jobs.pause()"
+          />
+        </div>
       } @else if (p.queued > 0) {
         <div class="flex items-center gap-1 rounded-full border border-line bg-panel py-0.5 pl-3 pr-0.5 text-xs" role="status">
           @if (p.paused) {
@@ -41,6 +56,8 @@ import { JobStore } from '../core/stores/job.store';
 })
 export class JobStatusComponent {
   protected readonly jobs = inject(JobStore);
+
+  protected readonly format = formatCount;
 
   protected readonly label = computed(() => {
     const p = this.jobs.progress();

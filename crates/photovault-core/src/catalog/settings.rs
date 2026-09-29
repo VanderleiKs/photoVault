@@ -32,6 +32,23 @@ pub struct AppSettings {
     /// Trips and events (PRD §17). Absent before v1.1.
     #[serde(default)]
     pub events: EventSettings,
+    /// Local AI (PRD §21). Absent before v2.0.
+    #[serde(default)]
+    pub ai: AiSettings,
+}
+
+/// Local AI: only used when the models were downloaded.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AiSettings {
+    /// Off: the model is unloaded (no content analysis, search by name only).
+    pub enabled: bool,
+}
+
+impl Default for AiSettings {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 impl Default for AppSettings {
@@ -44,6 +61,7 @@ impl Default for AppSettings {
             analysis: AnalysisSettings::default(),
             review: ReviewSettings::default(),
             events: EventSettings::default(),
+            ai: AiSettings::default(),
         }
     }
 }
@@ -345,6 +363,7 @@ mod tests {
                 trip_min_km: 80,
                 ..Default::default()
             },
+            ai: AiSettings { enabled: false },
         };
         save(&pool, &custom).await.unwrap();
         assert_eq!(get(&pool).await.unwrap(), custom);

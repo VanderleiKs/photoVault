@@ -157,7 +157,7 @@ pub async fn timeline(
     filter: &MediaFilter,
 ) -> Result<Vec<TimelineBucket>> {
     query::validate(filter)?;
-    let filter = query::resolve(pool, filter.clone()).await?;
+    let filter = query::resolve(pool, library_id, filter.clone()).await?;
     let mut qb =
         QueryBuilder::<Sqlite>::new("SELECT substr(m.sort_key, 1, 7) AS ym, COUNT(*) FROM media m");
     query::push_where(&mut qb, library_id, &filter);

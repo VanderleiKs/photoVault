@@ -1,5 +1,5 @@
-//! Pluggable visual analysis (PRD §21). Implementations (scene, faces,
-//! embeddings) arrive in phase 7; the catalog never depends on a specific model.
+//! Pluggable visual analysis (PRD §21); the catalog never depends on a specific model.
+//! Implemented by `ai::Engine` (CLIP: scenes + embedding, phase 7a); faces in phase 7b.
 
 use crate::error::Result;
 

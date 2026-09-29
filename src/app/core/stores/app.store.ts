@@ -58,6 +58,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   analysis: DEFAULT_ANALYSIS,
   review: DEFAULT_REVIEW,
   events: DEFAULT_EVENTS,
+  ai: { enabled: true },
 };
 
 /** App-wide info and persisted settings (theme, active library, performance). */

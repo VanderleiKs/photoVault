@@ -55,6 +55,13 @@ pub async fn save_settings(
         photovault_core::analysis::store::mark_all_dirty(&state.pool).await?;
         state.jobs.wake();
     }
+    // Local AI switched on/off (or other CPU threads): load or unload the model.
+    if before.ai != saved.ai || before.cpu_concurrency != saved.cpu_concurrency {
+        photovault_core::ai::unload();
+        if photovault_core::ai::sync(&state.pool, &state.paths.models_dir).await? {
+            state.jobs.wake();
+        }
+    }
     Ok(saved)
 }
 

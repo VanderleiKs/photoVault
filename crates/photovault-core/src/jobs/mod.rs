@@ -8,6 +8,7 @@
 
 mod gate;
 
+use crate::ai;
 use crate::analysis::{self, store::AnalyzeInput};
 use crate::catalog::{MediaItem, MediaType, media, settings};
 use crate::error::Result;
@@ -82,6 +83,8 @@ pub struct JobProgress {
     pub current_path: Option<String>,
     /// Recomputing duplicates, similar photos and bursts (after the queue drains).
     pub grouping: bool,
+    /// Photos waiting for the content analysis (local AI; 0 without the model).
+    pub content_pending: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -213,7 +216,10 @@ impl JobRunner {
         if self.is_paused() {
             return Ok(false);
         }
-        Ok(self.step_ingest().await? || self.step_analyze().await? || self.step_groups().await?)
+        Ok(self.step_ingest().await?
+            || self.step_analyze().await?
+            || self.step_groups().await?
+            || self.step_embed().await?)
     }
 
     fn cpu_workers(settings: &settings::AppSettings) -> usize {
@@ -389,6 +395,41 @@ impl JobRunner {
         }
         self.requeue(&deferred).await?;
         self.emit_progress(true).await;
+        Ok(true)
+    }
+
+    /// Content analysis (local AI, phase 7a): CLIP embeddings of the 1024 px previews, after
+    /// everything else, only when the model is loaded.
+    async fn step_embed(&self) -> Result<bool> {
+        let Some(engine) = ai::engine() else {
+            return Ok(false);
+        };
+        let batch = ai::index::pending(&self.pool, EMBED_BATCH).await?;
+        if batch.is_empty() {
+            return Ok(false);
+        }
+        self.lock_session().started.get_or_insert_with(Instant::now);
+        let dir = self.thumbnails_dir.clone();
+        let paused = Arc::clone(&self.paused);
+        let embedded =
+            tokio::task::spawn_blocking(move || embed_batch(&engine, &dir, batch, &paused)).await?;
+        let embedded = match embedded {
+            Ok(e) => e,
+            Err(e) => {
+                // The model itself fails (not one photo): stop instead of retrying forever.
+                tracing::error!("Local AI disabled for this session: {e}");
+                ai::unload();
+                return Ok(false);
+            }
+        };
+        if embedded.is_empty() {
+            return Ok(false); // paused
+        }
+        ai::index::store(&self.pool, &embedded).await?;
+        self.lock_session().done += embedded.len() as u32;
+        if self.should_emit() {
+            self.emit_progress(true).await;
+        }
         Ok(true)
     }
 
@@ -717,6 +758,11 @@ impl JobRunner {
         .fetch_one(&self.pool)
         .await?;
 
+        let content_pending = if ai::engine().is_some() {
+            ai::index::pending_count(&self.pool).await?
+        } else {
+            0
+        };
         let session = self.lock_session();
         let elapsed = session
             .started
@@ -742,8 +788,53 @@ impl JobRunner {
                 None
             },
             grouping: session.grouping,
+            content_pending,
         })
     }
+}
+
+/// Previews decoded and embedded in one inference (`step_embed`).
+const EMBED_BATCH: u32 = 16;
+
+/// Err only when the model fails; an unreadable preview is a per-photo error.
+fn embed_batch(
+    engine: &ai::Engine,
+    dir: &std::path::Path,
+    batch: Vec<(String, i64)>,
+    paused: &AtomicBool,
+) -> Result<Vec<ai::index::Embedded>> {
+    if paused.load(Ordering::Acquire) {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::with_capacity(batch.len());
+    let mut images = Vec::new();
+    let mut readable = Vec::new();
+    for (media_id, thumb_version) in batch {
+        let path = crate::thumbnails::path(dir, &media_id, crate::thumbnails::PREVIEW_SIZE);
+        match image::open(&path) {
+            Ok(img) => {
+                images.push(img);
+                readable.push((media_id, thumb_version));
+            }
+            Err(e) => out.push(ai::index::Embedded {
+                media_id,
+                thumb_version,
+                result: Err(format!("Prévia ilegível: {e}")),
+            }),
+        }
+    }
+    let vectors = engine.clip.embed_images(&images)?;
+    out.extend(
+        readable
+            .into_iter()
+            .zip(vectors)
+            .map(|((media_id, thumb_version), v)| ai::index::Embedded {
+                media_id,
+                thumb_version,
+                result: Ok(v),
+            }),
+    );
+    Ok(out)
 }
 
 /// How a job ended. `Skipped`: format not supported yet; re-queued on upgrade.

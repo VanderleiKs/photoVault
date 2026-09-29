@@ -361,12 +361,28 @@ Exemplos (2 fotos da categoria como exemplo "remover", limiar 0,70):
 
 **Limites:** um vídeo modificado mantém o quadro antigo (a miniatura só é capturada quando ainda não existe).
 
-### Fase 7 — IA local (≈ 4 semanas) → `v2.0`
+### Fase 7a — IA local: conteúdo e busca (≈ 2 semanas) → `v1.3` ✅ implementada (branch `fase-7a-ia`)
 
-- [ ] `ort` + download de modelos sob demanda com consentimento
-- [ ] `SceneAnalyzer` (chips "Paisagem 0.92"), com as labels de cena alimentando as heurísticas de momentâneas
-- [ ] `FaceAnalyzer`: detecção, depois agrupamento, depois nomeação; tela Pessoas; olhos fechados na escolha da melhor candidata
-- [ ] `EmbeddingAnalyzer` (CLIP) + busca semântica
+- [x] **Modelos** (`ai`): CLIP ViT-B/32 (imagem, OpenAI, MIT; ONNX int8 do Xenova, 89 MB) + `clip-ViT-B-32-multilingual-v1` (texto, Apache 2.0; ONNX int8, 135 MB) + projeção 768→512 (`2_Dense`) + tokenizador: 228 MB. Um modelo só serve à busca e às cenas. URLs fixadas num commit de cada repositório do Hugging Face e SHA-256 conferido (`ai::MANIFEST`)
+- [x] **Download com consentimento** (`ai::download`): Configurações → IA local explica o que é baixado, de onde e as licenças; é o único acesso à rede do app e só acontece no clique. `.part` + SHA-256 + tamanho, depois `rename`; cancelável; arquivos já corretos são mantidos. Medido: 228 MB em 20 s
+- [x] **Runtime**: `ort` 2.0.0-rc.13 (ONNX Runtime 1.28), CPU, **ligado estaticamente** (sem DLL). Binários baixados no build via rustls (`ort-sys/tls-rustls`: o build não precisa de OpenSSL); `tokenizers` com `fancy-regex` (sem código C). Executável release Linux: 77 MB (não medi o anterior)
+- [x] **Análise de conteúdo** (`JobRunner::step_embed`): quarta etapa da fila, depois de tudo; lê a prévia de 1024 px, lotes de 16, threads = padrão do ONNX Runtime (um por núcleo físico) ou o valor manual de "CPU". Vetor em int8 + escala (516 bytes por foto, `media_embeddings`, migration 0008) com a `thumb_version` de origem: prévia nova (arquivo editado, quadro de vídeo) = foto de volta na fila. Falha do modelo desliga a IA na sessão em vez de repetir; prévia ilegível fica registrada e não é repetida
+- [x] **Busca por conteúdo** na busca de sempre (Ctrl+K): o texto sem as datas vira "uma foto de …" e casa com as fotos acima de 0,24 de semelhança e a até 0,05 da melhor; resultado = nome/pasta/local/álbum **ou** conteúdo, na ordem escolhida (data), combinável com os filtros ("gato 2024"). Índice da biblioteca em memória (invalidado a cada gravação) e cache das últimas 16 buscas
+- [x] **Cenas** ("Praia 71 %", 26 cenas): derivadas na leitura do embedding (softmax com escala 100; ≥ 20 % e semelhança ≥ 0,2; até 3). Mudar a lista não exige reprocessar. Não vão para `media_labels` (a análise apaga os rótulos `auto` ao reanalisar)
+- [x] **Interface**: bloco IA local (baixar, progresso, cancelar, usar/desligar, remover), etiquetas de cena no painel e no visualizador, "Analisando o conteúdo · N fotos" no indicador da fila, placeholder da busca
+- [x] **Medição** (`tests/labeled/content.py`: 144 fotos livres do Wikimedia Commons em 12 categorias + 20 paisagens de distração; `examples/ai_eval.rs`): precisão 71 %, recall 87,5 % com os limiares escolhidos (a precisão é subestimada: "praia" ao pôr do sol e as paisagens de distração contam como erro). "uma foto de …" subiu o recall de 78 % para 84 % ("carro" 3 → 8 de 12). Cena esperada entre as etiquetas em 87 % das fotos (125/144), primeira em 80 %. Modelo int8 ≈ fp32 em qualidade e mais rápido (25 × 35 ms no protótipo)
+- [x] Teste de ponta a ponta com o modelo real, `#[ignore]` (`content_search_end_to_end`: scan → análise → embeddings → busca → cenas)
+
+**Desempenho** (i7-1255U, notebook): ~35–45 ms por foto (o modelo; a prévia já existe) → ~1 h para 100 mil fotos, só na primeira vez. Memória com o modelo carregado: ~590 MB de pico. Buscar: embedding do texto ~10 ms + varredura do índice.
+
+**Pendente:** validação no app (o WebKitGTK desta máquina não renderiza nem uma página `data:`; testar no Windows). CI Windows com o `ort` estático é o primeiro build nessa plataforma.
+
+**Limites:** as cenas não alimentam as heurísticas de momentâneas (fica para depois de medir); "bebê"/"piscina", que não existem no conjunto, ainda trazem 2–4 resultados; busca por conteúdo em vídeos usa só o quadro capturado.
+
+### Fase 7b — Pessoas (≈ 2 semanas) → `v2.0`
+
+- [ ] `FaceAnalyzer`: detecção, depois agrupamento, depois nomeação; tela Pessoas; olhos fechados na escolha da melhor candidata (modelos com licença que permita uso: YuNet MIT + SFace Apache 2.0, a confirmar; os do InsightFace são só para pesquisa)
+- [ ] Exemplos da Fase 5 com embeddings do CLIP (conteúdo, não só aparência)
 
 ### Fase 8 — Organização física (≈ 2 semanas) → `v2.1`
 
@@ -414,6 +430,7 @@ Exemplos (2 fotos da categoria como exemplo "remover", limiar 0,70):
 
 ## 6. Próximo passo imediato
 
-1. Validar a v1.1 no Windows 11 com fotos reais de celular (com GPS): viagens, títulos e o recálculo dos locais de um catálogo antigo.
-2. Decidir o empacotamento da libheif (HEIC) e do ffmpeg (miniaturas de vídeo), pendentes da Fase 2 (fotos de iPhone são HEIC: sem isso, viagens de iPhone ficam sem miniaturas).
-3. Iniciar a **Fase 7** (IA local: `ort`, cenas, rostos, busca semântica; os exemplos da Fase 5 passam a usar embeddings).
+1. Validar a v1.3 no Windows 11: baixar os modelos em Configurações → IA local, acompanhar a análise de conteúdo e buscar por conteúdo ("praia", "cachorro", "comida", "gato 2024").
+2. Mesclar a `v1.2.0` (commit `e05ae89`, que ficou fora do PR #10) antes desta branch.
+3. Decidir o empacotamento da libheif (HEIC) e do ffmpeg, pendentes da Fase 2.
+4. Iniciar a **Fase 7b** (Pessoas).

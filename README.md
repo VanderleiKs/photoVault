@@ -53,7 +53,7 @@ PhotoVault/
 
 Sem o `portable.flag`, os dados vão para a pasta de dados do sistema. O CI gera os dois pacotes automaticamente a cada tag `v*` (`.github/workflows/release.yml`).
 
-## Estado atual (v1.1, Fase 6)
+## Estado atual (v1.3, Fase 7a)
 
 Funciona hoje:
 
@@ -67,6 +67,7 @@ Funciona hoje:
 - **Exemplos**: dê fotos como exemplo do que você costuma apagar (ou manter) e as parecidas aparecem na Revisão
 - **Lixeira** reversível dentro da própria biblioteca (`.photovault-trash`), com restauração byte a byte, exclusão definitiva com confirmação dupla e opção de usar a lixeira do sistema
 - **Viagens e eventos** encontrados pelas datas e pela localização (ex.: "Viagem para Gramado e Canela · 10 a 12 jul 2025 · 90 fotos"): aceite, edite (título, período, fotos) ou ignore; tela do evento com destaques, cards por dia e linha do tempo; álbuns inteligentes sugeridos
+- **IA local (opcional)**: busca pelo conteúdo das fotos, em português ("cachorro na praia", "gato 2024"), e etiquetas de cena ("Praia 71 %"). Os modelos (228 MB) são baixados só quando você pede, em Configurações → IA local; depois disso tudo roda no seu computador
 - **Tags** manuais, buscáveis e filtráveis; classificação de cada foto no painel de informações
 - Limiares e prioridades ajustáveis em Configurações (recalcula em segundos, sem reler as fotos)
 - Várias bibliotecas, scan incremental, análise em segundo plano, modo portátil no Windows e no Linux
@@ -75,8 +76,8 @@ Nada é apagado automaticamente: a organização só sugere, e toda operação n
 
 Ainda não funciona:
 
-- Miniaturas de HEIC (os metadados já são lidos) e de vídeo
-- Pessoas e IA local (Fase 7), mapa das viagens; os exemplos ainda comparam o aspecto das fotos, não o conteúdo
+- Miniaturas de HEIC (os metadados já são lidos); vídeos com codec que o sistema não toca ficam com o ícone
+- Pessoas (Fase 7b), mapa das viagens; os exemplos ainda comparam o aspecto das fotos, não o conteúdo
 
 Veja o [plano](docs/PLANO.md).
 
@@ -85,3 +86,5 @@ Veja o [plano](docs/PLANO.md).
 Privado.
 
 Dados de terceiros: nomes de lugares do [GeoNames](https://www.geonames.org) (`cities1000`, licença [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), embutidos em `crates/photovault-core/data/cities.tsv.gz` (gerado por `data/build_cities.py`).
+
+IA local (baixada sob demanda, não distribuída com o app): [CLIP ViT-B/32](https://github.com/openai/CLIP) (OpenAI, licença MIT; ONNX de [Xenova/clip-vit-base-patch32](https://huggingface.co/Xenova/clip-vit-base-patch32)) e [clip-ViT-B-32-multilingual-v1](https://huggingface.co/sentence-transformers/clip-ViT-B-32-multilingual-v1) (sentence-transformers, licença Apache 2.0). Motor: [ONNX Runtime](https://onnxruntime.ai) (MIT), via o crate `ort`.
