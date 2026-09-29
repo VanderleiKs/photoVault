@@ -141,6 +141,8 @@ export const commands = {
 	/**  Title and/or dates; the event becomes "edited" (not changed by the app anymore). */
 	updateEvent: (eventId: string, change: EventUpdate) => typedError<EventSummary, ApiError>(__TAURI_INVOKE("update_event", { eventId, change })),
 	removeFromEvent: (eventId: string, mediaIds: string[]) => typedError<EventSummary, ApiError>(__TAURI_INVOKE("remove_from_event", { eventId, mediaIds })),
+	/**  Several events become one (a trip without GPS split into days). */
+	mergeEvents: (merge: EventMerge) => typedError<EventSummary, ApiError>(__TAURI_INVOKE("merge_events", { merge })),
 	/**  Detect trips and events again in every library, now, with the current settings. */
 	reclassifyEvents: (options: ReclassifyOptions) => typedError<EventCounts, ApiError>(__TAURI_INVOKE("reclassify_events", { options })),
 	/**  Homes the photos point to, one per library (Settings: "Sua casa parece ser…"). */
@@ -347,6 +349,20 @@ export type EventDay = {
 };
 
 export type EventKind = "trip" | "event";
+
+/**
+ *  "Juntar": several events become one (e.g. a trip without GPS, split into one event per
+ *  day). Takes their photos and the free photos between them (not in another accepted or
+ *  edited event); the result is "edited", and suggestions left inside it go away.
+ */
+export type EventMerge = {
+	eventIds: string[],
+	kind: EventKind,
+	/**  Empty/absent: from the place, or from the places of the photos. */
+	title?: string | null,
+	/**  Where it was, when the photos don't say ("Salvador, BA"). */
+	place?: string | null,
+};
 
 export type EventRef = {
 	id: string,

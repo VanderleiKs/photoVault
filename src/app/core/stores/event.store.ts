@@ -1,7 +1,7 @@
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { isTauri } from '@tauri-apps/api/core';
 import { Backend } from '../ipc/backend';
-import { unwrap, type EventCounts, type EventSummary, type EventUpdate, type ReclassifyOptions } from '../ipc/ipc';
+import { unwrap, type EventCounts, type EventMerge, type EventSummary, type EventUpdate, type ReclassifyOptions } from '../ipc/ipc';
 import { NotifyService } from '../notify.service';
 import { LibraryStore } from './library.store';
 import { OrganizeStore } from './organize.store';
@@ -52,8 +52,13 @@ export class EventStore {
     }
   }
 
-  accept(id: string) {
-    return this.decide(() => this.backend.commands.acceptEvent(id), 'Adicionado às suas viagens e eventos');
+  async accept(id: string) {
+    const event = await this.decide(() => this.backend.commands.acceptEvent(id));
+    if (event) {
+      // The card leaves "Sugestões": say where it went.
+      this.notify.success(event.kind === 'trip' ? 'Movida para Suas viagens' : 'Movido para Eventos', event.title);
+    }
+    return event;
   }
 
   ignore(id: string) {
@@ -70,6 +75,10 @@ export class EventStore {
 
   removeMedia(id: string, mediaIds: readonly string[]) {
     return this.decide(() => this.backend.commands.removeFromEvent(id, [...mediaIds]), 'Fotos removidas do evento', 'Os arquivos continuam na biblioteca.');
+  }
+
+  merge(merge: EventMerge) {
+    return this.decide(() => this.backend.commands.mergeEvents(merge), 'Eventos juntados', 'O PhotoVault não vai mais alterar este agrupamento.');
   }
 
   /** Detect again now, in every library (Settings). `null` on error. */
