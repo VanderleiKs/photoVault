@@ -53,7 +53,7 @@ PhotoVault/
 
 Sem o `portable.flag`, os dados vão para a pasta de dados do sistema. O CI gera os dois pacotes automaticamente a cada tag `v*` (`.github/workflows/release.yml`).
 
-## Estado atual (v0.7, Fase 4)
+## Estado atual (v1.0, Fase 5)
 
 Funciona hoje:
 
@@ -63,16 +63,19 @@ Funciona hoje:
   - fotos semelhantes e sequências em rajada;
   - baixa qualidade (borradas, escuras, estouradas, sem informação, baixa resolução);
   - fotos momentâneas (documentos, fotos acidentais) e screenshots.
+- **Revisão**: todas as sugestões priorizadas, por motivo, com Manter, Ignorar, Favoritar e Enviar para a lixeira (por foto ou em lote) e histórico com Desfazer
+- **Exemplos**: dê fotos como exemplo do que você costuma apagar (ou manter) e as parecidas aparecem na Revisão
+- **Lixeira** reversível dentro da própria biblioteca (`.photovault-trash`), com restauração byte a byte, exclusão definitiva com confirmação dupla e opção de usar a lixeira do sistema
 - **Tags** manuais, buscáveis e filtráveis; classificação de cada foto no painel de informações
-- Limiares da organização ajustáveis em Configurações (recalcula em segundos, sem reler as fotos)
+- Limiares e prioridades ajustáveis em Configurações (recalcula em segundos, sem reler as fotos)
 - Várias bibliotecas, scan incremental, análise em segundo plano, modo portátil no Windows e no Linux
 
-Nada é apagado automaticamente: a organização só sugere.
+Nada é apagado automaticamente: a organização só sugere, e toda operação no disco pede confirmação e fica registrada.
 
 Ainda não funciona:
 
 - Miniaturas de HEIC (os metadados já são lidos) e de vídeo
-- Revisão das sugestões e lixeira (Fase 5), viagens (Fase 6), pessoas e IA local (Fase 7)
+- Viagens (Fase 6), pessoas e IA local (Fase 7); os exemplos ainda comparam o aspecto das fotos, não o conteúdo
 
 Veja o [plano](docs/PLANO.md).
 

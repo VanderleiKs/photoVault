@@ -6,6 +6,7 @@ pub mod jobs;
 pub mod libraries;
 pub mod media;
 pub mod organize;
+pub mod review;
 pub mod scan;
 pub mod system;
 

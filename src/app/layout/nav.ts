@@ -32,6 +32,12 @@ export const MAIN_NAV: NavItem[] = [
 
 export const ORGANIZE_NAV: NavItem[] = [
   {
+    label: 'Revisão',
+    icon: 'pi pi-check-square',
+    route: '/review',
+    description: 'Todas as sugestões priorizadas: manter, favoritar, ignorar ou enviar para a lixeira.',
+  },
+  {
     label: 'Possíveis duplicatas',
     icon: 'pi pi-clone',
     route: '/organize/duplicates',
@@ -62,11 +68,10 @@ export const ORGANIZE_NAV: NavItem[] = [
     description: 'Capturas de tela identificadas por dimensões, nome e ausência de dados de câmera.',
   },
   {
-    label: 'Revisão',
-    icon: 'pi pi-check-square',
-    route: '/review',
-    phase: 5,
-    description: 'Todas as sugestões priorizadas: manter, favoritar, ignorar ou enviar para a lixeira.',
+    label: 'Lixeira',
+    icon: 'pi pi-trash',
+    route: '/trash',
+    description: 'Fotos enviadas para a lixeira da biblioteca: restaure ou exclua definitivamente.',
   },
 ];
 

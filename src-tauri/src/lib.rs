@@ -16,7 +16,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 /// Commands and events exposed to the frontend (single source for the TS bindings).
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
-    use commands::{albums, jobs, libraries, media, organize, scan, system};
+    use commands::{albums, jobs, libraries, media, organize, review, scan, system};
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(collect_commands![
             system::get_app_info,
@@ -59,6 +59,22 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             organize::add_tag,
             organize::remove_tag,
             organize::list_tags,
+            review::get_review_summary,
+            review::get_media_review,
+            review::get_pending_reasons,
+            review::decide_review,
+            review::list_review_history,
+            review::list_examples,
+            review::add_examples,
+            review::add_example_from_file,
+            review::set_example_intent,
+            review::remove_example,
+            review::trash_media,
+            review::restore_media,
+            review::purge_media,
+            review::empty_trash,
+            review::get_trash_summary,
+            review::get_trash_entry,
             jobs::get_job_progress,
             jobs::pause_jobs,
             jobs::resume_jobs,
@@ -146,6 +162,28 @@ pub fn run() {
                 Arc::new(events::TauriJobObserver(app.handle().clone())),
             ))?;
             tauri::async_runtime::spawn(Arc::clone(&jobs).run());
+            // Settle trash operations cut short last time, then the optional cleanup.
+            tauri::async_runtime::spawn({
+                let (pool, thumbnails) = (database.pool.clone(), paths.thumbnails_dir.clone());
+                async move {
+                    match photovault_core::trash::recover(&pool).await {
+                        Ok(0) => {}
+                        Ok(n) => tracing::info!("Settled {n} interrupted trash operations"),
+                        Err(e) => tracing::warn!("Trash recovery failed: {e}"),
+                    }
+                    let days = photovault_core::catalog::settings::get(&pool)
+                        .await
+                        .map(|s| s.review.auto_purge_days)
+                        .unwrap_or(0);
+                    match photovault_core::trash::auto_purge(&pool, &thumbnails, days).await {
+                        Ok(0) => {}
+                        Ok(n) => {
+                            tracing::info!("Trash cleanup deleted {n} items older than {days} days")
+                        }
+                        Err(e) => tracing::warn!("Trash cleanup failed: {e}"),
+                    }
+                }
+            });
 
             app.manage(Arc::new(state::AppState {
                 pool: database.pool,

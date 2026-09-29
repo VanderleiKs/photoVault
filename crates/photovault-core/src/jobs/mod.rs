@@ -396,10 +396,10 @@ impl JobRunner {
         let Some(library_id) = dirty.first() else {
             return Ok(false);
         };
-        let thresholds = settings::get(&self.pool).await?.analysis;
+        let settings = settings::get(&self.pool).await?;
         self.lock_session().grouping = true;
         self.emit_progress(true).await;
-        let result = analysis::store::refresh_library(&self.pool, library_id, &thresholds).await;
+        let result = analysis::store::refresh_library(&self.pool, library_id, &settings).await;
         self.lock_session().grouping = false;
         result?;
         self.observer.on_analysis_updated(library_id);

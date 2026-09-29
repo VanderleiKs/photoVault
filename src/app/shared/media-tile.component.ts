@@ -57,6 +57,10 @@ import { JobStore } from '../core/stores/job.store';
       </span>
     }
 
+    @if (badge(); as b) {
+      <span class="pointer-events-none absolute bottom-1.5 left-1.5 max-w-[85%] truncate rounded bg-black/65 px-1.5 py-0.5 text-[11px] font-medium text-white">{{ b }}</span>
+    }
+
     <div class="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/35 to-transparent to-40% opacity-0 transition-opacity group-hover:opacity-100" [class.opacity-100]="selecting()"></div>
 
     <button
@@ -94,6 +98,8 @@ export class MediaTileComponent {
   readonly checked = input(false);
   /** Selection mode: circles always visible. */
   readonly selecting = input(false);
+  /** Short text over the bottom of the tile (e.g. the review reason). */
+  readonly badge = input<string | null>(null);
 
   readonly select = output<MouseEvent>();
   readonly open = output<void>();

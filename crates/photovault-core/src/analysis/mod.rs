@@ -1,5 +1,6 @@
 pub mod bktree;
 pub mod classify;
+pub mod descriptor;
 pub mod grouping;
 pub mod metrics;
 pub mod store;

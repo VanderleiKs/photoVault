@@ -57,6 +57,10 @@ pub struct MediaItem {
     /// 0 = thumbnails not generated yet; bumps when they are rewritten.
     pub thumb_version: u32,
     pub indexed_at: String,
+    /// In the trash (`relative_path` then points inside `.photovault-trash`).
+    pub in_trash: bool,
+    /// Priority (1–1000) of its pending review suggestions; `None` = nothing to review.
+    pub review_priority: Option<u32>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -88,6 +92,8 @@ struct MediaRow {
     is_favorite: bool,
     thumb_version: i64,
     indexed_at: String,
+    in_trash: bool,
+    review_priority: Option<i64>,
 }
 
 impl From<MediaRow> for MediaItem {
@@ -121,6 +127,8 @@ impl From<MediaRow> for MediaItem {
             is_favorite: r.is_favorite,
             thumb_version: small(Some(r.thumb_version)).unwrap_or(0),
             indexed_at: r.indexed_at,
+            in_trash: r.in_trash,
+            review_priority: small(r.review_priority),
         }
     }
 }
@@ -158,7 +166,8 @@ const COLUMNS: &str = "m.id, m.library_id, m.relative_path, m.filename, m.extens
      m.file_size, m.width, m.height, m.duration_ms, m.captured_at, m.date_source, \
      m.camera_make, m.camera_model, m.lens, m.iso, m.aperture, m.shutter, m.focal_length, \
      m.gps_lat, m.gps_lon, p.name AS place_name, p.admin1 AS place_admin1, \
-     p.country_code AS place_country, m.is_favorite, m.thumb_version, m.indexed_at";
+     p.country_code AS place_country, m.is_favorite, m.thumb_version, m.indexed_at, \
+     m.status = 'trashed' AS in_trash, m.review_priority";
 const FROM: &str = "FROM media m LEFT JOIN places p ON p.id = m.place_id";
 
 const MAX_PAGE: u32 = 500;
@@ -401,6 +410,21 @@ pub async fn set_favorite(
         }
         qb.push(")");
         qb.build().execute(&mut *tx).await?;
+        if favorite {
+            // R5: a favorite is never a candidate, right away (the next pass agrees).
+            for sql in [
+                "DELETE FROM review_candidates WHERE status = 'pending' AND media_id IN (",
+                "UPDATE media SET review_priority = NULL WHERE id IN (",
+            ] {
+                let mut qb = QueryBuilder::<Sqlite>::new(sql);
+                let mut list = qb.separated(", ");
+                for id in chunk {
+                    list.push_bind(id.clone());
+                }
+                qb.push(")");
+                qb.build().execute(&mut *tx).await?;
+            }
+        }
     }
     // Favorites win ties for "best candidate" in duplicate groups.
     for library_id in &libraries {
@@ -697,6 +721,74 @@ pub(crate) mod tests {
                 videos: 1
             }
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn review_and_trash_filters() {
+        let (pool, dir, lib) = sample().await;
+        for (id, priority) in [("b", 500), ("e", 900)] {
+            sqlx::query("UPDATE media SET review_priority = ?1 WHERE id = ?2")
+                .bind(priority)
+                .bind(id)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        sqlx::query(
+            "INSERT INTO review_candidates (id, library_id, media_id, reason, score, created_at)
+             VALUES ('r1', ?1, 'e', 'BLURRY', 0.8, 'now'), ('r2', ?1, 'b', 'DARK', 0.8, 'now')",
+        )
+        .bind(&lib)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE media SET status = 'trashed' WHERE id = 'f'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let priority = MediaQuery {
+            sort: MediaSort::Priority,
+            ..Default::default()
+        };
+        for page in [1, 2, 100] {
+            assert_eq!(
+                all_ids(&pool, &lib, &priority, page).await,
+                ["e", "b", "d", "c", "a"],
+                "page {page}"
+            );
+        }
+        let cases = [
+            (
+                MediaFilter {
+                    review: Some(true),
+                    ..Default::default()
+                },
+                vec!["b", "e"],
+            ),
+            (
+                MediaFilter {
+                    review_reason: Some(crate::review::ReviewReason::Blurry),
+                    ..Default::default()
+                },
+                vec!["e"],
+            ),
+            (
+                MediaFilter {
+                    trashed: Some(true),
+                    ..Default::default()
+                },
+                vec!["f"],
+            ),
+        ];
+        for (filter, ids) in cases {
+            assert_eq!(
+                all_ids(&pool, &lib, &by(filter.clone()), 1).await,
+                ids,
+                "{filter:?}"
+            );
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 

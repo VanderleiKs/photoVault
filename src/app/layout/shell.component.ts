@@ -50,7 +50,7 @@ export class ShellComponent {
     { initialValue: this.router.url },
   );
   /** Pages that show media and therefore the "Informações" panel. */
-  private readonly mediaPage = computed(() => /^\/(home|photos|timeline|favorites|albums\/|organize\/)/.test(this.url()));
+  private readonly mediaPage = computed(() => /^\/(home|photos|timeline|favorites|albums\/|organize\/|review|trash)/.test(this.url()));
 
   protected readonly showInfo = computed(
     () => this.mediaPage() && this.ui.infoPanelOpen() && !!this.selection.focused(),
