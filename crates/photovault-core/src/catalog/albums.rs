@@ -170,6 +170,119 @@ pub async fn list(pool: &SqlitePool, library_id: &str) -> Result<Vec<Album>> {
     Ok(albums)
 }
 
+/// A smart album the app proposes (PRD §18 "sugeridos"); created only on request.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumSuggestion {
+    pub name: String,
+    pub rule: MediaFilter,
+    pub count: u32,
+    pub cover: Option<MediaItem>,
+}
+
+/// Smallest album worth proposing.
+const MIN_SUGGESTED: u32 = 5;
+
+/// Trips, favorites and best photos per year, screenshots, "para revisar". Those that
+/// already exist (same rule or name) are left out.
+pub async fn suggestions(pool: &SqlitePool, library_id: &str) -> Result<Vec<AlbumSuggestion>> {
+    let existing = list(pool, library_id).await?;
+    let taken = |name: &str, rule: &MediaFilter| {
+        existing.iter().any(|a| {
+            a.name.eq_ignore_ascii_case(name) || a.rule.as_ref().is_some_and(|r| r == rule)
+        })
+    };
+    let mut candidates: Vec<(String, MediaFilter)> = Vec::new();
+    let trips: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, title FROM events WHERE library_id = ?1 AND kind = 'trip'
+           AND status IN ('accepted', 'edited') ORDER BY started_at DESC LIMIT 6",
+    )
+    .bind(library_id)
+    .fetch_all(pool)
+    .await?;
+    for (id, title) in trips {
+        candidates.push((
+            title,
+            MediaFilter {
+                event_id: Some(id),
+                ..Default::default()
+            },
+        ));
+    }
+    let years: Vec<i64> = sqlx::query_scalar(
+        "SELECT DISTINCT CAST(substr(captured_at, 1, 4) AS INTEGER) AS y FROM media
+         WHERE library_id = ?1 AND status = 'active' AND captured_at IS NOT NULL
+         ORDER BY y DESC LIMIT 3",
+    )
+    .bind(library_id)
+    .fetch_all(pool)
+    .await?;
+    for year in years.into_iter().filter_map(|y| u32::try_from(y).ok()) {
+        candidates.push((
+            format!("Favoritas de {year}"),
+            MediaFilter {
+                favorite: Some(true),
+                year: Some(year),
+                ..Default::default()
+            },
+        ));
+        candidates.push((
+            format!("Melhores de {year}"),
+            MediaFilter {
+                quality: Some(crate::analysis::classify::QualityLevel::High),
+                year: Some(year),
+                ..Default::default()
+            },
+        ));
+    }
+    candidates.push((
+        "Screenshots".into(),
+        MediaFilter {
+            screenshot: Some(true),
+            ..Default::default()
+        },
+    ));
+    candidates.push((
+        "Para revisar".into(),
+        MediaFilter {
+            review: Some(true),
+            ..Default::default()
+        },
+    ));
+
+    let mut out = Vec::new();
+    for (name, rule) in candidates {
+        if taken(&name, &rule) {
+            continue;
+        }
+        let count = media::count(pool, library_id, &rule).await?.total;
+        if count < MIN_SUGGESTED {
+            continue;
+        }
+        let cover = media::list(
+            pool,
+            library_id,
+            &MediaQuery {
+                filter: rule.clone(),
+                ..Default::default()
+            },
+            None,
+            1,
+        )
+        .await?
+        .items
+        .into_iter()
+        .next();
+        out.push(AlbumSuggestion {
+            name,
+            rule,
+            count,
+            cover,
+        });
+    }
+    Ok(out)
+}
+
 pub async fn get(pool: &SqlitePool, id: &str) -> Result<Album> {
     hydrate(pool, row(pool, id).await?).await
 }
@@ -347,6 +460,44 @@ mod tests {
     use crate::catalog::libraries;
     use crate::catalog::media::tests::{Row, insert};
     use crate::db::tests::{temp_dir, test_db};
+
+    #[tokio::test]
+    async fn suggested_albums_skip_small_and_existing_ones() {
+        let (pool, dir) = test_db().await;
+        let lib = libraries::create(&pool, "A", temp_dir().to_str().unwrap())
+            .await
+            .unwrap();
+        let ids: Vec<String> = (0..8).map(|i| format!("f{i}")).collect();
+        for id in &ids {
+            insert(
+                &pool,
+                &lib.id,
+                Row {
+                    id,
+                    captured_at: Some("2025-05-01T10:00:00"),
+                    favorite: true,
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+        let names = |s: &[AlbumSuggestion]| s.iter().map(|a| a.name.clone()).collect::<Vec<_>>();
+        let first = suggestions(&pool, &lib.id).await.unwrap();
+        assert_eq!(
+            names(&first),
+            ["Favoritas de 2025"],
+            "screenshots/best: fewer than 5"
+        );
+        assert_eq!(first[0].count, 8);
+        create(&pool, &lib.id, "Minhas favoritas", Some(&first[0].rule))
+            .await
+            .unwrap();
+        assert!(
+            suggestions(&pool, &lib.id).await.unwrap().is_empty(),
+            "same rule exists"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[tokio::test]
     async fn manual_album_lifecycle() {

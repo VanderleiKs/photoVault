@@ -17,7 +17,6 @@ export const MAIN_NAV: NavItem[] = [
     label: 'Viagens',
     icon: 'pi pi-send',
     route: '/trips',
-    phase: 6,
     description: 'Viagens e eventos sugeridos a partir de datas e localização. Você aceita, edita ou ignora.',
   },
   {

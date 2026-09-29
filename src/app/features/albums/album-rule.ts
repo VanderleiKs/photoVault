@@ -14,5 +14,9 @@ export function describeRule(rule: MediaFilter | null | undefined): string[] {
   if (rule.dateFrom || rule.dateTo) parts.push(`${rule.dateFrom ?? '…'} a ${rule.dateTo ?? '…'}`);
   if (rule.placeId) parts.push('Local escolhido');
   if (rule.camera) parts.push(rule.camera);
+  if (rule.quality === 'high') parts.push('Alta qualidade');
+  if (rule.screenshot) parts.push('Screenshots');
+  if (rule.review) parts.push('Para revisar');
+  if (rule.eventId) parts.push('Viagem/evento');
   return parts;
 }

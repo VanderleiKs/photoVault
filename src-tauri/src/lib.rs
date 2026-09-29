@@ -16,7 +16,9 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 /// Commands and events exposed to the frontend (single source for the TS bindings).
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
-    use commands::{albums, jobs, libraries, media, organize, review, scan, system};
+    use commands::{
+        albums, events as event_commands, jobs, libraries, media, organize, review, scan, system,
+    };
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(collect_commands![
             system::get_app_info,
@@ -45,6 +47,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             media::list_places,
             media::list_cameras,
             albums::list_albums,
+            albums::list_album_suggestions,
             albums::get_album,
             albums::create_album,
             albums::rename_album,
@@ -59,6 +62,15 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             organize::add_tag,
             organize::remove_tag,
             organize::list_tags,
+            event_commands::list_events,
+            event_commands::get_event,
+            event_commands::get_event_days,
+            event_commands::get_event_highlights,
+            event_commands::accept_event,
+            event_commands::ignore_event,
+            event_commands::restore_event,
+            event_commands::update_event,
+            event_commands::remove_from_event,
             review::get_review_summary,
             review::get_media_review,
             review::get_pending_reasons,

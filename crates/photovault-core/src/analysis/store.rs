@@ -288,6 +288,7 @@ pub async fn refresh_library(
     requalify(pool, library_id, t).await?;
     rebuild_groups(pool, library_id, t).await?;
     crate::review::rebuild(pool, library_id, settings).await?;
+    crate::events::rebuild(pool, library_id, settings).await?;
     sqlx::query("UPDATE analysis_state SET analyzed_at = ?1 WHERE library_id = ?2")
         .bind(Utc::now().to_rfc3339())
         .bind(library_id)

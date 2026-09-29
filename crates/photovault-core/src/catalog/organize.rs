@@ -27,6 +27,8 @@ pub struct OrganizeCounts {
     /// Photos with pending review suggestions, and photos in the trash (phase 5).
     pub review: u32,
     pub trash: u32,
+    /// Trips/events waiting for "aceitar" or "ignorar" (phase 6).
+    pub event_suggestions: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -109,6 +111,8 @@ pub struct MediaAnalysis {
     /// Active labels only (automatic above threshold, and manual tags).
     pub labels: Vec<LabelInfo>,
     pub groups: Vec<GroupRef>,
+    /// Trips/events it belongs to (phase 6).
+    pub events: Vec<crate::events::EventRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Type, sqlx::FromRow)]
@@ -187,6 +191,7 @@ pub async fn counts(pool: &SqlitePool, library_id: &str) -> Result<OrganizeCount
         pending: pending as u32,
         review: review as u32,
         trash: trash as u32,
+        event_suggestions: crate::events::pending_count(pool, library_id).await?,
     })
 }
 
@@ -364,6 +369,7 @@ pub async fn media_analysis(pool: &SqlitePool, media_id: &str) -> Result<MediaAn
         });
     }
 
+    let events = crate::events::of_media(pool, media_id).await?;
     let analyzed = quality.is_some();
     let (level, flags, sharpness, brightness) = match quality {
         Some((level, flags, sharpness, brightness)) => (level, flags, sharpness, brightness),
@@ -372,6 +378,7 @@ pub async fn media_analysis(pool: &SqlitePool, media_id: &str) -> Result<MediaAn
     let flags: Vec<String> = serde_json::from_str(&flags).unwrap_or_default();
     Ok(MediaAnalysis {
         analyzed,
+        events,
         quality: level.as_deref().and_then(level_of),
         flags: flags.iter().filter_map(|f| flag_of(f)).collect(),
         sharpness,

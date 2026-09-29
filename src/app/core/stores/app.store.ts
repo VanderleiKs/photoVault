@@ -1,6 +1,6 @@
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { Backend } from '../ipc/backend';
-import { unwrap, type AppInfo, type AnalysisSettings, type AppSettings, type ReviewSettings } from '../ipc/ipc';
+import { unwrap, type AppInfo, type AnalysisSettings, type AppSettings, type ReviewSettings, type EventSettings } from '../ipc/ipc';
 import { NotifyService } from '../notify.service';
 
 /** Same values as `AnalysisSettings::default()` in the core. */
@@ -40,6 +40,15 @@ export const DEFAULT_REVIEW: ReviewSettings = {
   autoPurgeDays: 0,
 };
 
+/** Same values as `EventSettings::default()` in the core. */
+export const DEFAULT_EVENTS: EventSettings = {
+  gapHours: 6,
+  tripMinKm: 50,
+  tripJoinHours: 48,
+  minEventItems: 20,
+  minTripItems: 10,
+};
+
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'light',
   activeLibraryId: null,
@@ -47,6 +56,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   cpuConcurrency: 0,
   analysis: DEFAULT_ANALYSIS,
   review: DEFAULT_REVIEW,
+  events: DEFAULT_EVENTS,
 };
 
 /** App-wide info and persisted settings (theme, active library, performance). */

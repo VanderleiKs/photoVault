@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { ConfirmationService, type MenuItem } from '@openng/optimus-ui/api';
@@ -8,7 +8,11 @@ import { InputTextModule } from '@openng/optimus-ui/inputtext';
 import { MenuModule } from '@openng/optimus-ui/menu';
 import { SkeletonModule } from '@openng/optimus-ui/skeleton';
 import { formatCount } from '../../core/format';
-import { errorMessage, previewUrl, type Album } from '../../core/ipc/ipc';
+import { errorMessage, previewUrl, unwrap, type Album, type AlbumSuggestion } from '../../core/ipc/ipc';
+import { isTauri } from '@tauri-apps/api/core';
+import { Backend } from '../../core/ipc/backend';
+import { LibraryStore } from '../../core/stores/library.store';
+import { NotifyService } from '../../core/notify.service';
 import { AlbumStore } from '../../core/stores/album.store';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { describeRule } from './album-rule';
@@ -27,6 +31,31 @@ import { describeRule } from './album-rule';
       </div>
       <p-button label="Novo álbum" icon="pi pi-plus" (onClick)="openEditor(null)" />
     </header>
+
+    @if (suggestions().length) {
+      <section class="px-6 pt-6" aria-labelledby="sugeridos">
+        <h2 id="sugeridos" class="mb-1 text-base font-semibold">Sugeridos</h2>
+        <p class="mb-3 text-xs text-muted">Álbuns inteligentes prontos: atualizam sozinhos conforme a biblioteca muda.</p>
+        <ul class="-mx-1 flex snap-x gap-4 overflow-x-auto px-1 pb-2">
+          @for (s of suggestions(); track s.name) {
+            <li class="w-52 shrink-0 snap-start overflow-hidden rounded-xl border border-dashed border-line bg-panel">
+              <div class="aspect-[4/3] bg-panel-2">
+                @if (s.cover; as c) {
+                  <img [src]="c.thumbVersion ? preview(c.id, c.thumbVersion) : ''" alt="" loading="lazy" class="size-full object-cover" />
+                }
+              </div>
+              <div class="flex items-center gap-2 p-2.5">
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-sm font-medium" [title]="s.name">{{ s.name }}</p>
+                  <p class="text-xs text-muted">{{ count(s.count) }}</p>
+                </div>
+                <p-button label="Criar" icon="pi pi-plus" size="small" [text]="true" (onClick)="createSuggested(s)" />
+              </div>
+            </li>
+          }
+        </ul>
+      </section>
+    }
 
     <section class="p-6">
       @if (!albums.loaded()) {
@@ -104,6 +133,32 @@ export class AlbumsPage {
   protected readonly editing = signal<Album | null>(null);
   protected readonly name = signal('');
   protected readonly error = signal<string | null>(null);
+  protected readonly suggestions = signal<AlbumSuggestion[]>([]);
+  private readonly backend = inject(Backend);
+  private readonly notify = inject(NotifyService);
+
+  constructor() {
+    const libraries = inject(LibraryStore);
+    effect(() => {
+      const library = libraries.activeId();
+      this.albums.albums(); // creating one takes it off the suggestions
+      untracked(() => void this.loadSuggestions(library));
+    });
+  }
+
+  private async loadSuggestions(libraryId: string | null) {
+    if (!libraryId || !isTauri()) return this.suggestions.set([]);
+    this.suggestions.set(await unwrap(this.backend.commands.listAlbumSuggestions(libraryId)).catch(() => []));
+  }
+
+  protected async createSuggested(s: AlbumSuggestion) {
+    try {
+      const album = await this.albums.create(s.name, s.rule);
+      void this.router.navigate(['/albums', album.id]);
+    } catch (e) {
+      this.notify.error('Não foi possível criar o álbum', e);
+    }
+  }
 
   protected count(n: number) {
     return `${formatCount(n)} ${n === 1 ? 'item' : 'itens'}`;

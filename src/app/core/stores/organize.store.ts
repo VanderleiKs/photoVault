@@ -26,6 +26,7 @@ export class OrganizeStore {
       '/organize/screenshots': c.screenshots,
       '/review': c.review,
       '/trash': c.trash,
+      '/trips': c.eventSuggestions,
     };
   });
 

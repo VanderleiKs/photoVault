@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { isTauri } from '@tauri-apps/api/core';
 import { FLAG_LABEL, GROUP_LABEL, QUALITY_LABEL, labelText } from '../core/analysis-labels';
 import { Backend } from '../core/ipc/backend';
@@ -15,7 +16,7 @@ import { ViewerContext } from '../core/stores/viewer-context';
  */
 @Component({
   selector: 'app-media-analysis',
-  imports: [FormsModule],
+  imports: [FormsModule, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -37,6 +38,22 @@ import { ViewerContext } from '../core/stores/viewer-context';
             <span class="rounded-full px-2.5 py-0.5 text-xs" [class]="chip()" [title]="label.score ? 'Confiança ' + (label.score * 100).toFixed(0) + '%' : ''">{{ text(label.dimension, label.value) }}</span>
           }
         </div>
+      }
+
+      @if (a.events.length) {
+        <ul class="mt-3 space-y-1.5 text-xs">
+          @for (ev of a.events; track ev.id) {
+            <li class="flex items-center gap-2">
+              <i [class]="(ev.kind === 'trip' ? 'pi pi-send ' : 'pi pi-calendar ') + muted()"></i>
+              <a [routerLink]="['/trips', ev.id]" class="flex-1 truncate hover:underline" [class]="dark() ? 'text-slate-200' : 'text-ink'">
+                {{ ev.title }}
+                @if (ev.status === 'suggested') {
+                  <span class="ml-1 rounded bg-amber-500/15 px-1.5 text-[11px] text-amber-700 dark:text-amber-400">sugestão</span>
+                }
+              </a>
+            </li>
+          }
+        </ul>
       }
 
       @if (a.groups.length) {

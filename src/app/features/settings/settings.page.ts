@@ -13,6 +13,7 @@ import { formatCount, formatEta } from '../../core/format';
 import { ActivatedRoute } from '@angular/router';
 import { ExamplesSettingsComponent } from './examples-settings.component';
 import { ReviewSettingsComponent } from './review-settings.component';
+import { EventSettingsComponent } from './event-settings.component';
 
 interface ThresholdField {
   key: Exclude<keyof AnalysisSettings, 'sequenceMinSize' | 'overexposedFraction'>;
@@ -27,7 +28,7 @@ interface ThresholdField {
 
 @Component({
   selector: 'app-settings-page',
-  imports: [FormsModule, ButtonModule, InputNumberModule, SelectButtonModule, TagModule, ReviewSettingsComponent, ExamplesSettingsComponent],
+  imports: [FormsModule, ButtonModule, InputNumberModule, SelectButtonModule, TagModule, ReviewSettingsComponent, ExamplesSettingsComponent, EventSettingsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -95,6 +96,7 @@ interface ThresholdField {
       </section>
 
       <app-review-settings />
+      <app-event-settings />
       <app-examples-settings />
 
       <section class="rounded-card border border-line bg-panel p-5">
@@ -160,6 +162,7 @@ interface ThresholdField {
         <section class="rounded-card border border-line bg-panel p-5">
           <h2 class="font-semibold">Sobre</h2>
           <p class="mt-1 text-sm text-muted">PhotoVault {{ info.version }} · local-first · privacy-first</p>
+          <p class="mt-2 text-xs text-muted">Nomes de lugares: GeoNames (geonames.org), licença CC BY 4.0, embutidos no app (nenhuma consulta pela internet).</p>
         </section>
       }
     </div>

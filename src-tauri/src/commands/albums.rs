@@ -1,11 +1,22 @@
 use super::AppStateRef;
 use crate::error::ApiResult;
+use photovault_core::catalog::albums::AlbumSuggestion;
 use photovault_core::catalog::{Album, MediaFilter, albums};
 
 #[tauri::command]
 #[specta::specta]
 pub async fn list_albums(library_id: String, state: AppStateRef<'_>) -> ApiResult<Vec<Album>> {
     Ok(albums::list(&state.pool, &library_id).await?)
+}
+
+/// Smart albums worth creating (trips, favorites/best per year, screenshots…).
+#[tauri::command]
+#[specta::specta]
+pub async fn list_album_suggestions(
+    library_id: String,
+    state: AppStateRef<'_>,
+) -> ApiResult<Vec<AlbumSuggestion>> {
+    Ok(albums::suggestions(&state.pool, &library_id).await?)
 }
 
 #[tauri::command]

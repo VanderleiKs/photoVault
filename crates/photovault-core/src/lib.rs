@@ -7,6 +7,7 @@ pub mod analysis;
 pub mod catalog;
 pub mod db;
 pub mod error;
+pub mod events;
 pub mod ingestion;
 pub mod jobs;
 pub mod paths;

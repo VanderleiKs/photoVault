@@ -20,6 +20,7 @@ const counts = (patch: Partial<OrganizeCounts> = {}): OrganizeCounts => ({
   pending: 0,
   review: 12,
   trash: 4,
+  eventSuggestions: 2,
   ...patch,
 });
 
@@ -55,6 +56,7 @@ describe('OrganizeStore', () => {
       '/organize/screenshots': 9,
       '/review': 12,
       '/trash': 4,
+      '/trips': 2,
     });
 
     current = counts({ screenshots: 1 });

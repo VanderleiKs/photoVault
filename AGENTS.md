@@ -22,7 +22,9 @@ cargo run --release -p photovault-core --example query_bench                    
 python3 crates/photovault-core/tests/labeled/generate.py <fotos-reais> <pasta>          # conjunto rotulado (~190 imagens)
 cargo run --release -p photovault-core --example analysis_eval -- <pasta>              # precisão/recall das heurísticas
 cargo run --release -p photovault-core --example hash_eval -- <fotos-reais>            # compara algoritmos de hash
-cargo run --release -p photovault-core --example label_dump -- <pasta> [document|all] # falsos positivos em fotos reais
+cargo run --release -p photovault-core --example label_dump -- <pasta> [document|all|events] # rótulos/eventos de uma pasta
+python3 crates/photovault-core/tests/labeled/trips.py <fotos-reais> <pasta>             # biblioteca com viagens (EXIF data + GPS)
+python3 crates/photovault-core/data/build_cities.py cities1000.txt admin1CodesASCII.txt # regenera data/cities.tsv.gz (GeoNames)
 
 npx tauri build --bundles appimage   # Linux  → depois: npm run package:portable
 npx tauri build --no-bundle          # Windows → depois: npm run package:portable
@@ -38,19 +40,20 @@ crates/photovault-core/   domínio, SEM Tauri: db, catalog (query, media, albums
                           settings, organize), ingestion (MediaSource, scanner,
                           metadata, processor, geo), jobs (fila de análise), thumbnails, paths,
                           volume, analysis (metrics, classify, bktree, grouping, store, descriptor,
-                          VisionAnalyzer), review (sugestões, exemplos), trash (lixeira + operations_log)
+                          VisionAnalyzer), review (sugestões, exemplos), trash (lixeira + operations_log),
+                          events (detect: viagens/eventos)
 src-tauri/                camada fina: commands/, events.rs, protocol.rs (pv://), state.rs, lib.rs
 src/app/core/             ipc/ (bindings.ts gerado, ipc.ts, backend.ts), stores/ (signals), format, notify
 src/app/layout/           shell, sidebar, topbar (busca Ctrl+K), info-panel, bottom-nav, nav.ts
-src/app/features/         home, photos, timeline, favorites, albums, organize, review, trash, viewer,
+src/app/features/         home, photos, timeline, favorites, albums, organize, review, trash, trips, viewer,
                           libraries, settings, welcome
 src/app/shared/           media-grid/ (grade virtualizada), media-tile, filter-bar, selection-bar,
                           album-picker, confirm-action, gallery-controls, media-details,
-                          media-analysis, media-review, job-status, empty-state
+                          media-analysis, media-review, event-card, job-status, empty-state
 ```
 
 - **Regra de negócio vai no core** (`photovault-core`), com teste. Os commands só adaptam para IPC.
-- **Estado do frontend fica nas stores.** Globais: `AppStore`, `LibraryStore`, `ScanStore`, `JobStore`, `SelectionStore` (foco do painel + seleção múltipla), `BrowseStore` (filtros de "Todas as fotos", persistidos por biblioteca, e busca), `AlbumStore`, `OrganizeStore` (contadores de Organizar), `ViewerContext`, `UiStore`. Por página: `GalleryStore` (`providers: [GalleryStore]`), que junta o filtro fixo da página ao do usuário, pagina e se atualiza sozinho. Os componentes não chamam IPC direto, exceto em casos pontuais pelo `Backend`.
+- **Estado do frontend fica nas stores.** Globais: `AppStore`, `LibraryStore`, `ScanStore`, `JobStore`, `SelectionStore` (foco do painel + seleção múltipla), `BrowseStore` (filtros de "Todas as fotos", persistidos por biblioteca, e busca), `AlbumStore`, `OrganizeStore` (contadores de Organizar), `EventStore` (viagens/eventos), `ViewerContext`, `UiStore`. Por página: `GalleryStore` (`providers: [GalleryStore]`), que junta o filtro fixo da página ao do usuário, pagina e se atualiza sozinho. Os componentes não chamam IPC direto, exceto em casos pontuais pelo `Backend`.
 
 ## Gotchas
 
@@ -93,3 +96,5 @@ src/app/shared/           media-grid/ (grade virtualizada), media-tile, filter-b
 - **Lixeira = `rename` para `.photovault-trash/<data>/<caminho>`** na própria biblioteca; a linha da mídia passa a apontar para lá (`status = 'trashed'`, `inTrash` no DTO). Toda operação física grava `operations_log` antes e fecha depois; `trash::recover` roda na inicialização. Nunca apague um arquivo sem passar por `trash::purge`.
 - **Ações que mexem em arquivos passam por `MediaActions`**, que confirma com `ConfirmAction` (dupla para excluir; número digitado acima de 500 itens). Não chame `trashMedia`/`purgeMedia` direto de componentes.
 - **Exemplos** (`review::examples`) guardam o próprio descritor e miniatura (data URL): sobrevivem à foto de origem. O `descriptor` compara aspecto, não conteúdo; ao trocar as features, mude `DESCRIPTOR_LEN` (descritores de outro tamanho são ignorados) e reanalise.
+- **Viagens/eventos (`events`) são derivados no estágio global**, depois das sugestões. Só `suggested` é refeito; `accepted` absorve fotos novas das suas datas, `edited` nunca muda e `ignored` bloqueia sugestões com ≥ 50 % das mesmas fotos. Fotos com `date_source = 'mtime'` não entram (datas de cópia).
+- **Geocodificação = `data/cities.tsv.gz` (GeoNames CC BY 4.0) embutido**, lido por `ingestion::geo`. Ao mudar a tabela ou a escolha do lugar, troque `GEOCODER_VERSION`: os locais de todos os catálogos são recalculados uma vez (`geo::refresh_places`). Mantenha a atribuição do GeoNames no README e em Configurações → Sobre.

@@ -1,7 +1,7 @@
 //! Runs the analysis on any folder and lists the photos that got a label (false-positive
 //! hunting on real photos without ground truth).
 //!
-//!     cargo run --release -p photovault-core --example label_dump -- <pasta> [document|accidental|screenshot|all]
+//!     cargo run --release -p photovault-core --example label_dump -- <pasta> [document|accidental|screenshot|all|events]
 use photovault_core::catalog::{MediaItem, libraries};
 use photovault_core::ingestion::{ScanContext, ScanControl, ScanObserver, ScanProgress, scanner};
 use photovault_core::jobs::{JobObserver, JobProgress, JobRunner};
@@ -38,6 +38,24 @@ async fn main() -> photovault_core::Result<()> {
     let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media_quality")
         .fetch_one(pool)
         .await?;
+    // `events` lists the trips/events found (phase 6).
+    if label == "events" {
+        for e in photovault_core::events::list(pool, &lib.id, false).await? {
+            println!(
+                "  {:?} {:32} {} → {}  {} fotos {} vídeos  {:?} km  {}",
+                e.kind,
+                e.title,
+                &e.started_at[..16],
+                &e.ended_at[..16],
+                e.photos,
+                e.videos,
+                e.distance_km,
+                e.place_summary.unwrap_or_default()
+            );
+        }
+        let _ = std::fs::remove_dir_all(work);
+        return Ok(());
+    }
     // `all` lists every photo with the raw values behind the document rule.
     if label == "all" {
         let rows: Vec<(String, f64, f64, f64, Option<i64>)> = sqlx::query_as(
