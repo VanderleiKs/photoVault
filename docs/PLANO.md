@@ -348,7 +348,7 @@ Exemplos (2 fotos da categoria como exemplo "remover", limiar 0,70):
 
 ---
 
-### Fase 6.1 — Ajustes do teste no Windows → `v1.2` 🚧 em andamento (branch `fase-6.1-ajustes`)
+### Fase 6.1 — Ajustes do teste no Windows → `v1.2` ✅ concluída (branch `fase-6.1-ajustes`)
 
 - [x] **Bug:** um trecho sem lacuna de 6 h que começa em casa e segue longe (festa à noite, estrada de madrugada) era decidido inteiro pela mediana: ou virava um "evento em casa" com as fotos da viagem, ou a viagem engolia a festa. Agora o trecho também é cortado onde as fotos cruzam a linha de `trip_min_km` (`detect::place_cuts`), na maior lacuna entre o último GPS de um lado e o primeiro do outro; menos de 3 fotos seguidas do outro lado são ruído (posição antiga) e não cortam. Aceite do `trips.py` inalterado (2 viagens, 2 eventos)
 - [x] Trocar o tipo (viagem ⇄ evento) na tela do evento (`EventUpdate.kind`): congela o evento; o título automático acompanha ("Evento em Gramado" → "Viagem para Gramado"), um título do usuário fica
