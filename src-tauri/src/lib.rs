@@ -74,6 +74,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             event_commands::restore_event,
             event_commands::update_event,
             event_commands::remove_from_event,
+            event_commands::merge_events,
             event_commands::reclassify_events,
             event_commands::get_detected_homes,
             event_commands::search_home_places,

@@ -4,7 +4,7 @@ use photovault_core::catalog::MediaItem;
 use photovault_core::catalog::libraries;
 use photovault_core::catalog::settings::{self, Home};
 use photovault_core::events::{
-    self, EventCounts, EventDay, EventSummary, EventUpdate, ReclassifyOptions,
+    self, EventCounts, EventDay, EventMerge, EventSummary, EventUpdate, ReclassifyOptions,
 };
 
 /// Trips and events of a library, newest first (`ignored = true`: only the ignored ones).
@@ -80,6 +80,13 @@ pub async fn remove_from_event(
     state: AppStateRef<'_>,
 ) -> ApiResult<EventSummary> {
     Ok(events::remove_media(&state.pool, &event_id, &media_ids).await?)
+}
+
+/// Several events become one (a trip without GPS split into days).
+#[tauri::command]
+#[specta::specta]
+pub async fn merge_events(merge: EventMerge, state: AppStateRef<'_>) -> ApiResult<EventSummary> {
+    Ok(events::merge(&state.pool, &merge).await?)
 }
 
 /// Detect trips and events again in every library, now, with the current settings.

@@ -786,6 +786,178 @@ fn retitle(kind: EventKind, title: &str) -> Option<String> {
         .find_map(|(f, t)| title.strip_prefix(f).map(|rest| format!("{t}{rest}")))
 }
 
+/// "Juntar": several events become one (e.g. a trip without GPS, split into one event per
+/// day). Takes their photos and the free photos between them (not in another accepted or
+/// edited event); the result is "edited", and suggestions left inside it go away.
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EventMerge {
+    pub event_ids: Vec<String>,
+    pub kind: EventKind,
+    /// Empty/absent: from the place, or from the places of the photos.
+    #[specta(optional)]
+    pub title: Option<String>,
+    /// Where it was, when the photos don't say ("Salvador, BA").
+    #[specta(optional)]
+    pub place: Option<String>,
+}
+
+pub async fn merge(pool: &SqlitePool, m: &EventMerge) -> Result<EventSummary> {
+    let mut ids: Vec<&String> = m.event_ids.iter().collect();
+    ids.sort();
+    ids.dedup();
+    if ids.len() < 2 {
+        return Err(Error::InvalidInput(
+            "Escolha pelo menos dois eventos para juntar.".into(),
+        ));
+    }
+    let mut events = Vec::with_capacity(ids.len());
+    for id in &ids {
+        events.push(get(pool, id).await?);
+    }
+    if events.iter().any(|e| e.status == EventStatus::Ignored) {
+        return Err(Error::InvalidInput(
+            "Eventos ignorados não podem ser juntados.".into(),
+        ));
+    }
+    events.sort_by(|a, b| a.started_at.cmp(&b.started_at));
+    let place = m.place.as_deref().map(str::trim).filter(|p| !p.is_empty());
+    let custom = m.title.as_deref().map(str::trim).filter(|t| !t.is_empty());
+    if let Some(t) = custom
+        && t.chars().count() > MAX_TITLE
+    {
+        return Err(Error::InvalidInput(format!(
+            "O título pode ter até {MAX_TITLE} caracteres."
+        )));
+    }
+    if place.is_some_and(|p| p.chars().count() > MAX_TITLE) {
+        return Err(Error::InvalidInput("Nome de lugar longo demais.".into()));
+    }
+    let libraries: Vec<String> = {
+        let mut out = Vec::new();
+        for e in &events {
+            let lib: String = sqlx::query_scalar("SELECT library_id FROM events WHERE id = ?1")
+                .bind(&e.id)
+                .fetch_one(pool)
+                .await?;
+            out.push(lib);
+        }
+        out
+    };
+    if libraries.iter().any(|l| l != &libraries[0]) {
+        return Err(Error::InvalidInput(
+            "Os eventos são de bibliotecas diferentes.".into(),
+        ));
+    }
+    let library_id = &libraries[0];
+    let target = &events[0].id;
+    let start = events
+        .iter()
+        .map(|e| e.started_at.as_str())
+        .min()
+        .unwrap_or_default()
+        .to_string();
+    let end = events
+        .iter()
+        .map(|e| e.ended_at.as_str())
+        .max()
+        .unwrap_or_default()
+        .to_string();
+    let others: Vec<&str> = events[1..].iter().map(|e| e.id.as_str()).collect();
+
+    let mut tx = pool.begin().await?;
+    for other in &others {
+        sqlx::query(
+            "INSERT OR IGNORE INTO event_media (event_id, media_id)
+             SELECT ?1, media_id FROM event_media WHERE event_id = ?2",
+        )
+        .bind(target)
+        .bind(other)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("DELETE FROM events WHERE id = ?1")
+            .bind(other)
+            .execute(&mut *tx)
+            .await?;
+    }
+    // The photos in between (the evenings, the day with few photos).
+    sqlx::query(
+        "INSERT OR IGNORE INTO event_media (event_id, media_id)
+         SELECT ?1, m.id FROM media m
+         WHERE m.library_id = ?2 AND m.status = 'active'
+           AND m.captured_at BETWEEN ?3 AND ?4
+           AND m.date_source IS NOT NULL AND m.date_source != 'mtime'
+           AND m.id NOT IN (SELECT em.media_id FROM event_media em JOIN events o ON o.id = em.event_id
+                            WHERE o.id != ?1 AND o.status IN ('accepted', 'edited'))",
+    )
+    .bind(target)
+    .bind(library_id)
+    .bind(&start)
+    .bind(&end)
+    .execute(&mut *tx)
+    .await?;
+    // Suggestions now inside it.
+    sqlx::query(
+        "DELETE FROM events WHERE library_id = ?1 AND status = 'suggested' AND id != ?2
+           AND NOT EXISTS (SELECT 1 FROM event_media em WHERE em.event_id = events.id
+                           AND em.media_id NOT IN (SELECT media_id FROM event_media WHERE event_id = ?2))",
+    )
+    .bind(library_id)
+    .bind(target)
+    .execute(&mut *tx)
+    .await?;
+
+    let photo_places: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT p.name, p.admin1 FROM event_media em JOIN media m ON m.id = em.media_id
+         JOIN places p ON p.id = m.place_id WHERE em.event_id = ?1
+         GROUP BY p.id ORDER BY COUNT(*) DESC, p.name LIMIT 3",
+    )
+    .bind(target)
+    .fetch_all(&mut *tx)
+    .await?;
+    let summary = match place {
+        Some(p) => Some(p.to_string()),
+        None => (!photo_places.is_empty()).then(|| {
+            photo_places
+                .iter()
+                .map(|(n, a)| match a {
+                    Some(a) => format!("{n}, {a}"),
+                    None => n.clone(),
+                })
+                .collect::<Vec<_>>()
+                .join(" · ")
+        }),
+    };
+    let title = match (custom, place) {
+        (Some(t), _) => t.to_string(),
+        // "Salvador, BA" → "Viagem para Salvador"
+        (None, Some(p)) => {
+            let name = p.split(',').next().unwrap_or(p).trim().to_string();
+            suggest_title(
+                m.kind,
+                &[(name, None)],
+                parse_time(&start).unwrap_or_default(),
+            )
+        }
+        (None, None) => suggest_title(
+            m.kind,
+            &photo_places,
+            parse_time(&start).unwrap_or_default(),
+        ),
+    };
+    sqlx::query("UPDATE events SET kind = ?1, title = ?2, place_summary = ?3 WHERE id = ?4")
+        .bind(m.kind.as_str())
+        .bind(&title)
+        .bind(summary)
+        .bind(target)
+        .execute(&mut *tx)
+        .await?;
+    refresh_range(&mut tx, target).await?;
+    mark_edited(&mut tx, target).await?;
+    tx.commit().await?;
+    get(pool, target).await
+}
+
 /// Take photos out of an event (it becomes "edited").
 pub async fn remove_media(
     pool: &SqlitePool,
@@ -1147,6 +1319,70 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(at_home, count(0, 1, 1));
+    }
+
+    #[tokio::test]
+    async fn events_of_a_trip_without_gps_can_be_merged() {
+        let (pool, dir) = test_db().await;
+        let lib = libraries::create(&pool, "A", dir.to_str().unwrap())
+            .await
+            .unwrap()
+            .id;
+        // Three days away without GPS: three events (and a few photos on the evening of
+        // the second day, too few for an event).
+        shoot(&pool, &lib, "d1-", "2025-01-10 09:00", 25, None).await;
+        shoot(&pool, &lib, "d2-", "2025-01-11 09:00", 25, None).await;
+        shoot(&pool, &lib, "eve-", "2025-01-11 20:00", 3, None).await;
+        shoot(&pool, &lib, "d3-", "2025-01-12 09:00", 25, None).await;
+        shoot(&pool, &lib, "later-", "2025-02-01 09:00", 25, None).await;
+        let s = AppSettings::default();
+        rebuild(&pool, &lib, &s).await.unwrap();
+        let events = list(&pool, &lib, false).await.unwrap();
+        assert_eq!(events.len(), 4, "{events:?}");
+        assert!(events.iter().all(|e| e.kind == EventKind::Event));
+        let days: Vec<String> = events[1..].iter().map(|e| e.id.clone()).collect();
+
+        let bad = EventMerge {
+            event_ids: vec![days[0].clone()],
+            kind: EventKind::Trip,
+            title: None,
+            place: None,
+        };
+        assert!(merge(&pool, &bad).await.is_err(), "needs two");
+
+        let trip = merge(
+            &pool,
+            &EventMerge {
+                event_ids: days.clone(),
+                kind: EventKind::Trip,
+                title: None,
+                place: Some("Salvador, BA".into()),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            (trip.kind, trip.status, trip.photos, trip.title.as_str()),
+            (
+                EventKind::Trip,
+                EventStatus::Edited,
+                78,
+                "Viagem para Salvador"
+            )
+        );
+        assert_eq!(trip.place_summary.as_deref(), Some("Salvador, BA"));
+        assert_eq!(
+            (&trip.started_at[..10], &trip.ended_at[..10]),
+            ("2025-01-10", "2025-01-12")
+        );
+        assert!(days.contains(&trip.id));
+
+        // The pass afterwards doesn't split it again; the other event stays.
+        rebuild(&pool, &lib, &s).await.unwrap();
+        let now = list(&pool, &lib, false).await.unwrap();
+        assert_eq!(now.len(), 2, "{now:?}");
+        assert_eq!(get(&pool, &trip.id).await.unwrap().photos, 78);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
