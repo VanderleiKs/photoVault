@@ -31,6 +31,7 @@ import { ViewerContext } from '../../core/stores/viewer-context';
 import { AlbumPicker } from '../../shared/album-picker.component';
 import { MediaAnalysisComponent } from '../../shared/media-analysis.component';
 import { MediaDetailsComponent } from '../../shared/media-details.component';
+import { MediaReviewComponent } from '../../shared/media-review.component';
 
 const ZOOM_STEPS = [0.5, 0.75, 1, 1.5, 2, 3, 4];
 /** Neighbours fetched per side for the thumbnail strip. */
@@ -39,7 +40,7 @@ const STRIP_RADIUS = 12;
 /** Full-screen dark viewer (PRD §23.3). Route: /viewer/:id */
 @Component({
   selector: 'app-viewer-page',
-  imports: [RouterLink, ButtonModule, TooltipModule, MediaAnalysisComponent, MediaDetailsComponent],
+  imports: [RouterLink, ButtonModule, TooltipModule, MediaAnalysisComponent, MediaDetailsComponent, MediaReviewComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'flex h-full flex-col bg-[#0b0f17] text-slate-100',
@@ -71,6 +72,11 @@ const STRIP_RADIUS = 12;
           (onClick)="toggleFavorite()"
         />
         <p-button icon="pi pi-book" [text]="true" [rounded]="true" severity="contrast" ariaLabel="Adicionar ao álbum" pTooltip="Adicionar ao álbum" tooltipPosition="bottom" (onClick)="picker.open([m.id])" />
+        @if (m.inTrash) {
+          <p-button icon="pi pi-replay" [text]="true" [rounded]="true" severity="contrast" ariaLabel="Restaurar" pTooltip="Restaurar da lixeira" tooltipPosition="bottom" (onClick)="restoreCurrent()" />
+        } @else {
+          <p-button icon="pi pi-trash" [text]="true" [rounded]="true" severity="contrast" ariaLabel="Enviar para a lixeira" pTooltip="Enviar para a lixeira (Delete)" tooltipPosition="bottom" (onClick)="trashCurrent()" />
+        }
       }
       <p-button
         icon="pi pi-info-circle"
@@ -150,6 +156,7 @@ const STRIP_RADIUS = 12;
         <aside class="w-80 shrink-0 overflow-y-auto border-l border-white/5 bg-[#111827] p-5">
           <h2 class="mb-4 text-sm font-semibold text-white">Detalhes</h2>
           <app-media-details [item]="m" [dark]="true" />
+          <app-media-review class="mt-5" [item]="m" [dark]="true" />
           <app-media-analysis class="mt-5" [item]="m" [dark]="true" />
 
           @if (albums().length) {
@@ -165,6 +172,10 @@ const STRIP_RADIUS = 12;
           <div class="flex flex-col gap-2">
             <p-button [label]="m.isFavorite ? 'Remover dos favoritos' : 'Favoritar'" [icon]="m.isFavorite ? 'pi pi-heart-fill' : 'pi pi-heart'" severity="secondary" [outlined]="true" styleClass="w-full !justify-start" (onClick)="toggleFavorite()" />
             <p-button label="Adicionar ao álbum" icon="pi pi-book" severity="secondary" [outlined]="true" styleClass="w-full !justify-start" (onClick)="picker.open([m.id])" />
+            @if (!m.inTrash) {
+              <p-button label="Usar como exemplo do que remover" icon="pi pi-sparkles" severity="secondary" [outlined]="true" styleClass="w-full !justify-start" (onClick)="actions.addExamples([m.id], 'remove')" />
+              <p-button label="Enviar para a lixeira" icon="pi pi-trash" severity="danger" [outlined]="true" styleClass="w-full !justify-start" (onClick)="trashCurrent()" />
+            }
           </div>
         </aside>
       }
@@ -176,7 +187,7 @@ export class ViewerPage {
   private readonly notify = inject(NotifyService);
   private readonly selection = inject(SelectionStore);
   private readonly context = inject(ViewerContext);
-  private readonly actions = inject(MediaActions);
+  protected readonly actions = inject(MediaActions);
   private readonly router = inject(Router);
   protected readonly picker = inject(AlbumPicker);
   private readonly strip = viewChild<ElementRef<HTMLElement>>('strip');
@@ -296,6 +307,29 @@ export class ViewerPage {
     if (m) void this.actions.setFavorite([m.id], !m.isFavorite);
   }
 
+  /** Trash the photo on screen and move on to the next one (or back, at the end). */
+  protected async trashCurrent() {
+    const m = this.item();
+    if (!m || m.inTrash) return;
+    const target = this.next() ?? this.prev();
+    const done = await this.actions.trash([m.id]);
+    if (!done.length || this.item()?.id !== m.id) return;
+    if (target) this.go(target.id);
+    else this.close();
+  }
+
+  protected async restoreCurrent() {
+    const m = this.item();
+    if (!m?.inTrash) return;
+    const target = this.next() ?? this.prev();
+    if (!(await this.actions.restore([m.id])) || this.item()?.id !== m.id) return;
+    // Inside the trash the restored photo leaves the context.
+    if (this.context.state().query.filter?.trashed) {
+      if (target) this.go(target.id);
+      else this.close();
+    }
+  }
+
   protected thumb(m: MediaItem) {
     return thumbnailUrl(m.id, m.thumbVersion);
   }
@@ -351,6 +385,9 @@ export class ViewerPage {
       case 'i':
       case 'I':
         this.showDetails.update((v) => !v);
+        break;
+      case 'Delete':
+        void this.trashCurrent();
         break;
       default:
         return;

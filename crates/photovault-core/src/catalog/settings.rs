@@ -26,6 +26,9 @@ pub struct AppSettings {
     /// Thresholds of the analysis heuristics (PRD §11–14). Absent in older catalogs.
     #[serde(default)]
     pub analysis: AnalysisSettings,
+    /// Suggestions and trash (PRD §15–16). Absent before v1.0.
+    #[serde(default)]
+    pub review: ReviewSettings,
 }
 
 impl Default for AppSettings {
@@ -36,6 +39,7 @@ impl Default for AppSettings {
             io_concurrency: 2,
             cpu_concurrency: 0,
             analysis: AnalysisSettings::default(),
+            review: ReviewSettings::default(),
         }
     }
 }
@@ -47,6 +51,9 @@ impl Default for AppSettings {
 pub struct AnalysisSettings {
     /// pHash Hamming distance for "same picture" (resize, recompression). PRD: ≤ 4.
     pub visual_distance: u32,
+    /// Colour difference (`metrics::color_distance`) up to which two photos with close
+    /// pHashes are still the same picture.
+    pub color_distance: f64,
     /// pHash distance for "same scene". PRD: ≤ 12.
     pub similar_distance: u32,
     /// Similar photos must be this close in time.
@@ -70,6 +77,7 @@ impl Default for AnalysisSettings {
     fn default() -> Self {
         Self {
             visual_distance: 4,
+            color_distance: 2.0,
             similar_distance: 12,
             similar_window_minutes: 30,
             sequence_gap_seconds: 3,
@@ -87,6 +95,7 @@ impl Default for AnalysisSettings {
 impl AnalysisSettings {
     fn validate(&self) -> Result<()> {
         let ok = self.visual_distance <= 16
+            && (0.0..=100.0).contains(&self.color_distance)
             && self.similar_distance <= 24
             && self.visual_distance <= self.similar_distance
             && (1..=24 * 60).contains(&self.similar_window_minutes)
@@ -103,6 +112,102 @@ impl AnalysisSettings {
         } else {
             Err(Error::InvalidInput(
                 "Limiar de análise fora do intervalo permitido.".into(),
+            ))
+        }
+    }
+}
+
+/// How much each reason weighs in the Review priority (0 = never suggest for it).
+/// Suggested levels in the UI: 1 (alta), 0.6 (normal), 0.3 (baixa), 0 (desligado).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ReasonWeights {
+    pub exact_duplicate: f64,
+    pub visual_duplicate: f64,
+    pub similar_sequence: f64,
+    pub blurry: f64,
+    pub dark: f64,
+    pub overexposed: f64,
+    pub low_resolution: f64,
+    pub screenshot: f64,
+    pub momentary: f64,
+    pub accidental: f64,
+    pub low_information: f64,
+    pub example: f64,
+}
+
+impl Default for ReasonWeights {
+    fn default() -> Self {
+        Self {
+            exact_duplicate: 1.0,
+            visual_duplicate: 1.0,
+            similar_sequence: 0.6,
+            blurry: 0.6,
+            dark: 0.6,
+            overexposed: 0.3,
+            low_resolution: 0.3,
+            screenshot: 0.6,
+            momentary: 0.6,
+            accidental: 1.0,
+            low_information: 1.0,
+            example: 1.0,
+        }
+    }
+}
+
+impl ReasonWeights {
+    fn all(&self) -> [f64; 12] {
+        [
+            self.exact_duplicate,
+            self.visual_duplicate,
+            self.similar_sequence,
+            self.blurry,
+            self.dark,
+            self.overexposed,
+            self.low_resolution,
+            self.screenshot,
+            self.momentary,
+            self.accidental,
+            self.low_information,
+            self.example,
+        ]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ReviewSettings {
+    pub weights: ReasonWeights,
+    /// Similarity (0–1) from which a photo counts as "like" one of the examples.
+    pub example_similarity: f64,
+    /// Send to the operating system's trash instead of `.photovault-trash` (then it can
+    /// only be restored from there).
+    pub use_system_trash: bool,
+    /// Delete items older than this from the trash on startup; 0 = never (default).
+    pub auto_purge_days: u32,
+}
+
+impl Default for ReviewSettings {
+    fn default() -> Self {
+        Self {
+            weights: ReasonWeights::default(),
+            example_similarity: 0.7,
+            use_system_trash: false,
+            auto_purge_days: 0,
+        }
+    }
+}
+
+impl ReviewSettings {
+    fn validate(&self) -> Result<()> {
+        let ok = self.weights.all().iter().all(|w| (0.0..=1.0).contains(w))
+            && (0.5..=1.0).contains(&self.example_similarity)
+            && self.auto_purge_days <= 3650;
+        if ok {
+            Ok(())
+        } else {
+            Err(Error::InvalidInput(
+                "Configuração de revisão fora do intervalo permitido.".into(),
             ))
         }
     }
@@ -128,6 +233,7 @@ pub async fn save(pool: &SqlitePool, settings: &AppSettings) -> Result<AppSettin
         ));
     }
     settings.analysis.validate()?;
+    settings.review.validate()?;
     let json = serde_json::to_string(settings).map_err(|e| Error::Internal(e.to_string()))?;
     sqlx::query(
         "INSERT INTO settings (key, value) VALUES (?1, ?2)
@@ -159,6 +265,10 @@ mod tests {
                 visual_distance: 6,
                 ..Default::default()
             },
+            review: ReviewSettings {
+                use_system_trash: true,
+                ..Default::default()
+            },
         };
         save(&pool, &custom).await.unwrap();
         assert_eq!(get(&pool).await.unwrap(), custom);
@@ -183,6 +293,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(old.analysis, AnalysisSettings::default());
+        assert_eq!(old.review, ReviewSettings::default());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

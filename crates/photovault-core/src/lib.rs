@@ -10,7 +10,9 @@ pub mod error;
 pub mod ingestion;
 pub mod jobs;
 pub mod paths;
+pub mod review;
 pub mod thumbnails;
+pub mod trash;
 pub mod volume;
 
 pub use error::{Error, Result};

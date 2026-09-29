@@ -5,6 +5,7 @@
 //! duplicate of itself, and "similar" never repeats a visual-duplicate pair.
 
 use super::bktree::{BkTree, hamming};
+use super::metrics::color_distance;
 use crate::catalog::AnalysisSettings;
 use chrono::NaiveDateTime;
 use std::cmp::Ordering;
@@ -15,6 +16,8 @@ pub struct Candidate {
     pub id: String,
     pub sha256: Option<String>,
     pub phash: Option<u64>,
+    /// `metrics::color_layout` of the preview (absent before v1.0 analyses).
+    pub colors: Option<Vec<u8>>,
     pub captured_at: Option<NaiveDateTime>,
     pub camera: Option<String>,
     pub gps: Option<(f64, f64)>,
@@ -137,6 +140,14 @@ fn meters((lat1, lon1): (f64, f64), (lat2, lon2): (f64, f64)) -> f64 {
     6_371_000.0 * 2.0 * a.sqrt().asin()
 }
 
+/// The pHash ignores colour: a blue and a grey shirt shot alike share it.
+fn same_colors(a: &Candidate, b: &Candidate, t: &AnalysisSettings) -> bool {
+    match (&a.colors, &b.colors) {
+        (Some(x), Some(y)) => color_distance(x, y) <= t.color_distance,
+        _ => true,
+    }
+}
+
 pub fn group(items: &[Candidate], t: &AnalysisSettings) -> Vec<Group> {
     let mut groups = Vec::new();
 
@@ -155,8 +166,8 @@ pub fn group(items: &[Candidate], t: &AnalysisSettings) -> Vec<Group> {
             .map(|g| finish(GroupKind::ExactDuplicate, g, items)),
     );
 
-    // 2. Visual duplicates: pHash within `visual_distance` (transitively), with at least
-    // two different files (a set of identical copies is already reported above).
+    // 2. Visual duplicates: pHash within `visual_distance` (transitively) and the same
+    // colours, with at least two different files (identical copies are reported above).
     let mut tree = BkTree::new();
     for (i, c) in items.iter().enumerate() {
         if let Some(h) = c.phash {
@@ -167,7 +178,9 @@ pub fn group(items: &[Candidate], t: &AnalysisSettings) -> Vec<Group> {
     for (i, c) in items.iter().enumerate() {
         if let Some(h) = c.phash {
             for (j, _) in tree.find(h, t.visual_distance) {
-                visual.union(i, j);
+                if same_colors(&items[i], &items[j], t) {
+                    visual.union(i, j);
+                }
             }
         }
     }
@@ -283,6 +296,45 @@ mod tests {
 
     fn of(groups: &[Group], kind: GroupKind) -> Vec<&Group> {
         groups.iter().filter(|g| g.kind == kind).collect()
+    }
+
+    #[test]
+    fn same_shape_in_another_colour_is_not_a_duplicate() {
+        let hash: u64 = 0xF0F0_F0F0_0F0F_0F0F;
+        let layout = |a: i8, b: i8| -> Vec<u8> {
+            (0..crate::analysis::metrics::COLOR_LAYOUT_LEN / 2)
+                .flat_map(|cell| {
+                    if cell % 3 == 0 {
+                        [a as u8, b as u8]
+                    } else {
+                        [0, 0]
+                    }
+                })
+                .collect()
+        };
+        let items = vec![
+            Candidate {
+                colors: Some(layout(-10, -40)),
+                ..c("blue", "s1", hash, "2025-07-12T10:00:00")
+            },
+            Candidate {
+                colors: Some(layout(-9, -39)),
+                pixels: 3_000_000,
+                ..c("blue-small", "s2", hash ^ 1, "2025-07-12T10:00:00")
+            },
+            Candidate {
+                colors: Some(layout(0, 0)),
+                ..c("grey", "s3", hash ^ 0b10, "2025-07-12T10:01:00")
+            },
+        ];
+        let groups = group(&items, &AnalysisSettings::default());
+        let visual = of(&groups, GroupKind::VisualDuplicate);
+        assert_eq!(visual.len(), 1);
+        assert_eq!(ids(&items, visual[0]), ["blue", "blue-small"]);
+        // Same session, same framing: still "similar" (informative, not a removal reason).
+        let similar = of(&groups, GroupKind::Similar);
+        assert_eq!(similar.len(), 1);
+        assert_eq!(similar[0].members.len(), 3, "grey with the blue shots");
     }
 
     #[test]

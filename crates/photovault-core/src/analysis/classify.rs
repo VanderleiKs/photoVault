@@ -227,6 +227,9 @@ impl MomentaryKind {
 }
 
 /// Momentary-photo candidates with a 0–1 score (only kinds with some evidence).
+/// Lines of text a photo needs to count as a document.
+pub const MIN_TEXT_LINES: u32 = 8;
+
 pub fn momentary(
     f: &MediaFacts<'_>,
     m: &ImageMetrics,
@@ -234,12 +237,18 @@ pub fn momentary(
 ) -> Vec<(MomentaryKind, f64)> {
     let mut out = Vec::new();
 
-    // Document: bright, colourless paper with dark strokes.
-    // Text strokes give far more edges (> 0.08) than interfaces (< 0.06) or photos of snow.
-    if m.saturation < 0.18 && m.brightness > 110.0 && m.contrast > 45.0 && m.edge_density > 0.08 {
-        let mut score = 0.55;
-        score += ((0.18 - m.saturation) / 0.18) * 0.2;
-        score += ((m.edge_density - 0.08).clamp(0.0, 0.04) / 0.04) * 0.15;
+    // Document: bright, colourless paper with lines of text. Brightness, colour and
+    // edges alone also describe people or objects on a white background; the lines of
+    // text (`text_lines`) are what a page has and they don't.
+    if m.saturation < 0.18
+        && m.brightness > 110.0
+        && m.contrast > 30.0
+        && m.edge_density > 0.04
+        && m.text_lines >= MIN_TEXT_LINES
+    {
+        let mut score = 0.5;
+        score += ((0.18 - m.saturation) / 0.18) * 0.15;
+        score += (f64::from(m.text_lines - MIN_TEXT_LINES).min(20.0) / 20.0) * 0.25;
         let aspect = match (f.width, f.height) {
             (Some(w), Some(h)) if w > 0 && h > 0 => w.max(h) as f64 / w.min(h) as f64,
             _ => 0.0,
@@ -290,6 +299,7 @@ mod tests {
             saturation: 0.35,
             colors_90: 900,
             edge_density: 0.01,
+            text_lines: 0,
         }
     }
 
@@ -437,8 +447,15 @@ mod tests {
             brightness: 190.0,
             contrast: 70.0,
             edge_density: 0.11,
+            text_lines: 30,
             ..metrics()
         };
+        // Same look without lines of text: a person or an object on a white background.
+        let object = ImageMetrics {
+            text_lines: 4,
+            ..paper
+        };
+        assert!(momentary(&facts("IMG_3.jpg"), &object, &t).is_empty());
         let a4 = MediaFacts {
             width: Some(2480),
             height: Some(3508),

@@ -70,6 +70,16 @@ export const routes: Routes = [
         loadComponent: () => import('./features/organize/filtered.page').then((m) => m.FilteredPage),
       })),
       {
+        path: 'review',
+        canActivate: [requireLibrary],
+        loadComponent: () => import('./features/review/review.page').then((m) => m.ReviewPage),
+      },
+      {
+        path: 'trash',
+        canActivate: [requireLibrary],
+        loadComponent: () => import('./features/trash/trash.page').then((m) => m.TrashPage),
+      },
+      {
         path: 'libraries',
         loadComponent: () =>
           import('./features/libraries/libraries.page').then((m) => m.LibrariesPage),

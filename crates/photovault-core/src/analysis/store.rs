@@ -2,9 +2,10 @@
 //! per-library pass that derives flags, labels and groups with the current thresholds.
 
 use super::classify::{self, MediaFacts};
+use super::descriptor::{self, Kind};
 use super::grouping::{self, Candidate, GroupKind};
 use super::metrics::{self, ImageMetrics};
-use crate::catalog::AnalysisSettings;
+use crate::catalog::{AnalysisSettings, AppSettings};
 use crate::error::Result;
 use crate::thumbnails;
 use chrono::{NaiveDateTime, Utc};
@@ -36,6 +37,10 @@ pub struct Analysis {
     pub metrics: ImageMetrics,
     /// DCT pHash of the preview (hex).
     pub phash: String,
+    /// `metrics::color_layout` of the preview.
+    pub colors: Vec<u8>,
+    /// `descriptor::describe` (matching against the user's examples).
+    pub descriptor: Vec<f32>,
     /// (dimension, value, score)
     pub labels: Vec<(&'static str, &'static str, f64)>,
 }
@@ -67,8 +72,19 @@ pub fn compute(
     let bytes = std::fs::read(&path).map_err(|e| format!("Pré-visualização indisponível: {e}"))?;
     let img = image::load_from_memory_with_format(&bytes, image::ImageFormat::WebP)
         .map_err(|e| format!("Pré-visualização ilegível: {e}"))?;
-    let metrics = metrics::measure(&img);
-    let phash = metrics::perceptual_hash(&img);
+    Ok(analyze_image(&img, input, t))
+}
+
+/// The analysis of an already decoded preview (also used for example images that are not
+/// in any library).
+pub fn analyze_image(
+    img: &image::DynamicImage,
+    input: &AnalyzeInput,
+    t: &AnalysisSettings,
+) -> Analysis {
+    let metrics = metrics::measure(img);
+    let phash = metrics::perceptual_hash(img);
+    let colors = metrics::color_layout(img);
     let facts = input.facts();
 
     let mut labels = Vec::new();
@@ -77,18 +93,32 @@ pub fn compute(
         labels.push((SCREENSHOT.0, SCREENSHOT.1, screenshot));
     }
     for (kind, score) in classify::momentary(&facts, &metrics, t) {
-        if score >= MIN_STORED_SCORE {
+        // A screen capture full of text is a screenshot, not a photo of a document.
+        let captured = screenshot >= t.screenshot_threshold;
+        if score >= MIN_STORED_SCORE && !(captured && kind == classify::MomentaryKind::Document) {
             labels.push(("momentary", kind.as_str(), score));
         }
     }
-    if classify::is_whatsapp(&input.filename) {
+    let messaging = classify::is_whatsapp(&input.filename);
+    if messaging {
         labels.push((WHATSAPP.0, WHATSAPP.1, 1.0));
     }
-    Ok(Analysis {
+    let descriptor = descriptor::describe(
+        img,
+        &metrics,
+        Kind {
+            screenshot,
+            has_camera: facts.has_camera,
+            messaging,
+        },
+    );
+    Analysis {
         metrics,
         phash,
+        colors,
+        descriptor,
         labels,
-    })
+    }
 }
 
 /// Store the result of one item (raw metrics + automatic labels) and mark its library.
@@ -116,15 +146,17 @@ pub async fn store(
     sqlx::query(
         "INSERT INTO media_quality (media_id, sharpness, brightness, clipped_high, clipped_low, megapixels,
                                     level, flags, analyzed_at, contrast, entropy, saturation, colors_90, edge_density,
-                                    highlights)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                                    highlights, color_layout, descriptor, text_lines)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
          ON CONFLICT (media_id) DO UPDATE SET
             sharpness = excluded.sharpness, brightness = excluded.brightness,
             clipped_high = excluded.clipped_high, clipped_low = excluded.clipped_low,
             megapixels = excluded.megapixels, level = excluded.level, flags = excluded.flags,
             analyzed_at = excluded.analyzed_at, contrast = excluded.contrast, entropy = excluded.entropy,
             saturation = excluded.saturation, colors_90 = excluded.colors_90,
-            edge_density = excluded.edge_density, highlights = excluded.highlights",
+            edge_density = excluded.edge_density, highlights = excluded.highlights,
+            color_layout = excluded.color_layout, descriptor = excluded.descriptor,
+            text_lines = excluded.text_lines",
     )
     .bind(&input.media_id)
     .bind(m.sharpness)
@@ -141,6 +173,9 @@ pub async fn store(
     .bind(i64::from(m.colors_90))
     .bind(m.edge_density)
     .bind(m.highlights)
+    .bind(&analysis.colors)
+    .bind(descriptor::to_bytes(&analysis.descriptor))
+    .bind(i64::from(m.text_lines))
     .execute(&mut *tx)
     .await?;
 
@@ -241,8 +276,9 @@ pub async fn dirty_libraries(pool: &SqlitePool) -> Result<Vec<String>> {
 pub async fn refresh_library(
     pool: &SqlitePool,
     library_id: &str,
-    t: &AnalysisSettings,
+    settings: &AppSettings,
 ) -> Result<()> {
+    let t = &settings.analysis;
     let started = std::time::Instant::now();
     // Clear first so edits made while we work mark it dirty again.
     sqlx::query("UPDATE analysis_state SET dirty = 0 WHERE library_id = ?1")
@@ -251,6 +287,7 @@ pub async fn refresh_library(
         .await?;
     requalify(pool, library_id, t).await?;
     rebuild_groups(pool, library_id, t).await?;
+    crate::review::rebuild(pool, library_id, settings).await?;
     sqlx::query("UPDATE analysis_state SET analyzed_at = ?1 WHERE library_id = ?2")
         .bind(Utc::now().to_rfc3339())
         .bind(library_id)
@@ -348,6 +385,7 @@ struct CandidateRow {
     id: String,
     sha256: Option<String>,
     phash: Option<String>,
+    color_layout: Option<Vec<u8>>,
     captured_at: Option<String>,
     camera_model: Option<String>,
     gps_lat: Option<f64>,
@@ -364,7 +402,7 @@ struct CandidateRow {
 
 async fn rebuild_groups(pool: &SqlitePool, library_id: &str, t: &AnalysisSettings) -> Result<()> {
     let rows: Vec<CandidateRow> = sqlx::query_as(
-        "SELECT m.id, m.sha256, m.phash, m.captured_at, m.camera_model, m.gps_lat, m.gps_lon,
+        "SELECT m.id, m.sha256, m.phash, q.color_layout, m.captured_at, m.camera_model, m.gps_lat, m.gps_lon,
                 m.width, m.height, q.sharpness, q.brightness, q.contrast, q.entropy, m.is_favorite, m.file_mtime
          FROM media m LEFT JOIN media_quality q ON q.media_id = m.id
          WHERE m.library_id = ?1 AND m.status = 'active' AND m.media_type = 'image'",
@@ -382,6 +420,7 @@ async fn rebuild_groups(pool: &SqlitePool, library_id: &str, t: &AnalysisSetting
                 .and_then(|h| u64::from_str_radix(h, 16).ok())
                 .filter(|&h| !metrics::is_degenerate(h))
                 .filter(|_| r.contrast.unwrap_or(50.0) >= 6.0 && r.entropy.unwrap_or(7.0) >= 2.0),
+            colors: r.color_layout,
             captured_at: r.captured_at.as_deref().and_then(|s| {
                 NaiveDateTime::parse_from_str(s.get(..19).unwrap_or(s), "%Y-%m-%dT%H:%M:%S").ok()
             }),

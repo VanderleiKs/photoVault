@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from '@openng/optimus-ui/button';
 import { InputNumberModule } from '@openng/optimus-ui/inputnumber';
@@ -10,6 +10,9 @@ import { NotifyService } from '../../core/notify.service';
 import { AppStore, DEFAULT_ANALYSIS } from '../../core/stores/app.store';
 import { JobStore } from '../../core/stores/job.store';
 import { formatCount, formatEta } from '../../core/format';
+import { ActivatedRoute } from '@angular/router';
+import { ExamplesSettingsComponent } from './examples-settings.component';
+import { ReviewSettingsComponent } from './review-settings.component';
 
 interface ThresholdField {
   key: Exclude<keyof AnalysisSettings, 'sequenceMinSize' | 'overexposedFraction'>;
@@ -24,7 +27,7 @@ interface ThresholdField {
 
 @Component({
   selector: 'app-settings-page',
-  imports: [FormsModule, ButtonModule, InputNumberModule, SelectButtonModule, TagModule],
+  imports: [FormsModule, ButtonModule, InputNumberModule, SelectButtonModule, TagModule, ReviewSettingsComponent, ExamplesSettingsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -90,6 +93,9 @@ interface ThresholdField {
           }
         </div>
       </section>
+
+      <app-review-settings />
+      <app-examples-settings />
 
       <section class="rounded-card border border-line bg-panel p-5">
         <div class="flex flex-wrap items-center gap-3">
@@ -163,6 +169,14 @@ export class SettingsPage {
   protected readonly app = inject(AppStore);
   protected readonly jobs = inject(JobStore);
 
+  constructor() {
+    // "Configurações → Exemplos" links land on the section (the page scrolls in #main).
+    const fragment = inject(ActivatedRoute).snapshot.fragment;
+    afterNextRender(() => {
+      if (fragment) document.getElementById(fragment)?.scrollIntoView({ block: 'start' });
+    });
+  }
+
   protected readonly thresholds = computed(() => this.draft() ?? this.app.settings().analysis ?? DEFAULT_ANALYSIS);
   protected readonly isDefault = computed(() => JSON.stringify(this.thresholds()) === JSON.stringify(DEFAULT_ANALYSIS));
   private readonly draft = signal<AnalysisSettings | null>(null);
@@ -170,6 +184,7 @@ export class SettingsPage {
 
   protected readonly thresholdFields: ThresholdField[] = [
     { key: 'visualDistance', label: 'Duplicata visual: diferença máxima', hint: 'Bits de diferença no pHash (0–16). Menor = mais rígido. Padrão 4.', min: 0, max: 16, step: 1, decimals: 0 },
+    { key: 'colorDistance', label: 'Duplicata visual: diferença de cor máxima', hint: 'Mesma forma em outra cor (camisa azul × cinza) não é duplicata. Padrão 2; maior = mais permissivo.', min: 0, max: 20, step: 0.5, decimals: 1 },
     { key: 'similarDistance', label: 'Semelhantes: diferença máxima', hint: 'Mesma cena com variações (padrão 12).', min: 0, max: 24, step: 1, decimals: 0 },
     { key: 'similarWindowMinutes', label: 'Semelhantes: intervalo de tempo', hint: 'Fotos parecidas só se agrupam se tiradas dentro deste intervalo.', min: 1, max: 1440, step: 5, decimals: 0, suffix: ' min' },
     { key: 'sequenceGapSeconds', label: 'Sequência: intervalo entre fotos', hint: 'Rajadas: fotos da mesma câmera com no máximo este intervalo.', min: 1, max: 60, step: 1, decimals: 0, suffix: ' s' },

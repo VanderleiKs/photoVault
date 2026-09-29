@@ -586,3 +586,419 @@ mod analysis_pipeline {
         assert_eq!(snapshot(&w.root), original, "analysis modified the library");
     }
 }
+
+/// Phase 5: suggestions from the analysis, decisions, examples and the trash, on a real
+/// library folder. The safety bar: nothing moves without a call, and a restored file is
+/// byte-for-byte the original.
+mod review_and_trash {
+    use super::*;
+    use crate::analysis::metrics::tests::{photo, scene};
+    use crate::catalog::{MediaFilter, MediaQuery};
+    use crate::review::examples::{self, ExampleIntent};
+    use crate::review::{self, Decision, ReviewReason, ReviewStatus};
+    use crate::trash::{self, OnConflict, TRASH_DIR};
+    use image::{DynamicImage, Rgb, RgbImage};
+    use sha2::{Digest, Sha256};
+
+    fn save(img: &DynamicImage, path: &Path) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        img.save(path).unwrap();
+    }
+
+    fn sha(path: &Path) -> String {
+        format!("{:x}", Sha256::digest(std::fs::read(path).unwrap()))
+    }
+
+    fn page(shade: u8, seed: u32) -> DynamicImage {
+        DynamicImage::ImageRgb8(RgbImage::from_fn(1240, 1754, |x, y| {
+            let line = (y / 30) % 2 == 0
+                && (100..1140 - seed * 40).contains(&x)
+                && (120..1650).contains(&y);
+            if line && (x / 7) % 3 != 0 && y % 30 < 14 {
+                Rgb([30, 30, 30])
+            } else {
+                Rgb([shade, shade, shade - 3])
+            }
+        }))
+    }
+
+    impl World {
+        async fn drain(&self) {
+            self.runner(Arc::new(Recorder::default()))
+                .await
+                .drain()
+                .await
+                .unwrap();
+        }
+
+        async fn reasons(&self, relative_path: &str) -> Vec<(ReviewReason, ReviewStatus)> {
+            let item = self.item(relative_path).await;
+            review::for_media(&self.pool, &item.id)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|e| (e.reason, e.status))
+                .collect()
+        }
+
+        async fn pending(&self, relative_path: &str) -> Vec<ReviewReason> {
+            self.reasons(relative_path)
+                .await
+                .into_iter()
+                .filter(|r| r.1 == ReviewStatus::Pending)
+                .map(|r| r.0)
+                .collect()
+        }
+
+        async fn names(&self, filter: MediaFilter) -> Vec<String> {
+            let page = crate::catalog::media::list(
+                &self.pool,
+                &self.library.id,
+                &MediaQuery {
+                    filter,
+                    ..Default::default()
+                },
+                None,
+                100,
+            )
+            .await
+            .unwrap();
+            page.items.into_iter().map(|m| m.filename).collect()
+        }
+    }
+
+    #[tokio::test]
+    async fn suggestions_decisions_and_trash() {
+        let w = world().await;
+        let base = photo(1600, 1200);
+        save(&base, &w.root.join("viagem/a.jpg"));
+        std::fs::create_dir_all(w.root.join("backup")).unwrap();
+        std::fs::copy(w.root.join("viagem/a.jpg"), w.root.join("backup/a (1).jpg")).unwrap();
+        save(
+            &base.resize_exact(800, 600, image::imageops::FilterType::Triangle),
+            &w.root.join("whatsapp/IMG-20250712-WA0001.jpg"),
+        );
+        save(
+            &scene(1600, 1200, 7).blur(6.0),
+            &w.root.join("viagem/tremida.jpg"),
+        );
+        save(&page(236, 0), &w.root.join("docs/recibo.jpg"));
+        save(&page(226, 3), &w.root.join("docs/nota.jpg"));
+        save(&scene(1600, 1200, 9), &w.root.join("viagem/paisagem.jpg"));
+        w.scan().await;
+        w.drain().await;
+
+        // Suggestions: the best copy is never one of them.
+        let (copy, best) = {
+            let a = w.pending("viagem/a.jpg").await;
+            let b = w.pending("backup/a (1).jpg").await;
+            assert!(
+                a.contains(&ReviewReason::ExactDuplicate)
+                    != b.contains(&ReviewReason::ExactDuplicate),
+                "exactly one copy is suggested: {a:?} / {b:?}"
+            );
+            if b.contains(&ReviewReason::ExactDuplicate) {
+                ("backup/a (1).jpg", "viagem/a.jpg")
+            } else {
+                ("viagem/a.jpg", "backup/a (1).jpg")
+            }
+        };
+        assert!(
+            !w.pending(best)
+                .await
+                .contains(&ReviewReason::VisualDuplicate)
+        );
+        assert!(
+            w.pending("whatsapp/IMG-20250712-WA0001.jpg")
+                .await
+                .contains(&ReviewReason::VisualDuplicate)
+        );
+        assert!(
+            w.pending("viagem/tremida.jpg")
+                .await
+                .contains(&ReviewReason::Blurry)
+        );
+        assert!(
+            w.pending("docs/recibo.jpg")
+                .await
+                .contains(&ReviewReason::Momentary)
+        );
+        assert!(w.pending("viagem/paisagem.jpg").await.is_empty());
+
+        let summary = review::summary(&w.pool, &w.library.id).await.unwrap();
+        assert!(summary.pending >= 5, "{summary:?}");
+        let prioritized = crate::catalog::media::list(
+            &w.pool,
+            &w.library.id,
+            &MediaQuery {
+                filter: MediaFilter {
+                    review: Some(true),
+                    ..Default::default()
+                },
+                sort: crate::catalog::MediaSort::Priority,
+            },
+            None,
+            100,
+        )
+        .await
+        .unwrap();
+        assert_eq!(prioritized.items.len() as u32, summary.pending);
+        let first: Vec<&str> = prioritized.items[..2]
+            .iter()
+            .map(|m| m.relative_path.as_str())
+            .collect();
+        assert!(
+            first.contains(&copy) && first.contains(&"whatsapp/IMG-20250712-WA0001.jpg"),
+            "copies come first: {first:?}"
+        );
+
+        // R5: a favorite is never a candidate.
+        let wa = w.item("whatsapp/IMG-20250712-WA0001.jpg").await;
+        crate::catalog::media::set_favorite(&w.pool, std::slice::from_ref(&wa.id), true)
+            .await
+            .unwrap();
+        w.drain().await;
+        assert!(
+            w.pending("whatsapp/IMG-20250712-WA0001.jpg")
+                .await
+                .is_empty()
+        );
+
+        // "Manter" survives every rebuild; "reabrir" brings it back.
+        let weights = settings::get(&w.pool).await.unwrap().review.weights;
+        let blurry = w.item("viagem/tremida.jpg").await;
+        let changed = review::decide(
+            &w.pool,
+            std::slice::from_ref(&blurry.id),
+            Decision::Keep,
+            None,
+            &weights,
+        )
+        .await
+        .unwrap();
+        assert!(changed >= 1);
+        assert!(w.item("viagem/tremida.jpg").await.id == blurry.id);
+        crate::analysis::store::mark_all_dirty(&w.pool)
+            .await
+            .unwrap();
+        w.drain().await;
+        assert!(w.pending("viagem/tremida.jpg").await.is_empty());
+        assert!(
+            w.reasons("viagem/tremida.jpg")
+                .await
+                .contains(&(ReviewReason::Blurry, ReviewStatus::Kept))
+        );
+        let history = review::history(&w.pool, &w.library.id, None, 50)
+            .await
+            .unwrap();
+        assert_eq!(history.entries[0].item.id, blurry.id);
+        review::decide(
+            &w.pool,
+            std::slice::from_ref(&blurry.id),
+            Decision::Reopen,
+            None,
+            &weights,
+        )
+        .await
+        .unwrap();
+        w.drain().await;
+        assert!(
+            w.pending("viagem/tremida.jpg")
+                .await
+                .contains(&ReviewReason::Blurry)
+        );
+
+        // Examples: a receipt given as "remove" finds the other one, not the landscape.
+        let receipt = w.item("docs/recibo.jpg").await;
+        examples::add_from_media(
+            &w.pool,
+            &w.thumbs,
+            std::slice::from_ref(&receipt.id),
+            ExampleIntent::Remove,
+        )
+        .await
+        .unwrap();
+        w.drain().await;
+        assert!(
+            w.pending("docs/nota.jpg")
+                .await
+                .contains(&ReviewReason::Example)
+        );
+        assert!(
+            !w.pending("viagem/paisagem.jpg")
+                .await
+                .contains(&ReviewReason::Example)
+        );
+        let listed = examples::list(&w.pool).await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].thumbnail.starts_with("data:image/webp;base64,"));
+        assert!(listed[0].matches >= 1);
+        examples::remove(&w.pool, &listed[0].id).await.unwrap();
+        w.drain().await;
+        assert!(
+            !w.pending("docs/nota.jpg")
+                .await
+                .contains(&ReviewReason::Example)
+        );
+
+        // Trash: a rename inside the library; the scanner doesn't see it as missing.
+        let original = w.root.join("viagem/tremida.jpg");
+        let hash = sha(&original);
+        let sent = trash::send(&w.pool, &w.thumbs, std::slice::from_ref(&blurry.id), false)
+            .await
+            .unwrap();
+        assert_eq!((sent.done.len(), sent.failed.len()), (1, 0), "{sent:?}");
+        assert!(!original.exists());
+        let item = crate::catalog::media::get(&w.pool, &blurry.id)
+            .await
+            .unwrap();
+        assert!(
+            item.relative_path.starts_with(TRASH_DIR),
+            "{}",
+            item.relative_path
+        );
+        assert_eq!(sha(&w.root.join(&item.relative_path)), hash);
+        assert!(
+            w.names(MediaFilter::default())
+                .await
+                .iter()
+                .all(|n| n != "tremida.jpg"),
+            "not in the gallery"
+        );
+        assert_eq!(
+            w.names(MediaFilter {
+                trashed: Some(true),
+                ..Default::default()
+            })
+            .await,
+            ["tremida.jpg"]
+        );
+        assert!(
+            w.reasons(&item.relative_path)
+                .await
+                .contains(&(ReviewReason::Blurry, ReviewStatus::Trashed))
+        );
+        let rescan = w.scan().await;
+        assert_eq!(
+            (rescan.missing_files, rescan.new_files),
+            (0, 0),
+            "{rescan:?}"
+        );
+        assert_eq!(
+            trash::summary(&w.pool, &w.library.id).await.unwrap().count,
+            1
+        );
+        let again = trash::send(&w.pool, &w.thumbs, std::slice::from_ref(&blurry.id), false)
+            .await
+            .unwrap();
+        assert_eq!(again.failed.len(), 1, "can't trash twice");
+
+        // Restore: same path, same bytes; the suggestion becomes "kept".
+        let back = trash::restore(&w.pool, std::slice::from_ref(&blurry.id), OnConflict::Ask)
+            .await
+            .unwrap();
+        assert_eq!(back.restored, std::slice::from_ref(&blurry.id), "{back:?}");
+        assert_eq!(sha(&original), hash);
+        assert!(
+            !w.root.join(TRASH_DIR).exists(),
+            "empty trash folders are cleaned"
+        );
+        assert!(
+            w.reasons("viagem/tremida.jpg")
+                .await
+                .contains(&(ReviewReason::Blurry, ReviewStatus::Kept))
+        );
+
+        // Conflict: something new took the original path.
+        trash::send(&w.pool, &w.thumbs, std::slice::from_ref(&blurry.id), false)
+            .await
+            .unwrap();
+        save(&scene(400, 300, 3), &original);
+        let other = sha(&original);
+        let asked = trash::restore(&w.pool, std::slice::from_ref(&blurry.id), OnConflict::Ask)
+            .await
+            .unwrap();
+        assert_eq!(asked.conflicts.len(), 1);
+        assert_eq!(sha(&original), other, "the new file is untouched");
+        let renamed = trash::restore(
+            &w.pool,
+            std::slice::from_ref(&blurry.id),
+            OnConflict::Rename,
+        )
+        .await
+        .unwrap();
+        assert_eq!(renamed.restored.len(), 1);
+        let restored = w.root.join("viagem/tremida (restaurada).jpg");
+        assert_eq!(sha(&restored), hash);
+        assert_eq!(
+            crate::catalog::media::get(&w.pool, &blurry.id)
+                .await
+                .unwrap()
+                .filename,
+            "tremida (restaurada).jpg"
+        );
+
+        // Delete for good.
+        trash::send(&w.pool, &w.thumbs, std::slice::from_ref(&blurry.id), false)
+            .await
+            .unwrap();
+        let active = trash::purge(&w.pool, &w.thumbs, std::slice::from_ref(&wa.id))
+            .await
+            .unwrap();
+        assert_eq!(active.failed.len(), 1, "only trashed items can be purged");
+        let purged = trash::empty(&w.pool, &w.thumbs, &w.library.id)
+            .await
+            .unwrap();
+        assert_eq!(purged.done, std::slice::from_ref(&blurry.id));
+        assert!(!restored.exists());
+        assert!(matches!(
+            crate::catalog::media::get(&w.pool, &blurry.id).await,
+            Err(crate::Error::MediaNotFound)
+        ));
+        assert!(!w.root.join(TRASH_DIR).exists());
+
+        // Every physical operation was logged and closed.
+        let ops: Vec<(String, String)> =
+            sqlx::query_as("SELECT kind, status FROM operations_log ORDER BY created_at")
+                .fetch_all(&w.pool)
+                .await
+                .unwrap();
+        let kinds: Vec<&str> = ops.iter().map(|o| o.0.as_str()).collect();
+        assert_eq!(
+            kinds,
+            ["trash", "restore", "trash", "restore", "trash", "purge"],
+            "{ops:?}"
+        );
+        assert!(ops.iter().all(|o| o.1 == "done"), "{ops:?}");
+        assert_eq!(trash::recover(&w.pool).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn interrupted_trash_is_settled_on_startup() {
+        let w = world().await;
+        save(&photo(800, 600), &w.root.join("a.jpg"));
+        w.scan().await;
+        w.drain().await;
+        let item = w.item("a.jpg").await;
+        // Crash after the rename, before the catalog was updated.
+        let to = format!("{TRASH_DIR}/2026-09-28/a.jpg");
+        std::fs::create_dir_all(w.root.join(TRASH_DIR).join("2026-09-28")).unwrap();
+        std::fs::rename(w.root.join("a.jpg"), w.root.join(&to)).unwrap();
+        sqlx::query(
+            "INSERT INTO operations_log (id, kind, payload_json, status, created_at)
+             VALUES ('op', 'trash', ?1, 'pending', 'now')",
+        )
+        .bind(serde_json::json!({ "mediaId": item.id, "libraryId": w.library.id, "from": "a.jpg", "to": to }).to_string())
+        .execute(&w.pool)
+        .await
+        .unwrap();
+        assert_eq!(trash::recover(&w.pool).await.unwrap(), 1);
+        let item = crate::catalog::media::get(&w.pool, &item.id).await.unwrap();
+        assert_eq!(item.relative_path, to);
+        let restored = trash::restore(&w.pool, std::slice::from_ref(&item.id), OnConflict::Ask)
+            .await
+            .unwrap();
+        assert_eq!(restored.restored.len(), 1);
+        assert!(w.root.join("a.jpg").is_file());
+    }
+}

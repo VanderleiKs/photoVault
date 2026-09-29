@@ -12,11 +12,13 @@ import { ViewerContext } from '../core/stores/viewer-context';
 import { AlbumPicker } from '../shared/album-picker.component';
 import { MediaAnalysisComponent } from '../shared/media-analysis.component';
 import { MediaDetailsComponent } from '../shared/media-details.component';
+import { MediaReviewComponent } from '../shared/media-review.component';
+import { TooltipModule } from '@openng/optimus-ui/tooltip';
 
 /** Right-hand "Informações" panel for the focused item (PRD §23.1). */
 @Component({
   selector: 'app-info-panel',
-  imports: [RouterLink, ButtonModule, MediaAnalysisComponent, MediaDetailsComponent],
+  imports: [RouterLink, ButtonModule, TooltipModule, MediaAnalysisComponent, MediaDetailsComponent, MediaReviewComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'w-80 shrink-0 flex-col overflow-y-auto border-l border-line bg-panel' },
   template: `
@@ -34,6 +36,7 @@ import { MediaDetailsComponent } from '../shared/media-details.component';
               <div class="flex aspect-[4/3] items-center justify-center bg-slate-800 text-slate-400"><i class="pi pi-video text-4xl"></i></div>
             }
           </button>
+          @if (!item.inTrash) {
           <p-button
             [icon]="item.isFavorite ? 'pi pi-heart-fill' : 'pi pi-heart'"
             [rounded]="true"
@@ -43,9 +46,11 @@ import { MediaDetailsComponent } from '../shared/media-details.component';
             styleClass="!absolute right-2 top-2 shadow"
             (onClick)="actions.setFavorite([item.id], !item.isFavorite)"
           />
+          }
         </div>
 
         <app-media-details class="mt-4" [item]="item" />
+        <app-media-review class="mt-5" [item]="item" />
         <app-media-analysis class="mt-5" [item]="item" />
 
         @if (albums().length) {
@@ -59,7 +64,11 @@ import { MediaDetailsComponent } from '../shared/media-details.component';
 
         <div class="mt-5 flex gap-2">
           <p-button label="Abrir" icon="pi pi-external-link" [outlined]="true" styleClass="w-full" class="flex-1" (onClick)="viewer.open(item)" />
-          <p-button icon="pi pi-book" [outlined]="true" severity="secondary" ariaLabel="Adicionar ao álbum" (onClick)="picker.open([item.id])" />
+          @if (!item.inTrash) {
+            <p-button icon="pi pi-book" [outlined]="true" severity="secondary" ariaLabel="Adicionar ao álbum" pTooltip="Adicionar ao álbum" (onClick)="picker.open([item.id])" />
+            <p-button icon="pi pi-sparkles" [outlined]="true" severity="secondary" ariaLabel="Usar como exemplo do que remover" pTooltip="Usar como exemplo: sugerir fotos parecidas para remoção" (onClick)="actions.addExamples([item.id], 'remove')" />
+            <p-button icon="pi pi-trash" [outlined]="true" severity="danger" ariaLabel="Enviar para a lixeira" pTooltip="Enviar para a lixeira" (onClick)="actions.trash([item.id])" />
+          }
         </div>
       </div>
     }

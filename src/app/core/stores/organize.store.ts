@@ -24,6 +24,8 @@ export class OrganizeStore {
       '/organize/low-quality': c.lowQuality,
       '/organize/momentary': c.momentary,
       '/organize/screenshots': c.screenshots,
+      '/review': c.review,
+      '/trash': c.trash,
     };
   });
 
@@ -45,6 +47,12 @@ export class OrganizeStore {
         void this.refresh();
       }
     });
+  }
+
+  /** A local edit changed suggestions or the trash: reload counters and pages. */
+  touch(): void {
+    this.version.update((v) => v + 1);
+    void this.refresh();
   }
 
   async refresh(libraryId = this.libraries.activeId()): Promise<void> {

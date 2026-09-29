@@ -84,6 +84,9 @@ const MODES: Record<'duplicates' | 'similar', Mode> = {
             <span class="text-xs text-muted">{{ groupDetail(group) }}</span>
             <span class="flex-1"></span>
             <p-button label="Selecionar as outras" icon="pi pi-check-square" size="small" [text]="true" (onClick)="selectOthers(group)" />
+            @if (isDuplicate(group)) {
+              <p-button label="Enviar as outras para a lixeira" icon="pi pi-trash" size="small" severity="danger" [text]="true" (onClick)="trashOthers(group)" />
+            }
             <p-button label="Ver" icon="pi pi-external-link" size="small" [text]="true" (onClick)="open(group, group.members[0].item)" />
           </header>
           <div class="grid gap-3" [style.grid-template-columns]="'repeat(auto-fill, minmax(' + tile() + 'px, 1fr))'">
@@ -171,8 +174,17 @@ export class GroupsPage {
   constructor() {
     inject(MediaBus).subscribe((update) => {
       const byId = new Map(update.items.map((m) => [m.id, m]));
+      const removed = new Set(update.removedIds);
+      // Trashed or deleted members leave the card; a card with one photo left goes.
       this.groups.update((groups) =>
-        groups.map((g) => ({ ...g, members: g.members.map((m) => ({ ...m, item: byId.get(m.item.id) ?? m.item })) })),
+        groups
+          .map((g) => ({
+            ...g,
+            members: g.members
+              .map((m) => ({ ...m, item: byId.get(m.item.id) ?? m.item }))
+              .filter((m) => !removed.has(m.item.id) && !m.item.inTrash),
+          }))
+          .filter((g) => g.members.length > 1),
       );
     });
     effect(() => {
@@ -279,6 +291,15 @@ export class GroupsPage {
     for (const m of group.members.slice(1)) {
       if (!this.selection.ids().has(m.item.id)) this.selection.toggle(m.item.id);
     }
+  }
+
+  protected isDuplicate(group: MediaGroup) {
+    return group.kind === 'exact_duplicate' || group.kind === 'visual_duplicate';
+  }
+
+  /** Keep the best candidate, trash the copies (confirmed by `MediaActions`). */
+  protected trashOthers(group: MediaGroup) {
+    void this.actions.trash(group.members.slice(1).map((m) => m.item.id));
   }
 
   protected open(group: MediaGroup, item: MediaItem) {

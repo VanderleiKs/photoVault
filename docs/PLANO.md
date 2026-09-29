@@ -277,16 +277,52 @@ catálogo v0.x arquivado com as 3 bibliotecas mantidas; onboarding numa instala�
 
 ---
 
-### Fase 5 — Revisão e Lixeira (≈ 2 semanas) → `v1.0`
+### Fase 5 — Revisão e Lixeira (≈ 2 semanas) → `v1.0` ✅ implementada (branch `fase-5-revisao`)
 
-- [ ] Motor de sugestões: `review_candidates` por motivo, score de retenção, regras R4/R5 (favoritas e "manter" protegidas)
-- [ ] Telas Organizar (duplicatas, semelhantes, baixa qualidade, momentâneas, screenshots) e Revisão (priorizada), com ações por foto, grupo e lote
-- [ ] Lixeira: enviar (rename para `.photovault-trash`), restaurar (com conflito tratado), excluir definitivamente (confirmação dupla), esvaziar, opção de lixeira do SO
-- [ ] `operations_log` para toda operação física
-- [ ] Histórico de revisão
-- [ ] Teste de segurança: nenhuma ação sem confirmação e restauração 100 % fiel (hash igual)
+- [x] **Correção da Fase 4 (teste no Windows 11):** duas camisas de mesmo formato, uma azul e outra cinza, apareciam como duplicata visual. O pHash só vê luminância. Agora cada foto guarda uma **assinatura de cor** (croma OKLab médio numa grade 8×8, `metrics::color_layout`) e duplicata visual exige também `color_distance ≤ 2` (ajustável em Configurações). A mesma forma em outra cor passa a ser "semelhante" (informativo), não duplicata
+- [x] **Correção da Fase 4 (teste no Windows 11):** fotos de pessoas e objetos eram classificadas como documento (a regra só olhava claro + sem cor + contraste + bordas). Agora documento exige **linhas de texto** (`metrics::text_lines`: perfil de tinta por projeção, com correção de inclinação de ±4° e nas duas orientações; ≥ 8 linhas). Capturas de tela com texto não viram documento
+- [x] Motor de sugestões (`review`): `review_candidates` por motivo, reconstruído no estágio global a partir de grupos, flags, rótulos e exemplos; score por motivo (gravidade além do limiar) e **prioridade** combinada com pesos por motivo (`1 − Π(1 − peso·score)`, em `media.review_priority`, com índice); regras R4/R5: favoritas nunca são candidatas (na hora, ao favoritar), a melhor candidata de um grupo nunca é candidata dele, "Manter"/"Ignorar" não voltam a ser sugeridos pelo mesmo motivo
+- [x] **Exemplos** (pedido do teste no Windows): o usuário dá fotos (da biblioteca, pelo ✨, ou arquivos do disco em Configurações → Exemplos) como exemplo do que remover ou do que manter; fotos parecidas com um exemplo "remover" (e não mais parecidas com um "manter") ganham o motivo `EXAMPLE`. Sem IA ainda: o `descriptor` compara o aspecto (tom, cor, textura, composição, se é captura/câmera/formato); o `EmbeddingAnalyzer` da Fase 7 entra atrás das mesmas funções
+- [x] Tela **Revisão** (galeria por prioridade, filtro por motivo com contagens, motivo em cada miniatura, Manter/Ignorar/Lixeira/Exemplo em lote, aba **Histórico** com Desfazer/Restaurar); ações também no painel, no visualizador (Delete) e nas telas de duplicatas ("Enviar as outras para a lixeira")
+- [x] Lixeira: `rename` para `<biblioteca>/.photovault-trash/<data>/<caminho>` (a linha da mídia acompanha o arquivo, então o scanner nunca o vê como ausente e o `pv://` continua servindo); restaurar ao caminho original, com conflito tratado ("(restaurada)" no nome, com confirmação); excluir definitivamente (confirmação dupla); esvaziar; limpeza automática opcional (desligada); opção de lixeira do SO (crate `trash`)
+- [x] `operations_log` para toda operação física (pendente → concluída/falha/revertida), com `trash::recover` na inicialização para operações interrompidas
+- [x] Confirmação antes de qualquer operação física; lote acima de 500 itens pede o número digitado (PRD §25)
+- [x] Teste de segurança (`jobs::tests::review_and_trash`): SHA-256 igual após enviar e restaurar, conflito sem tocar no arquivo novo, nada vai para a lixeira duas vezes, só itens da lixeira podem ser excluídos, log completo, recuperação após queda
 
-**Aceite:** o usuário revisa as sugestões, envia para a lixeira e restaura sem perda. **Release 1.0 portátil (Windows + Linux).**
+**Aceite:** o usuário revisa as sugestões, envia para a lixeira e restaura sem perda. ✅ (validado no app: revisão → lixeira → restauração com hash idêntico; Delete no visualizador; exemplo pelo painel achando os 12 documentos). **Release 1.0 portátil (Windows + Linux).**
+
+**Resultado no conjunto rotulado (2026-09-28, `analysis_eval`, 233 imagens, limiares padrão):**
+
+| Heurística | Precisão | Recall | Observação |
+|---|---|---|---|
+| Duplicata exata | 100 % | 100 % | |
+| Duplicata visual | 100 % | 80 % | **sem a verificação de cor: 52 %** (22 falsos positivos entre camisas de cores diferentes e fotos com um objeto recolorido) |
+| Screenshot | 100 % | 100 % | |
+| Borrada | 71 % | 80 % | sem mudança |
+| Escura | 100 % | 100 % | |
+| Documento | 100 % | 92 % | **regra antiga: 80 %** com os novos negativos (fotos P&B claras); 0 falsos positivos em 464 fotos reais de banco de imagens (antes: 2 objetos sobre fundo branco) |
+
+Exemplos (2 fotos da categoria como exemplo "remover", limiar 0,70):
+
+| Categoria | Precisão | Recall | Observação |
+|---|---|---|---|
+| Documentos | 100 % | 100 % | |
+| Camisas (produto) | 100 % | 100 % | |
+| Escuras | 100 % | 75 % | |
+| Screenshots | 100 % | 5 % | a categoria mistura tema claro/escuro e celular/desktop: 2 exemplos não cobrem; o exemplo acha fotos com o mesmo **aspecto**, e screenshots já têm detector próprio |
+
+**Como foi calibrado:**
+- **Cor:** distância das cópias (reduzida, recomprimida, recortada, clareada) ≤ 1,5; camisas iguais em outra cor 13–27; fotos reais com um objeto recolorido 3,2–10. Limiar 2.
+- **Linhas de texto:** a contagem por faixas fixas falhava em páginas inclinadas e gerava ruído em fotos com textura (até 141 "linhas"); a projeção com correção de inclinação separa documentos (18–74 na maioria) de fotos (≤ 5) e P&B (≤ 2).
+- **Exemplos:** varredura do limiar de 0,5 a 0,8; 0,7 é o menor sem falsos positivos em nenhum cenário.
+
+**Bugs encontrados e corrigidos:** o que o teste no Windows mostrou (camisas como duplicata, pessoas/objetos como documento); screenshots cheios de texto passariam a "documento" com a regra nova.
+
+**Achados / limites:**
+- O custo da análise por foto subiu de ~15 para ~25 ms (linhas de texto: 18 projeções); 100 mil fotos ≈ 10 min em 4 núcleos, só na primeira vez.
+- Os exemplos não entendem conteúdo ("comida", "carros") até a Fase 7; funcionam para "fotos com esta cara" (recibos, prints de um app, fotos no escuro, fotos de produto).
+- Vídeos ainda não geram sugestões (duplicatas exatas de vídeo seriam úteis: ficam para depois do ffmpeg).
+- Com a lixeira do sistema, a restauração é feita pela lixeira do Windows/Linux; o arquivo restaurado volta como item novo no próximo scan.
 
 ---
 
@@ -351,6 +387,6 @@ catálogo v0.x arquivado com as 3 bibliotecas mantidas; onboarding numa instala�
 
 ## 6. Próximo passo imediato
 
-1. Validar as Fases 0–4 no Windows 11 (zip do `release.yml`) e num HD USB real; revalidar o `analysis_eval` com fotos reais de celular.
+1. Validar a v1.0 no Windows 11 (zip do `release.yml`) com fotos reais: duplicatas coloridas, documentos, lixeira num HD USB (inclusive desconectar no meio de um envio para a lixeira).
 2. Decidir o empacotamento da libheif (HEIC) e do ffmpeg (miniaturas de vídeo), pendentes da Fase 2.
-3. Iniciar a **Fase 5** (revisão e lixeira: `review_candidates` a partir dos grupos e flags desta fase, lixeira reversível dentro da biblioteca).
+3. Iniciar a **Fase 6** (viagens e eventos).

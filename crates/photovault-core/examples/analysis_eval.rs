@@ -9,6 +9,9 @@ use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
+/// Example category: name and which paths belong to it.
+type Scenario = (&'static str, fn(&str) -> bool);
+
 /// (path, quality flags JSON, is screenshot, is document)
 type ClassRow = (String, Option<String>, Option<i64>, Option<i64>);
 
@@ -102,24 +105,24 @@ async fn main() -> photovault_core::Result<()> {
     let db = photovault_core::db::open(&work.join("catalog.db"), &work.join("thumbnails")).await?;
     let pool = &db.pool;
     let lib = libraries::create(pool, "eval", &dir).await?;
-    if let Some(d) = std::env::var("PV_EVAL_VISUAL")
-        .ok()
-        .and_then(|v| v.parse().ok())
-    {
-        let mut s = photovault_core::catalog::settings::get(pool).await?;
+    // Threshold sweeps: PV_EVAL_VISUAL=<pHash distance>, PV_EVAL_COLOR_MAX=<colour distance>.
+    let env = |k: &str| std::env::var(k).ok();
+    let mut s = photovault_core::catalog::settings::get(pool).await?;
+    if let Some(d) = env("PV_EVAL_VISUAL").and_then(|v| v.parse().ok()) {
         s.analysis.visual_distance = d;
-        photovault_core::catalog::settings::save(pool, &s).await?;
     }
+    if let Some(c) = env("PV_EVAL_COLOR_MAX").and_then(|v| v.parse().ok()) {
+        s.analysis.color_distance = c;
+    }
+    photovault_core::catalog::settings::save(pool, &s).await?;
     let ctx = ScanContext {
         pool: pool.clone(),
         control: Arc::new(ScanControl::default()),
     };
     scanner::scan(&ctx, &lib, Arc::new(Quiet)).await?;
     let t = std::time::Instant::now();
-    JobRunner::new(pool.clone(), work.join("thumbnails"), Arc::new(Quiet))
-        .await?
-        .drain()
-        .await?;
+    let runner = JobRunner::new(pool.clone(), work.join("thumbnails"), Arc::new(Quiet)).await?;
+    runner.drain().await?;
     println!("{} imagens analisadas em {:?}\n", labels.len(), t.elapsed());
 
     let groups: Vec<(String, String, String)> = sqlx::query_as(
@@ -247,6 +250,174 @@ async fn main() -> photovault_core::Result<()> {
     ] {
         for e in s.errors.iter().take(8) {
             println!("  {name}: {e}");
+        }
+    }
+    // Examples (phase 5): give 2 photos of a kind as "remove" examples; the others of
+    // that kind should come back as EXAMPLE suggestions, and nothing else.
+    let scenarios: [Scenario; 4] = [
+        ("Documentos", |p| p.starts_with("documentos/")),
+        ("Screenshots", |p| {
+            p.starts_with("Screenshot_")
+                || p.starts_with("Pictures/Screenshots/")
+                || p.starts_with("imagens/tela_")
+        }),
+        ("Escuras", |p| p.starts_with("escuras/")),
+        ("Camisas", |p| p.starts_with("produtos/")),
+    ];
+    let paths: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, relative_path FROM media ORDER BY relative_path")
+            .fetch_all(pool)
+            .await?;
+    let sim = std::env::var("PV_EVAL_EXAMPLE_SIM")
+        .ok()
+        .and_then(|v| v.parse().ok());
+    if let Some(sim) = sim {
+        let mut s = photovault_core::catalog::settings::get(pool).await?;
+        s.review.example_similarity = sim;
+        photovault_core::catalog::settings::save(pool, &s).await?;
+    }
+    if std::env::var_os("PV_EVAL_DESCRIPTOR").is_some() {
+        use photovault_core::analysis::descriptor;
+        let rows: Vec<(String, Vec<u8>)> = sqlx::query_as(
+            "SELECT m.relative_path, q.descriptor FROM media m JOIN media_quality q ON q.media_id = m.id
+             WHERE q.descriptor IS NOT NULL",
+        )
+        .fetch_all(pool)
+        .await?;
+        let rows: Vec<(String, Vec<f32>)> = rows
+            .into_iter()
+            .map(|(p, d)| (p, descriptor::from_bytes(&d)))
+            .collect();
+        for (name, of_kind) in &scenarios {
+            let (mut inside, mut outside) = ([0.0; 5], [0.0; 5]);
+            let (mut n_in, mut n_out) = (0.0, 0.0);
+            let (mut s_in, mut s_out) = (Vec::new(), Vec::new());
+            for (i, a) in rows.iter().enumerate() {
+                if !of_kind(&a.0) {
+                    continue;
+                }
+                for (j, b) in rows.iter().enumerate() {
+                    if i == j {
+                        continue;
+                    }
+                    let g = descriptor::group_distances(&a.1, &b.1);
+                    let sim = descriptor::similarity(&a.1, &b.1);
+                    let (acc, n, sims) = if of_kind(&b.0) {
+                        (&mut inside, &mut n_in, &mut s_in)
+                    } else {
+                        (&mut outside, &mut n_out, &mut s_out)
+                    };
+                    for k in 0..5 {
+                        acc[k] += g[k];
+                    }
+                    *n += 1.0;
+                    sims.push(sim);
+                }
+            }
+            let fmt = |acc: [f64; 5], n: f64| {
+                acc.iter()
+                    .map(|v| format!("{:.4}", v / n))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            };
+            let pct = |v: &mut Vec<f64>, p: f64| {
+                v.sort_by(|a, b| a.total_cmp(b));
+                v[((v.len() - 1) as f64 * p) as usize]
+            };
+            println!(
+                "{name:12} tom/cor/textura/layout/tipo  dentro {}  fora {}   sim dentro p50 {:.2} p90 {:.2} | fora p90 {:.2} p99 {:.2}",
+                fmt(inside, n_in),
+                fmt(outside, n_out),
+                pct(&mut s_in, 0.5),
+                pct(&mut s_in, 0.9),
+                pct(&mut s_out, 0.9),
+                pct(&mut s_out, 0.99)
+            );
+        }
+    }
+    let mut example_lines = Vec::new();
+    let mut example_errors = Vec::new();
+    for (name, of_kind) in scenarios {
+        sqlx::query("DELETE FROM review_examples")
+            .execute(pool)
+            .await?;
+        let kind: Vec<&(String, String)> = paths.iter().filter(|(_, p)| of_kind(p)).collect();
+        let chosen: Vec<String> = kind.iter().take(2).map(|(id, _)| id.clone()).collect();
+        photovault_core::review::examples::add_from_media(
+            pool,
+            &work.join("thumbnails"),
+            &chosen,
+            photovault_core::review::examples::ExampleIntent::Remove,
+        )
+        .await?;
+        runner.drain().await?;
+        let suggested: BTreeSet<String> = sqlx::query_scalar(
+            "SELECT m.relative_path FROM review_candidates c JOIN media m ON m.id = c.media_id
+             WHERE c.reason = 'EXAMPLE' AND c.status = 'pending'",
+        )
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect();
+        let mut score = Score::default();
+        for (id, path) in &paths {
+            if chosen.contains(id) {
+                continue;
+            }
+            score.add(suggested.contains(path), of_kind(path), path);
+        }
+        example_lines.push(score.line(&format!("Exemplo: {name}")));
+        example_errors.extend(
+            score
+                .errors
+                .iter()
+                .take(4)
+                .map(|e| format!("  {name}: {e}")),
+        );
+    }
+    sqlx::query("DELETE FROM review_examples")
+        .execute(pool)
+        .await?;
+    println!();
+    for l in &example_lines {
+        println!("{l}");
+    }
+    for e in &example_errors {
+        println!("{e}");
+    }
+
+    if std::env::var_os("PV_EVAL_COLOR").is_some() {
+        // Pairs with close pHashes: colour distance of true duplicates vs. the rest.
+        let rows: Vec<(String, String, Vec<u8>)> = sqlx::query_as(
+            "SELECT m.relative_path, m.phash, q.color_layout FROM media m
+             JOIN media_quality q ON q.media_id = m.id
+             WHERE m.phash IS NOT NULL AND q.color_layout IS NOT NULL",
+        )
+        .fetch_all(pool)
+        .await?;
+        let parsed: Vec<(String, u64, Vec<u8>)> = rows
+            .into_iter()
+            .filter_map(|(p, h, c)| Some((p, u64::from_str_radix(&h, 16).ok()?, c)))
+            .collect();
+        let (mut same, mut other) = (Vec::new(), Vec::new());
+        for (i, a) in parsed.iter().enumerate() {
+            for b in &parsed[i + 1..] {
+                let d = (a.1 ^ b.1).count_ones();
+                if d > 6 {
+                    continue;
+                }
+                let c = photovault_core::analysis::metrics::color_distance(&a.2, &b.2);
+                let base = |f: &str| by_file.get(f).and_then(|l| l.base);
+                let truth = base(&a.0).is_some() && base(&a.0) == base(&b.0);
+                if truth { &mut same } else { &mut other }.push((c, d, a.0.clone(), b.0.clone()));
+            }
+        }
+        for (name, v) in [("mesma foto", &mut same), ("fotos diferentes", &mut other)] {
+            v.sort_by(|x, y| x.0.total_cmp(&y.0));
+            println!("\ncor — {name} ({} pares com pHash ≤ 6):", v.len());
+            for (c, d, a, b) in v.iter() {
+                println!("  cor {c:6.2}  pHash {d}  {a}  ×  {b}");
+            }
         }
     }
     if std::env::var_os("PV_EVAL_SHARPNESS").is_some() {

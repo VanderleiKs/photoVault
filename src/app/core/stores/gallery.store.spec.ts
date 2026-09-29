@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { MessageService } from '@openng/optimus-ui/api';
 import type { MediaPage, MediaQuery } from '../ipc/ipc';
 import { fakeBackend, mediaItem as item, ok, pretendTauri } from '../testing/fake-backend';
-import { GalleryStore } from './gallery.store';
+import { GalleryStore, matchesLocally } from './gallery.store';
 import { LibraryStore } from './library.store';
 import { MediaBus } from './media-bus';
 
@@ -91,5 +91,15 @@ describe('GalleryStore', () => {
     bus.publish([item('a', { isFavorite: true, thumbVersion: 2 }), item('b', { isFavorite: false })], ['c']);
     TestBed.tick();
     expect(store.items().map((m) => [m.id, m.thumbVersion])).toEqual([['a', 2]]);
+  });
+
+  it('drops trashed items from galleries and reviewed ones from Review', () => {
+    const trashed = item('t', { inTrash: true });
+    expect(matchesLocally({}, trashed)).toBe(false);
+    expect(matchesLocally({ trashed: true }, trashed)).toBe(true);
+    expect(matchesLocally({ trashed: true }, item('a'))).toBe(false);
+    expect(matchesLocally({ review: true }, item('a', { reviewPriority: 900 }))).toBe(true);
+    expect(matchesLocally({ review: true }, item('a', { reviewPriority: null }))).toBe(false);
+    expect(matchesLocally({ reviewReason: 'BLURRY' }, item('a', { reviewPriority: null }))).toBe(false);
   });
 });

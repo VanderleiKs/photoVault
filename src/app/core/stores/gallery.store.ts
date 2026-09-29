@@ -265,9 +265,11 @@ export class GalleryStore {
   }
 }
 
-/** Checks the filter fields an edit can change (favorite, type). */
+/** Checks the filter fields an edit can change (favorite, type, trash, review). */
 export function matchesLocally(filter: MediaFilter, item: MediaItem): boolean {
   if (filter.favorite === true && !item.isFavorite) return false;
   if (filter.mediaType && item.mediaType !== filter.mediaType) return false;
+  if ((filter.trashed === true) !== item.inTrash) return false;
+  if ((filter.review === true || filter.reviewReason) && item.reviewPriority === null) return false;
   return true;
 }

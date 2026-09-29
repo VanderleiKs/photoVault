@@ -91,6 +91,12 @@ export const commands = {
 	/**  Members of a duplicate/similar group or of a burst (viewer navigation). */
 	groupId?: string | null,
 	sequenceId?: string | null,
+	/**  `true` = photos with pending review suggestions (phase 5). */
+	review?: boolean | null,
+	/**  Pending suggestions for this reason. */
+	reviewReason?: ReviewReason | null,
+	/**  `true` = the trash instead of the active photos. */
+	trashed?: boolean | null,
 } | null) => typedError<Album, ApiError>(__TAURI_INVOKE("create_album", { libraryId, name, rule })),
 	renameAlbum: (albumId: string, name: string) => typedError<Album, ApiError>(__TAURI_INVOKE("rename_album", { albumId, name })),
 	updateAlbumRule: (albumId: string, rule: MediaFilter) => typedError<Album, ApiError>(__TAURI_INVOKE("update_album_rule", { albumId, rule })),
@@ -111,6 +117,48 @@ export const commands = {
 	addTag: (mediaIds: string[], tag: string) => typedError<string, ApiError>(__TAURI_INVOKE("add_tag", { mediaIds, tag })),
 	removeTag: (mediaIds: string[], tag: string) => typedError<null, ApiError>(__TAURI_INVOKE("remove_tag", { mediaIds, tag })),
 	listTags: (libraryId: string) => typedError<TagCount[], ApiError>(__TAURI_INVOKE("list_tags", { libraryId })),
+	/**  Counters of the Review screen (pending photos, per reason). */
+	getReviewSummary: (libraryId: string) => typedError<ReviewSummary, ApiError>(__TAURI_INVOKE("get_review_summary", { libraryId })),
+	/**  Every suggestion of one photo, decided or not (info panel). */
+	getMediaReview: (mediaId: string) => typedError<ReviewEntry[], ApiError>(__TAURI_INVOKE("get_media_review", { mediaId })),
+	/**  Pending reasons of the photos on screen (chips on the Review tiles). */
+	getPendingReasons: (mediaIds: string[]) => typedError<MediaReasons[], ApiError>(__TAURI_INVOKE("get_pending_reasons", { mediaIds })),
+	/**
+	 *  Keep / ignore (or reopen) the suggestions of some photos, for every reason or one.
+	 *  Returns the updated items (their review priority changed).
+	 */
+	decideReview: (mediaIds: string[], decision: Decision, reason: "EXACT_DUPLICATE" | "VISUAL_DUPLICATE" | "SIMILAR_SEQUENCE" | "BLURRY" | "DARK" | "OVEREXPOSED" | "LOW_RESOLUTION" | "SCREENSHOT" | "MOMENTARY" | "ACCIDENTAL" | "LOW_INFORMATION" | "EXAMPLE" | null) => typedError<MediaItem[], ApiError>(__TAURI_INVOKE("decide_review", { mediaIds, decision, reason })),
+	listReviewHistory: (libraryId: string, cursor: string | null, limit: number) => typedError<HistoryPage, ApiError>(__TAURI_INVOKE("list_review_history", { libraryId, cursor, limit })),
+	listExamples: () => typedError<ReviewExample[], ApiError>(__TAURI_INVOKE("list_examples")),
+	/**  Photos of the catalog as examples. Returns how many were added. */
+	addExamples: (mediaIds: string[], intent: ExampleIntent) => typedError<number, ApiError>(__TAURI_INVOKE("add_examples", { mediaIds, intent })),
+	/**  Pick an image anywhere on disk as an example. `None` when the user cancels. */
+	addExampleFromFile: (intent: ExampleIntent) => typedError<{
+	id: string,
+	intent: ExampleIntent,
+	name: string,
+	/**  `data:image/webp;base64,…` */
+	thumbnail: string,
+	/**  Photo of the catalog it came from (absent for files picked from disk). */
+	mediaId: string | null,
+	createdAt: string,
+	/**  Photos currently suggested because of it. */
+	matches: number,
+} | null, ApiError>(__TAURI_INVOKE("add_example_from_file", { intent })),
+	setExampleIntent: (exampleId: string, intent: ExampleIntent) => typedError<null, ApiError>(__TAURI_INVOKE("set_example_intent", { exampleId, intent })),
+	removeExample: (exampleId: string) => typedError<null, ApiError>(__TAURI_INVOKE("remove_example", { exampleId })),
+	/**  Send photos to the trash (library trash, or the system's if configured). */
+	trashMedia: (mediaIds: string[]) => typedError<TrashResult, ApiError>(__TAURI_INVOKE("trash_media", { mediaIds })),
+	restoreMedia: (mediaIds: string[], onConflict: OnConflict) => typedError<RestoreResult, ApiError>(__TAURI_INVOKE("restore_media", { mediaIds, onConflict })),
+	/**  Delete trashed photos for good (the UI confirms twice). */
+	purgeMedia: (mediaIds: string[]) => typedError<TrashResult, ApiError>(__TAURI_INVOKE("purge_media", { mediaIds })),
+	emptyTrash: (libraryId: string) => typedError<TrashResult, ApiError>(__TAURI_INVOKE("empty_trash", { libraryId })),
+	getTrashSummary: (libraryId: string) => typedError<TrashSummary, ApiError>(__TAURI_INVOKE("get_trash_summary", { libraryId })),
+	/**  Original place and date of a trashed photo. */
+	getTrashEntry: (mediaId: string) => typedError<{
+	originalPath: string,
+	deletedAt: string,
+} | null, ApiError>(__TAURI_INVOKE("get_trash_entry", { mediaId })),
 	/**  State of the background analysis queue. */
 	getJobProgress: () => typedError<JobProgress, ApiError>(__TAURI_INVOKE("get_job_progress")),
 	pauseJobs: () => typedError<JobProgress, ApiError>(__TAURI_INVOKE("pause_jobs")),
@@ -159,6 +207,11 @@ export type AlbumRef = {
 export type AnalysisSettings = {
 	/**  pHash Hamming distance for "same picture" (resize, recompression). PRD: ≤ 4. */
 	visualDistance?: number,
+	/**
+	 *  Colour difference (`metrics::color_distance`) up to which two photos with close
+	 *  pHashes are still the same picture.
+	 */
+	colorDistance?: number | null,
 	/**  pHash distance for "same scene". PRD: ≤ 12. */
 	similarDistance?: number,
 	/**  Similar photos must be this close in time. */
@@ -208,6 +261,8 @@ export type AppSettings = {
 	cpuConcurrency: number,
 	/**  Thresholds of the analysis heuristics (PRD §11–14). Absent in older catalogs. */
 	analysis?: AnalysisSettings,
+	/**  Suggestions and trash (PRD §15–16). Absent before v1.0. */
+	review?: ReviewSettings,
 };
 
 export type CameraOption = {
@@ -224,6 +279,21 @@ export type DataMode =
 "custom" | 
 /**  OS data directory (no flag, or the app folder is read-only). */
 "system";
+
+/**  What the user decided about the suggestions of some photos. */
+export type Decision = 
+/**  "Manter": the photo stays, don't suggest it again for these reasons. */
+"keep" | 
+/**  "Ignorar sugestão": same effect, recorded as a dismissed suggestion. */
+"ignore" | 
+/**  Undo a keep/ignore (history): the suggestion comes back if it still applies. */
+"reopen";
+
+export type ExampleIntent = 
+/**  Suggest photos like this one for removal. */
+"remove" | 
+/**  Never suggest photos like this one (wins over "remove" when closer). */
+"keep";
 
 export type GroupKind = "exact_duplicate" | "visual_duplicate" | "similar" | "sequence";
 
@@ -245,6 +315,18 @@ export type GroupRef = {
 	kind: GroupKind,
 	size: number,
 	isBest: boolean,
+};
+
+export type HistoryEntry = {
+	item: MediaItem,
+	reason: ReviewReason,
+	status: ReviewStatus,
+	decidedAt: string,
+};
+
+export type HistoryPage = {
+	entries: HistoryEntry[],
+	nextCursor: string | null,
 };
 
 export type JobFailure = {
@@ -373,6 +455,12 @@ export type MediaFilter = {
 	/**  Members of a duplicate/similar group or of a burst (viewer navigation). */
 	groupId?: string | null,
 	sequenceId?: string | null,
+	/**  `true` = photos with pending review suggestions (phase 5). */
+	review?: boolean | null,
+	/**  Pending suggestions for this reason. */
+	reviewReason?: ReviewReason | null,
+	/**  `true` = the trash instead of the active photos. */
+	trashed?: boolean | null,
 };
 
 export type MediaGroup = {
@@ -417,6 +505,10 @@ export type MediaItem = {
 	/**  0 = thumbnails not generated yet; bumps when they are rewritten. */
 	thumbVersion: number,
 	indexedAt: string,
+	/**  In the trash (`relative_path` then points inside `.photovault-trash`). */
+	inTrash: boolean,
+	/**  Priority (1–1000) of its pending review suggestions; `None` = nothing to review. */
+	reviewPriority: number | null,
 };
 
 /**  One page of the gallery. Pass `next_cursor` back to get the following page. */
@@ -430,6 +522,12 @@ export type MediaQuery = {
 	sort?: MediaSort,
 };
 
+export type MediaReasons = {
+	mediaId: string,
+	/**  Pending reasons, most important first. */
+	reasons: ReasonScore[],
+};
+
 export type MediaSort = 
 /**  Capture date, newest first; undated last. */
 "newest" | 
@@ -438,7 +536,9 @@ export type MediaSort =
 /**  File name A→Z. */
 "name" | 
 /**  Largest files first. */
-"largest";
+"largest" | 
+/**  Review priority, highest first (photos without suggestions last). */
+"priority";
 
 export type MediaType = "image" | "video";
 
@@ -452,6 +552,13 @@ export type MediaUpdatedEvent = {
 };
 
 export type MomentaryFilter = "any" | "document" | "accidental";
+
+/**  What to do when the original path is taken again. */
+export type OnConflict = 
+/**  Leave it in the trash and report it (the UI asks). */
+"ask" | 
+/**  Restore as "name (restaurada).ext". */
+"rename";
 
 export type OrganizeCounts = {
 	/**  Groups, and extra copies in them (what could be freed). */
@@ -467,6 +574,9 @@ export type OrganizeCounts = {
 	/**  Photos analysed / waiting (the counters grow while this is > 0). */
 	analyzed: number,
 	pending: number,
+	/**  Photos with pending review suggestions, and photos in the trash (phase 5). */
+	review: number,
+	trash: number,
 };
 
 export type PlaceOption = {
@@ -482,6 +592,98 @@ export type QualityFlag = "blurry" | "dark" | "overexposed" | "low_res" |
 "empty";
 
 export type QualityLevel = "low" | "medium" | "high";
+
+export type ReasonCount = {
+	reason: ReviewReason,
+	count: number,
+};
+
+export type ReasonScore = {
+	reason: ReviewReason,
+	score: number | null,
+};
+
+/**
+ *  How much each reason weighs in the Review priority (0 = never suggest for it).
+ *  Suggested levels in the UI: 1 (alta), 0.6 (normal), 0.3 (baixa), 0 (desligado).
+ */
+export type ReasonWeights = {
+	exactDuplicate?: number | null,
+	visualDuplicate?: number | null,
+	similarSequence?: number | null,
+	blurry?: number | null,
+	dark?: number | null,
+	overexposed?: number | null,
+	lowResolution?: number | null,
+	screenshot?: number | null,
+	momentary?: number | null,
+	accidental?: number | null,
+	lowInformation?: number | null,
+	example?: number | null,
+};
+
+export type RestoreConflict = {
+	mediaId: string,
+	filename: string,
+	originalPath: string,
+};
+
+export type RestoreResult = {
+	restored: string[],
+	conflicts: RestoreConflict[],
+	failed: TrashFailure[],
+};
+
+export type ReviewEntry = {
+	reason: ReviewReason,
+	/**  0–1: how sure the heuristic is. */
+	score: number | null,
+	status: ReviewStatus,
+	/**  Similarity group, burst or example behind it. */
+	groupId: string | null,
+	/**  For `EXAMPLE`: the name of the example it looks like. */
+	exampleName: string | null,
+	decidedAt: string | null,
+};
+
+export type ReviewExample = {
+	id: string,
+	intent: ExampleIntent,
+	name: string,
+	/**  `data:image/webp;base64,…` */
+	thumbnail: string,
+	/**  Photo of the catalog it came from (absent for files picked from disk). */
+	mediaId: string | null,
+	createdAt: string,
+	/**  Photos currently suggested because of it. */
+	matches: number,
+};
+
+export type ReviewReason = "EXACT_DUPLICATE" | "VISUAL_DUPLICATE" | "SIMILAR_SEQUENCE" | "BLURRY" | "DARK" | "OVEREXPOSED" | "LOW_RESOLUTION" | "SCREENSHOT" | "MOMENTARY" | "ACCIDENTAL" | "LOW_INFORMATION" | "EXAMPLE";
+
+export type ReviewSettings = {
+	weights?: ReasonWeights,
+	/**  Similarity (0–1) from which a photo counts as "like" one of the examples. */
+	exampleSimilarity?: number | null,
+	/**
+	 *  Send to the operating system's trash instead of `.photovault-trash` (then it can
+	 *  only be restored from there).
+	 */
+	useSystemTrash?: boolean,
+	/**  Delete items older than this from the trash on startup; 0 = never (default). */
+	autoPurgeDays?: number,
+};
+
+export type ReviewStatus = "pending" | "kept" | "ignored" | "trashed";
+
+export type ReviewSummary = {
+	/**  Photos with at least one pending suggestion. */
+	pending: number,
+	/**  Pending suggestions per reason (a photo counts once per reason). */
+	byReason: ReasonCount[],
+	/**  Bytes of the photos to review. */
+	pendingBytes: number,
+};
 
 export type ScanCompleteEvent = ScanSummary;
 
@@ -530,6 +732,27 @@ export type TimelineBucket = {
 	/**  1–12; 0 for undated. */
 	month: number,
 	count: number,
+};
+
+export type TrashEntry = {
+	originalPath: string,
+	deletedAt: string,
+};
+
+export type TrashFailure = {
+	mediaId: string,
+	filename: string,
+	message: string,
+};
+
+export type TrashResult = {
+	done: string[],
+	failed: TrashFailure[],
+};
+
+export type TrashSummary = {
+	count: number,
+	bytes: number,
 };
 
 export type VolumeInfo = {

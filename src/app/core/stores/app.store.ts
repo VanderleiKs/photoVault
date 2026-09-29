@@ -1,11 +1,12 @@
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { Backend } from '../ipc/backend';
-import { unwrap, type AppInfo, type AnalysisSettings, type AppSettings } from '../ipc/ipc';
+import { unwrap, type AppInfo, type AnalysisSettings, type AppSettings, type ReviewSettings } from '../ipc/ipc';
 import { NotifyService } from '../notify.service';
 
 /** Same values as `AnalysisSettings::default()` in the core. */
 export const DEFAULT_ANALYSIS: AnalysisSettings = {
   visualDistance: 4,
+  colorDistance: 2,
   similarDistance: 12,
   similarWindowMinutes: 30,
   sequenceGapSeconds: 3,
@@ -18,12 +19,34 @@ export const DEFAULT_ANALYSIS: AnalysisSettings = {
   momentaryThreshold: 0.6,
 };
 
+/** Same values as `ReviewSettings::default()` in the core. */
+export const DEFAULT_REVIEW: ReviewSettings = {
+  weights: {
+    exactDuplicate: 1,
+    visualDuplicate: 1,
+    similarSequence: 0.6,
+    blurry: 0.6,
+    dark: 0.6,
+    overexposed: 0.3,
+    lowResolution: 0.3,
+    screenshot: 0.6,
+    momentary: 0.6,
+    accidental: 1,
+    lowInformation: 1,
+    example: 1,
+  },
+  exampleSimilarity: 0.7,
+  useSystemTrash: false,
+  autoPurgeDays: 0,
+};
+
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'light',
   activeLibraryId: null,
   ioConcurrency: 2,
   cpuConcurrency: 0,
   analysis: DEFAULT_ANALYSIS,
+  review: DEFAULT_REVIEW,
 };
 
 /** App-wide info and persisted settings (theme, active library, performance). */

@@ -79,6 +79,7 @@ const PREFETCH = 2;
                 [focused]="item.id === selection.focusedId()"
                 [checked]="selection.ids().has(item.id)"
                 [selecting]="selection.active()"
+                [badge]="badges()?.get(item.id) ?? null"
                 (select)="onSelect(item, $event)"
                 (open)="open.emit(item)"
                 (check)="selection.toggle(item.id)"
@@ -107,6 +108,8 @@ export class MediaGridComponent {
   readonly loading = input(false);
   readonly hasMore = input(false);
   readonly label = input('Fotos');
+  /** Optional text per item id, shown over its tile. */
+  readonly badges = input<ReadonlyMap<string, string>>();
 
   readonly loadMore = output<void>();
   readonly open = output<MediaItem>();

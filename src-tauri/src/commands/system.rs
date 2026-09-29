@@ -47,8 +47,8 @@ pub async fn save_settings(
 ) -> ApiResult<AppSettings> {
     let before = settings::get(&state.pool).await?;
     let saved = settings::save(&state.pool, &settings).await?;
-    // New thresholds: recompute flags and groups (no photo is re-read).
-    if before.analysis != saved.analysis {
+    // New thresholds or weights: recompute flags, groups and suggestions (no photo is re-read).
+    if before.analysis != saved.analysis || before.review != saved.review {
         photovault_core::analysis::store::mark_all_dirty(&state.pool).await?;
         state.jobs.wake();
     }

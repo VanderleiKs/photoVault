@@ -65,6 +65,8 @@ export function mediaItem(id: string, patch: Partial<import('../ipc/ipc').MediaI
     isFavorite: false,
     thumbVersion: 0,
     indexedAt: '',
+    inTrash: false,
+    reviewPriority: null,
     ...patch,
   };
 }

@@ -92,6 +92,72 @@ for j, i in enumerate(range(60, min(n, 70))):
 for j, i in enumerate(range(70, min(n, 75))):
     save(bases[i].resize((1920, 1080)), f"papeis/wallpaper_{j}.jpg", camera=False, base=i, screenshot=False, derived=True)
 
+# 5b. Same shot, an object in another colour (luminance kept, so the pHash matches):
+# NOT duplicates. The "blue and grey shirt" case, on real photos and on product shots.
+def recolor(img, mode):
+    ycc = img.convert("YCbCr")
+    y, cb, cr = ycc.split()
+    w, h = img.size
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).ellipse((int(w * .2), int(h * .15), int(w * .8), int(h * .85)), fill=255)
+    if mode == "cinza":
+        cb2, cr2 = Image.new("L", (w, h), 128), Image.new("L", (w, h), 128)
+    else:  # hue rotated by 90°: (Cb, Cr) → (255 - Cr, Cb)
+        cb2, cr2 = cr.point(lambda v: 255 - v), cb
+    cb = Image.composite(cb2, cb, mask)
+    cr = Image.composite(cr2, cr, mask)
+    return Image.merge("YCbCr", (y, cb, cr)).convert("RGB")
+for j, i in enumerate(range(75, min(n, 85))):
+    mode = "cinza" if j % 2 else "matiz"
+    when = f"20{10 + i % 14:02d}:{1 + i % 12:02d}:{1 + i % 27:02d} 10:00:00"
+    save(recolor(bases[i], mode), f"cores/IMG_C{j:03d}_{mode}.jpg", when=when, base=1000 + j)
+
+def garment(color, seed):
+    r = random.Random(seed)
+    w, h = 1600, 2000
+    img = Image.new("RGB", (w, h), (236, 234, 230))
+    d = ImageDraw.Draw(img)
+    for y in range(h):  # soft studio light
+        v = int(236 - 26 * y / h)
+        d.line((0, y, w, y), fill=(v, v - 2, v - 5))
+    sx, sy = r.uniform(.9, 1.1), r.uniform(.9, 1.1)
+    P = lambda x, y: (int(w / 2 + (x - .5) * w * sx), int(h / 2 + (y - .5) * h * sy))
+    body = [P(.3, .2), P(.42, .16), P(.5, .2), P(.58, .16), P(.7, .2), P(.88, .34), P(.8, .42),
+            P(.72, .36), P(.72, .85), P(.28, .85), P(.28, .36), P(.2, .42), P(.12, .34)]
+    d.polygon([(x + 18, y + 22) for x, y in body], fill=(200, 198, 194))  # shadow
+    d.polygon(body, fill=color)
+    tex = Image.effect_noise((w, h), 18).convert("L")
+    shade = Image.new("RGB", (w, h), (0, 0, 0))
+    img = Image.composite(Image.blend(img, shade, .08), img, tex.point(lambda v: 255 if v > 150 else 0))
+    d = ImageDraw.Draw(img)
+    for k in range(r.randint(2, 5)):  # seams and a label: structure the pHash sees
+        x = int(w * r.uniform(.35, .6))
+        d.line((x, int(h * .3), x + r.randint(-30, 30), int(h * .8)), fill=tuple(max(0, c - 40) for c in color), width=6)
+    d.rectangle((*P(.46, .2), *P(.54, .24)), fill=(250, 250, 250))
+    return img
+COLORS = {"azul": (40, 80, 170), "cinza": (120, 120, 122), "vermelha": (170, 40, 45)}
+for k in range(6):
+    for c, (name, rgb) in enumerate(COLORS.items()):
+        when = f"2023:05:{10 + k:02d} 14:{c:02d}:00"
+        save(garment(rgb, 500 + k), f"produtos/camisa_{k}_{name}.jpg", when=when, base=2000 + k * 3 + c)
+
+# 5c. Black-and-white, bright versions of photos: pale, colourless and full of edges
+# like paper, but without lines of text. NOT documents (people/objects on white).
+for j, i in enumerate(range(0, min(n, 12))):
+    bw = ImageEnhance.Contrast(ImageEnhance.Brightness(bases[i].convert("L")).enhance(1.35)).enhance(1.3)
+    save(bw, f"pb/IMG_PB{j:03d}.jpg", base=3000 + j, document=False)
+for j in range(8):  # objects on a white background (product shots)
+    r = random.Random(700 + j)
+    img = Image.new("RGB", (1600, 1600), (246, 246, 246))
+    d = ImageDraw.Draw(img)
+    for _ in range(r.randint(1, 3)):
+        x, y, rad = r.randint(400, 1200), r.randint(400, 1200), r.randint(150, 380)
+        shade = r.randint(20, 90)
+        d.ellipse((x - rad, y - rad, x + rad, y + rad), fill=(shade, shade, shade + 4))
+        for k in range(0, rad, 24):  # seams / texture lines on the object
+            d.arc((x - rad + k, y - rad, x + rad - k, y + rad), 0, 180, fill=(200, 200, 200), width=3)
+    save(img, f"objetos/OBJ_{j:03d}.jpg", base=4000 + j, document=False)
+
 # 6. Synthetic screenshots.
 SCREENS = [(1080, 2400), (1170, 2532), (1080, 2340), (1920, 1080), (1366, 768), (2560, 1440), (1284, 2778)]
 def ui(w, h, seed):

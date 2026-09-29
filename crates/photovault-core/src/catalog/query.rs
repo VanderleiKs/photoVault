@@ -4,6 +4,7 @@
 use super::media::MediaType;
 use crate::analysis::classify::{QualityFlag, QualityLevel};
 use crate::error::{Error, Result};
+use crate::review::ReviewReason;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -60,6 +61,15 @@ pub struct MediaFilter {
     pub group_id: Option<String>,
     #[specta(optional)]
     pub sequence_id: Option<String>,
+    /// `true` = photos with pending review suggestions (phase 5).
+    #[specta(optional)]
+    pub review: Option<bool>,
+    /// Pending suggestions for this reason.
+    #[specta(optional)]
+    pub review_reason: Option<ReviewReason>,
+    /// `true` = the trash instead of the active photos.
+    #[specta(optional)]
+    pub trashed: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -97,7 +107,10 @@ impl MediaFilter {
             momentary,
             tag,
             group_id,
-            sequence_id
+            sequence_id,
+            review,
+            review_reason,
+            trashed
         );
         self
     }
@@ -115,6 +128,8 @@ pub enum MediaSort {
     Name,
     /// Largest files first.
     Largest,
+    /// Review priority, highest first (photos without suggestions last).
+    Priority,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
@@ -154,6 +169,12 @@ impl MediaSort {
             },
             MediaSort::Largest => SortSpec {
                 key: "m.file_size",
+                descending: true,
+                numeric: true,
+            },
+            // Uses idx_media_review (migration 0005).
+            MediaSort::Priority => SortSpec {
+                key: "COALESCE(m.review_priority, -1)",
                 descending: true,
                 numeric: true,
             },
@@ -313,7 +334,11 @@ pub(super) fn push_where(
 ) {
     qb.push(" WHERE m.library_id = ")
         .push_bind(library_id.to_string())
-        .push(" AND m.status = 'active'");
+        .push(if filter.trashed == Some(true) {
+            " AND m.status = 'trashed'"
+        } else {
+            " AND m.status = 'active'"
+        });
 
     if let Some(kind) = filter.media_type {
         qb.push(" AND m.media_type = ").push_bind(kind.as_str());
@@ -402,6 +427,16 @@ pub(super) fn push_where(
     }
     if let Some(sequence) = &filter.sequence_id {
         qb.push(" AND m.sequence_id = ").push_bind(sequence.clone());
+    }
+    if filter.review == Some(true) || filter.review_reason.is_some() {
+        qb.push(" AND m.review_priority IS NOT NULL");
+    }
+    if let Some(reason) = filter.review_reason {
+        qb.push(
+            " AND m.id IN (SELECT media_id FROM review_candidates WHERE status = 'pending' AND reason = ",
+        )
+        .push_bind(reason.as_str())
+        .push(")");
     }
 
     if let Some(fts) = parsed.fts {

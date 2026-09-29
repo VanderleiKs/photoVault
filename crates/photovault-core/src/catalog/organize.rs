@@ -24,6 +24,9 @@ pub struct OrganizeCounts {
     /// Photos analysed / waiting (the counters grow while this is > 0).
     pub analyzed: u32,
     pub pending: u32,
+    /// Photos with pending review suggestions, and photos in the trash (phase 5).
+    pub review: u32,
+    pub trash: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -139,6 +142,14 @@ pub async fn counts(pool: &SqlitePool, library_id: &str) -> Result<OrganizeCount
             .unwrap_or((0, 0))
     };
 
+    let (review, trash): (i64, i64) = sqlx::query_as(
+        "SELECT
+            (SELECT COUNT(*) FROM media WHERE library_id = ?1 AND status = 'active' AND review_priority IS NOT NULL),
+            (SELECT COUNT(*) FROM media WHERE library_id = ?1 AND status = 'trashed')",
+    )
+    .bind(library_id)
+    .fetch_one(pool)
+    .await?;
     let (sequences, low_quality, momentary, screenshots, analyzed, pending): (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
         "SELECT
             (SELECT COUNT(*) FROM sequences WHERE library_id = ?1),
@@ -174,6 +185,8 @@ pub async fn counts(pool: &SqlitePool, library_id: &str) -> Result<OrganizeCount
         screenshots: screenshots as u32,
         analyzed: analyzed as u32,
         pending: pending as u32,
+        review: review as u32,
+        trash: trash as u32,
     })
 }
 

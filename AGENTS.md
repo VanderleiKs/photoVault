@@ -22,6 +22,7 @@ cargo run --release -p photovault-core --example query_bench                    
 python3 crates/photovault-core/tests/labeled/generate.py <fotos-reais> <pasta>          # conjunto rotulado (~190 imagens)
 cargo run --release -p photovault-core --example analysis_eval -- <pasta>              # precisão/recall das heurísticas
 cargo run --release -p photovault-core --example hash_eval -- <fotos-reais>            # compara algoritmos de hash
+cargo run --release -p photovault-core --example label_dump -- <pasta> [document|all] # falsos positivos em fotos reais
 
 npx tauri build --bundles appimage   # Linux  → depois: npm run package:portable
 npx tauri build --no-bundle          # Windows → depois: npm run package:portable
@@ -36,13 +37,16 @@ npx tauri build --no-bundle          # Windows → depois: npm run package:porta
 crates/photovault-core/   domínio, SEM Tauri: db, catalog (query, media, albums, overview, libraries,
                           settings, organize), ingestion (MediaSource, scanner,
                           metadata, processor, geo), jobs (fila de análise), thumbnails, paths,
-                          volume, analysis (metrics, classify, bktree, grouping, store, VisionAnalyzer)
+                          volume, analysis (metrics, classify, bktree, grouping, store, descriptor,
+                          VisionAnalyzer), review (sugestões, exemplos), trash (lixeira + operations_log)
 src-tauri/                camada fina: commands/, events.rs, protocol.rs (pv://), state.rs, lib.rs
 src/app/core/             ipc/ (bindings.ts gerado, ipc.ts, backend.ts), stores/ (signals), format, notify
 src/app/layout/           shell, sidebar, topbar (busca Ctrl+K), info-panel, bottom-nav, nav.ts
-src/app/features/         home, photos, timeline, favorites, albums, viewer, libraries, settings, welcome
+src/app/features/         home, photos, timeline, favorites, albums, organize, review, trash, viewer,
+                          libraries, settings, welcome
 src/app/shared/           media-grid/ (grade virtualizada), media-tile, filter-bar, selection-bar,
-                          album-picker, gallery-controls, media-details, job-status, empty-state
+                          album-picker, confirm-action, gallery-controls, media-details,
+                          media-analysis, media-review, job-status, empty-state
 ```
 
 - **Regra de negócio vai no core** (`photovault-core`), com teste. Os commands só adaptam para IPC.
@@ -83,3 +87,9 @@ src/app/shared/           media-grid/ (grade virtualizada), media-tile, filter-b
 - **pHash = DCT + mediana** (`metrics::perceptual_hash`), calculado no `analyze`. Hash de gradiente e DCT + média degeneram em imagens lisas. Hashes degenerados e imagens "vazias" ficam fora de duplicata e semelhante.
 - **Screenshots não recebem nível de qualidade** (interface branca não é "estourada").
 - **`pkill -f`/`pgrep -f`** com um padrão que aparece no próprio comando (ex.: "tauri dev", "ng serve") mata o shell. Use `pgrep -x photovault`/`pgrep -x Xephyr` ou filtre `ps -eo pid,comm`.
+- **Duplicata visual = pHash próximo E mesma cor** (`metrics::color_layout` / `color_distance`, limiar `colorDistance`). O pHash só vê luminância: sem a cor, a mesma camisa em azul e em cinza vira "duplicata".
+- **Documento exige linhas de texto** (`metrics::text_lines` ≥ `classify::MIN_TEXT_LINES`). Claro + sem cor + bordas também descreve pessoas e objetos em fundo branco. Screenshots nunca viram documento.
+- **Sugestões (`review`) são derivadas no estágio global**, depois dos grupos: nunca grave `review_candidates` fora de `review::rebuild`/`decide`/`on_trash`. Decisões (`kept`, `ignored`, `trashed`) sobrevivem a toda reconstrução; favoritas e a melhor candidata de um grupo nunca são candidatas. `media.review_priority` alimenta a ordenação `priority` (índice `idx_media_review`, mesma expressão).
+- **Lixeira = `rename` para `.photovault-trash/<data>/<caminho>`** na própria biblioteca; a linha da mídia passa a apontar para lá (`status = 'trashed'`, `inTrash` no DTO). Toda operação física grava `operations_log` antes e fecha depois; `trash::recover` roda na inicialização. Nunca apague um arquivo sem passar por `trash::purge`.
+- **Ações que mexem em arquivos passam por `MediaActions`**, que confirma com `ConfirmAction` (dupla para excluir; número digitado acima de 500 itens). Não chame `trashMedia`/`purgeMedia` direto de componentes.
+- **Exemplos** (`review::examples`) guardam o próprio descritor e miniatura (data URL): sobrevivem à foto de origem. O `descriptor` compara aspecto, não conteúdo; ao trocar as features, mude `DESCRIPTOR_LEN` (descritores de outro tamanho são ignorados) e reanalise.
