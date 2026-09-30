@@ -1075,3 +1075,108 @@ async fn content_search_end_to_end() {
     assert!(scenes.iter().any(|s| s.value == "cat"), "{scenes:?}");
     crate::ai::unload();
 }
+
+/// Real face models, real faces (LFW): scan → previews → faces → people → name → search.
+///     PHOTOVAULT_TEST_MODELS=<models> PHOTOVAULT_TEST_FACES=<lfw> \
+///     cargo test --release -p photovault-core people_end_to_end -- --ignored
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs the face models (PHOTOVAULT_TEST_MODELS) and LFW (PHOTOVAULT_TEST_FACES)"]
+async fn people_end_to_end() {
+    let models = PathBuf::from(std::env::var("PHOTOVAULT_TEST_MODELS").unwrap());
+    let lfw = PathBuf::from(std::env::var("PHOTOVAULT_TEST_FACES").unwrap());
+    let w = world().await;
+    // Neutral names; which LFW person each photo shows, for checking the groups.
+    let mut truth = std::collections::HashMap::new();
+    for person in [
+        "Colin_Powell",
+        "Tony_Blair",
+        "Serena_Williams",
+        "Hugo_Chavez",
+    ] {
+        let mut files: Vec<_> = std::fs::read_dir(lfw.join(person))
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .collect();
+        files.sort();
+        // One photo only of Hugo Chávez: a stranger, never a person.
+        let n = if person == "Hugo_Chavez" { 1 } else { 6 };
+        for f in files.into_iter().take(n) {
+            let name = format!("IMG_{}.jpg", uuid::Uuid::new_v4().simple());
+            std::fs::copy(&f, w.root.join(&name)).unwrap();
+            truth.insert(name, person);
+        }
+    }
+    w.scan().await;
+    assert!(crate::ai::load_faces(&models, None).unwrap());
+    let runner = w.runner(Arc::new(Recorder::default())).await;
+    runner.drain().await.unwrap();
+    assert_eq!(crate::people::pending_count(&w.pool).await.unwrap(), 0);
+    assert!(!crate::people::is_dirty(&w.pool).await.unwrap());
+
+    let people = crate::people::list(&w.pool, &w.library.id, false)
+        .await
+        .unwrap();
+    assert_eq!(people.len(), 3, "{people:?}");
+    let photos_of = |person_id: String| {
+        let (pool, lib) = (w.pool.clone(), w.library.id.clone());
+        async move {
+            media::list(
+                &pool,
+                &lib,
+                &crate::catalog::MediaQuery {
+                    filter: crate::catalog::MediaFilter {
+                        person_id: Some(person_id),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                None,
+                100,
+            )
+            .await
+            .unwrap()
+            .items
+        }
+    };
+    for p in &people {
+        let photos = photos_of(p.id.clone()).await;
+        assert!(photos.len() >= 5, "{} photos", photos.len());
+        let who: std::collections::HashSet<_> = photos.iter().map(|m| truth[&m.filename]).collect();
+        assert_eq!(who.len(), 1, "a group mixes people: {who:?}");
+    }
+
+    // Named, then found by name.
+    let first = &people[0];
+    crate::people::rename(&w.pool, &first.id, "Fulano de Tal")
+        .await
+        .unwrap();
+    let found = media::list(
+        &w.pool,
+        &w.library.id,
+        &crate::catalog::MediaQuery {
+            filter: crate::catalog::MediaFilter {
+                text: Some("fulano".into()),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        None,
+        100,
+    )
+    .await
+    .unwrap()
+    .items;
+    assert_eq!(found.len() as u32, first.photo_count);
+    // The face picture can be cut from the preview.
+    let cover = crate::people::face_location(&w.pool, first.cover_face_id.as_deref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let jpeg = crate::people::crop(&w.thumbs, &cover.0, cover.1).unwrap();
+    assert_eq!(
+        image::load_from_memory(&jpeg).unwrap().width(),
+        crate::people::CROP_SIZE
+    );
+    crate::ai::unload_faces();
+}

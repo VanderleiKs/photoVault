@@ -27,7 +27,12 @@ pub fn encode(v: &[f32]) -> Vec<u8> {
 }
 
 pub fn decode(bytes: &[u8]) -> Option<Vec<f32>> {
-    if bytes.len() != BYTES {
+    decode_dim(bytes, DIM)
+}
+
+/// `decode` for vectors of another size (faces: 128).
+pub fn decode_dim(bytes: &[u8], dim: usize) -> Option<Vec<f32>> {
+    if bytes.len() != 4 + dim {
         return None;
     }
     let scale = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);

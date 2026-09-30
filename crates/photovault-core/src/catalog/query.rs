@@ -73,11 +73,18 @@ pub struct MediaFilter {
     /// Photos of a trip/event (phase 6).
     #[specta(optional)]
     pub event_id: Option<String>,
+    /// Photos where this person appears (phase 7b).
+    #[specta(optional)]
+    pub person_id: Option<String>,
     /// Filled by `resolve` from `text` when the local AI is available: photos whose
     /// content matches (phase 7a). Never part of the API or of a smart album's rule.
     #[serde(skip)]
     #[specta(skip)]
     pub content_hits: Option<std::sync::Arc<Vec<String>>>,
+    /// Filled by `resolve` from `text`: named people it matches ("Ana"). Same rules.
+    #[serde(skip)]
+    #[specta(skip)]
+    pub people_hits: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -119,7 +126,8 @@ impl MediaFilter {
             review,
             review_reason,
             trashed,
-            event_id
+            event_id,
+            person_id
         );
         self
     }
@@ -319,6 +327,7 @@ pub(super) async fn resolve(
 ) -> Result<MediaFilter> {
     let mut filter = resolve_album(pool, filter).await?;
     filter.content_hits = None;
+    filter.people_hits = None;
     if let Some(content) = filter
         .text
         .as_deref()
@@ -326,6 +335,8 @@ pub(super) async fn resolve(
         .and_then(|p| p.content)
     {
         filter.content_hits = crate::ai::index::search(pool, library_id, &content).await?;
+        let people = crate::people::search(pool, &content).await?;
+        filter.people_hits = (!people.is_empty()).then_some(people);
     }
     Ok(filter)
 }
@@ -476,6 +487,11 @@ pub(super) fn push_where(
     if let Some(sequence) = &filter.sequence_id {
         qb.push(" AND m.sequence_id = ").push_bind(sequence.clone());
     }
+    if let Some(person) = &filter.person_id {
+        qb.push(" AND m.id IN (SELECT media_id FROM faces WHERE person_id = ")
+            .push_bind(person.clone())
+            .push(")");
+    }
     if let Some(event) = &filter.event_id {
         qb.push(" AND m.id IN (SELECT media_id FROM event_media WHERE event_id = ")
             .push_bind(event.clone())
@@ -493,7 +509,7 @@ pub(super) fn push_where(
     }
 
     if let Some(fts) = parsed.fts {
-        // Name, folder, place, album… or, with the local AI, what is in the photo.
+        // Name, folder, place, album… or, with the local AI, what is in the photo and who.
         qb.push(" AND (m.rowid IN (SELECT rowid FROM media_fts WHERE media_fts MATCH ")
             .push_bind(fts)
             .push(")");
@@ -501,6 +517,11 @@ pub(super) fn push_where(
             qb.push(" OR m.id IN (SELECT value FROM json_each(")
                 .push_bind(serde_json::to_string(hits.as_ref()).unwrap_or_else(|_| "[]".into()))
                 .push("))");
+        }
+        if let Some(people) = &filter.people_hits {
+            qb.push(" OR m.id IN (SELECT media_id FROM faces WHERE person_id IN (SELECT value FROM json_each(")
+                .push_bind(serde_json::to_string(people).unwrap_or_else(|_| "[]".into()))
+                .push(")))");
         }
         qb.push(")");
     }

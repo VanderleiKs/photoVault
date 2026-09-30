@@ -16,6 +16,7 @@ import { LibraryStore } from './core/stores/library.store';
 import { ScanStore } from './core/stores/scan.store';
 import { JobStore } from './core/stores/job.store';
 import { OrganizeStore } from './core/stores/organize.store';
+import { PeopleStore } from './core/stores/people.store';
 import { VideoFrameService } from './core/video-frames.service';
 import { AiStore } from './core/stores/ai.store';
 
@@ -45,6 +46,7 @@ async function bootstrapStores() {
   const scan = inject(ScanStore);
   const jobs = inject(JobStore);
   const organize = inject(OrganizeStore);
+  const people = inject(PeopleStore);
   inject(VideoFrameService).init();
   void inject(AiStore).refresh();
   await app.init();
@@ -53,6 +55,7 @@ async function bootstrapStores() {
     scan.init().catch(() => {}),
     jobs.init().catch(() => {}),
     organize.init().catch(() => {}),
+    people.init().catch(() => {}),
   ]);
 }
 

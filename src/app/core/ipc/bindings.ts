@@ -107,6 +107,8 @@ export const commands = {
 	trashed?: boolean | null,
 	/**  Photos of a trip/event (phase 6). */
 	eventId?: string | null,
+	/**  Photos where this person appears (phase 7b). */
+	personId?: string | null,
 } | null) => typedError<Album, ApiError>(__TAURI_INVOKE("create_album", { libraryId, name, rule })),
 	renameAlbum: (albumId: string, name: string) => typedError<Album, ApiError>(__TAURI_INVOKE("rename_album", { albumId, name })),
 	updateAlbumRule: (albumId: string, rule: MediaFilter) => typedError<Album, ApiError>(__TAURI_INVOKE("update_album_rule", { albumId, rule })),
@@ -147,12 +149,30 @@ export const commands = {
 	getAiStatus: () => typedError<AiStatus, ApiError>(__TAURI_INVOKE("get_ai_status")),
 	/**
 	 *  The user agreed: download the models (the app's only network access), then load them
-	 *  and start the content analysis.
+	 *  and start the analysis.
 	 */
-	downloadAiModels: () => typedError<null, ApiError>(__TAURI_INVOKE("download_ai_models")),
+	downloadAiModels: (models: AiPackage) => typedError<null, ApiError>(__TAURI_INVOKE("download_ai_models", { models })),
 	cancelAiDownload: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_ai_download")),
-	/**  Delete the models and the content analysis; the app goes back to working without them. */
-	removeAiModels: () => typedError<null, ApiError>(__TAURI_INVOKE("remove_ai_models")),
+	/**  Delete the models and what they produced; the app goes back to working without them. */
+	removeAiModels: (models: AiPackage) => typedError<null, ApiError>(__TAURI_INVOKE("remove_ai_models", { models })),
+	/**  Pessoas: named people, then suggestions (hidden ones only when asked). */
+	listPeople: (libraryId: string, includeHidden: boolean) => typedError<PersonSummary[], ApiError>(__TAURI_INVOKE("list_people", { libraryId, includeHidden })),
+	getPerson: (libraryId: string, personId: string) => typedError<PersonSummary, ApiError>(__TAURI_INVOKE("get_person", { libraryId, personId })),
+	/**  Faces in a photo (info panel, viewer). */
+	getMediaFaces: (mediaId: string) => typedError<FaceInfo[], ApiError>(__TAURI_INVOKE("get_media_faces", { mediaId })),
+	/**  Faces of a person, to review ("not this person"). */
+	getPersonFaces: (libraryId: string, personId: string, limit: number) => typedError<FaceInfo[], ApiError>(__TAURI_INVOKE("get_person_faces", { libraryId, personId, limit })),
+	/**  Named people, for suggesting while typing a name. */
+	listPersonNames: () => typedError<PersonName[], ApiError>(__TAURI_INVOKE("list_person_names")),
+	/**  Returns the id that remains (another person with that name absorbs this one). */
+	renamePerson: (personId: string, name: string) => typedError<string, ApiError>(__TAURI_INVOKE("rename_person", { personId, name })),
+	mergePeople: (targetId: string, sourceIds: string[]) => typedError<null, ApiError>(__TAURI_INVOKE("merge_people", { targetId, sourceIds })),
+	setPersonHidden: (personId: string, hidden: boolean) => typedError<null, ApiError>(__TAURI_INVOKE("set_person_hidden", { personId, hidden })),
+	setPersonCover: (personId: string, faceId: string) => typedError<null, ApiError>(__TAURI_INVOKE("set_person_cover", { personId, faceId })),
+	/**  "Not this person". */
+	removePersonFaces: (faceIds: string[]) => typedError<null, ApiError>(__TAURI_INVOKE("remove_person_faces", { faceIds })),
+	/**  "This is Ana": returns the person's id. */
+	nameFace: (faceId: string, name: string) => typedError<string, ApiError>(__TAURI_INVOKE("name_face", { faceId, name })),
 	/**  Detect trips and events again in every library, now, with the current settings. */
 	reclassifyEvents: (options: ReclassifyOptions) => typedError<EventCounts, ApiError>(__TAURI_INVOKE("reclassify_events", { options })),
 	/**  Homes the photos point to, one per library (Settings: "Sua casa parece ser…"). */
@@ -216,12 +236,16 @@ export const events = {
 	analysisUpdatedEvent: makeEvent<AnalysisUpdatedEvent>("analysis-updated-event"),
 	jobProgressEvent: makeEvent<JobProgressEvent>("job-progress-event"),
 	mediaUpdatedEvent: makeEvent<MediaUpdatedEvent>("media-updated-event"),
+	peopleUpdatedEvent: makeEvent<PeopleUpdatedEvent>("people-updated-event"),
 	scanCompleteEvent: makeEvent<ScanCompleteEvent>("scan-complete-event"),
 	scanErrorEvent: makeEvent<ScanErrorEvent>("scan-error-event"),
 	scanProgressEvent: makeEvent<ScanProgressEvent>("scan-progress-event"),
 };
 
 /* Types */
+/**  Which set of models: "content" (search and scenes) or "faces" (people). */
+export type AiPackage = "content" | "faces";
+
 /**  Local AI: only used when the models were downloaded. */
 export type AiSettings = {
 	/**  Off: the model is unloaded (no content analysis, search by name only). */
@@ -229,7 +253,7 @@ export type AiSettings = {
 };
 
 export type AiStatus = {
-	/**  Files downloaded. */
+	/**  Content search and scenes (CLIP): files downloaded. */
 	installed: boolean,
 	/**  Loaded and in use (installed + enabled + loaded fine). */
 	ready: boolean,
@@ -238,8 +262,10 @@ export type AiStatus = {
 	/**  Photos with a content analysis / still waiting (all libraries). */
 	indexed: number,
 	pending: number,
+	/**  People (face models, phase 7b). */
+	faces: FaceStatus,
 	download: DownloadState,
-	/**  Why the model couldn't be loaded. */
+	/**  Why a model couldn't be loaded. */
 	error: string | null,
 };
 
@@ -366,6 +392,8 @@ export type Decision =
 
 export type DownloadState = {
 	running: boolean,
+	/**  Package being (or last) downloaded (`ai::Package::id`). */
+	package: string | null,
 	doneBytes: number,
 	totalBytes: number,
 	/**  Last failure (network, checksum), for the settings page. */
@@ -462,6 +490,30 @@ export type ExampleIntent =
 /**  Never suggest photos like this one (wins over "remove" when closer). */
 "keep";
 
+export type FaceInfo = {
+	id: string,
+	mediaId: string,
+	/**  Box as fractions of the photo. */
+	x: number | null,
+	y: number | null,
+	w: number | null,
+	h: number | null,
+	personId: string | null,
+	personName: string | null,
+	/**  The user put it in this person (or named it). */
+	confirmed: boolean,
+};
+
+export type FaceStatus = {
+	installed: boolean,
+	ready: boolean,
+	sizeBytes: number,
+	/**  Photos already searched for faces / faces found / photos still waiting. */
+	scanned: number,
+	found: number,
+	pending: number,
+};
+
 export type GroupKind = "exact_duplicate" | "visual_duplicate" | "similar" | "sequence";
 
 export type GroupMember = {
@@ -531,6 +583,8 @@ export type JobProgress = {
 	grouping: boolean,
 	/**  Photos waiting for the content analysis (local AI; 0 without the model). */
 	contentPending: number,
+	/**  Photos waiting to be searched for faces (0 without the face models). */
+	facesPending: number,
 };
 
 export type JobProgressEvent = JobProgress;
@@ -647,6 +701,8 @@ export type MediaFilter = {
 	trashed?: boolean | null,
 	/**  Photos of a trip/event (phase 6). */
 	eventId?: string | null,
+	/**  Photos where this person appears (phase 7b). */
+	personId?: string | null,
 };
 
 export type MediaGroup = {
@@ -765,6 +821,25 @@ export type OrganizeCounts = {
 	trash: number,
 	/**  Trips/events waiting for "aceitar" or "ignorar" (phase 6). */
 	eventSuggestions: number,
+};
+
+/**  Faces were regrouped into people (Pessoas, info panel). */
+export type PeopleUpdatedEvent = null;
+
+export type PersonName = {
+	id: string,
+	name: string,
+};
+
+export type PersonSummary = {
+	id: string,
+	/**  `None` = suggested group, not named yet. */
+	name: string | null,
+	hidden: boolean,
+	/**  Photos of this person in the library. */
+	photoCount: number,
+	/**  Face shown as the person's picture (`pv://…/face/<id>`). */
+	coverFaceId: string | null,
 };
 
 export type PlaceOption = {

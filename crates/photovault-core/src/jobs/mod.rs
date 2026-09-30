@@ -15,6 +15,7 @@ use crate::error::Result;
 use crate::ingestion::geo;
 use crate::ingestion::metadata::format_capture;
 use crate::ingestion::processor::{self, Processed, SourceFile};
+use crate::people;
 use crate::thumbnails;
 use chrono::Utc;
 use gate::IoGate;
@@ -85,6 +86,8 @@ pub struct JobProgress {
     pub grouping: bool,
     /// Photos waiting for the content analysis (local AI; 0 without the model).
     pub content_pending: u32,
+    /// Photos waiting to be searched for faces (0 without the face models).
+    pub faces_pending: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -106,6 +109,8 @@ pub trait JobObserver: Send + Sync {
     fn on_media_updated(&self, items: Vec<MediaItem>, removed_ids: Vec<String>);
     /// Groups, flags and labels of a library were recomputed.
     fn on_analysis_updated(&self, _library_id: &str) {}
+    /// Faces were found or people regrouped.
+    fn on_people_updated(&self) {}
 }
 
 pub struct JobRunner {
@@ -219,7 +224,8 @@ impl JobRunner {
         Ok(self.step_ingest().await?
             || self.step_analyze().await?
             || self.step_groups().await?
-            || self.step_embed().await?)
+            || self.step_embed().await?
+            || self.step_faces().await?)
     }
 
     fn cpu_workers(settings: &settings::AppSettings) -> usize {
@@ -418,7 +424,7 @@ impl JobRunner {
             Err(e) => {
                 // The model itself fails (not one photo): stop instead of retrying forever.
                 tracing::error!("Local AI disabled for this session: {e}");
-                ai::unload();
+                ai::unload_content();
                 return Ok(false);
             }
         };
@@ -427,6 +433,45 @@ impl JobRunner {
         }
         ai::index::store(&self.pool, &embedded).await?;
         self.lock_session().done += embedded.len() as u32;
+        if self.should_emit() {
+            self.emit_progress(true).await;
+        }
+        Ok(true)
+    }
+
+    /// People (phase 7b): faces in the 1024 px previews, after everything else, only when the
+    /// face models are loaded; when none are left, the faces are regrouped (if changed).
+    async fn step_faces(&self) -> Result<bool> {
+        let Some(engine) = ai::face_engine() else {
+            return Ok(false);
+        };
+        let batch = people::pending(&self.pool, FACES_BATCH).await?;
+        if batch.is_empty() {
+            if !people::is_dirty(&self.pool).await? {
+                return Ok(false);
+            }
+            people::rebuild(&self.pool).await?;
+            self.observer.on_people_updated();
+            return Ok(true);
+        }
+        self.lock_session().started.get_or_insert_with(Instant::now);
+        let dir = self.thumbnails_dir.clone();
+        let paused = Arc::clone(&self.paused);
+        let scanned =
+            tokio::task::spawn_blocking(move || scan_faces(&engine, &dir, batch, &paused)).await?;
+        let scanned = match scanned {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("Face models disabled for this session: {e}");
+                ai::unload_faces();
+                return Ok(false);
+            }
+        };
+        if scanned.is_empty() {
+            return Ok(false); // paused
+        }
+        people::store(&self.pool, &scanned).await?;
+        self.lock_session().done += scanned.len() as u32;
         if self.should_emit() {
             self.emit_progress(true).await;
         }
@@ -763,6 +808,11 @@ impl JobRunner {
         } else {
             0
         };
+        let faces_pending = if ai::face_engine().is_some() {
+            people::pending_count(&self.pool).await?
+        } else {
+            0
+        };
         let session = self.lock_session();
         let elapsed = session
             .started
@@ -789,6 +839,7 @@ impl JobRunner {
             },
             grouping: session.grouping,
             content_pending,
+            faces_pending,
         })
     }
 }
@@ -834,6 +885,42 @@ fn embed_batch(
                 result: Ok(v),
             }),
     );
+    Ok(out)
+}
+
+/// Previews searched for faces per step (`step_faces`).
+const FACES_BATCH: u32 = 8;
+
+/// Err only when a model fails; an unreadable preview is a per-photo error.
+fn scan_faces(
+    engine: &ai::faces::Faces,
+    dir: &std::path::Path,
+    batch: Vec<(String, i64)>,
+    paused: &AtomicBool,
+) -> Result<Vec<people::Scanned>> {
+    let mut out = Vec::with_capacity(batch.len());
+    for (media_id, thumb_version) in batch {
+        if paused.load(Ordering::Acquire) {
+            break;
+        }
+        let path = crate::thumbnails::path(dir, &media_id, crate::thumbnails::PREVIEW_SIZE);
+        let result = match image::open(&path) {
+            Ok(img) => {
+                let (w, h) = (img.width(), img.height());
+                Ok(engine
+                    .analyze(&img)?
+                    .into_iter()
+                    .filter_map(|(d, v)| people::FoundFace::new(&d, v, w, h))
+                    .collect())
+            }
+            Err(e) => Err(format!("Prévia ilegível: {e}")),
+        };
+        out.push(people::Scanned {
+            media_id,
+            thumb_version,
+            result,
+        });
+    }
     Ok(out)
 }
 

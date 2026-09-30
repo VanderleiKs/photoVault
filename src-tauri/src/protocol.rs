@@ -3,6 +3,7 @@
 //! - `pv://localhost/thumb/<media-id>` → 256px WebP thumbnail
 //! - `pv://localhost/preview/<media-id>` → 1024px WebP (viewer fallback for HEIC/TIFF)
 //! - `pv://localhost/media/<media-id>` → original file (images and videos, with `Range`)
+//! - `pv://localhost/face/<face-id>` → 160px JPEG of a face, cut from the preview
 //!
 //! Files are resolved **only by catalog id**; paths coming from the frontend are
 //! never trusted. On Windows/Android the WebView uses `http://pv.localhost/...`,
@@ -37,6 +38,7 @@ pub async fn handle(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec
         Some(("thumb", id)) => serve_thumbnail(&state, id, thumbnails::GRID_SIZE).await,
         Some(("preview", id)) => serve_thumbnail(&state, id, thumbnails::PREVIEW_SIZE).await,
         Some(("media", id)) => serve_media(&state, id, range).await,
+        Some(("face", id)) => serve_face(&state, id).await,
         _ => Err(StatusCode::NOT_FOUND),
     };
 
@@ -55,6 +57,21 @@ async fn serve_thumbnail(state: &AppState, id: &str, size: u32) -> Served {
     let path = thumbnails::path(&state.paths.thumbnails_dir, &id, size);
     let bytes = tokio::fs::read(&path).await.map_err(io_status)?;
     ok(bytes, "image/webp")
+}
+
+async fn serve_face(state: &AppState, id: &str) -> Served {
+    let id = parse_id(id)?;
+    let (media_id, bx) = photovault_core::people::face_location(&state.pool, &id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let dir = state.paths.thumbnails_dir.clone();
+    let bytes =
+        tokio::task::spawn_blocking(move || photovault_core::people::crop(&dir, &media_id, bx))
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .map_err(|_| StatusCode::NOT_FOUND)?;
+    ok(bytes, "image/jpeg")
 }
 
 async fn serve_media(state: &AppState, id: &str, range: Option<&str>) -> Served {

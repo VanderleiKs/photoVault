@@ -60,6 +60,11 @@ export function mediaUrl(mediaId: string): string {
   return isTauri() ? convertFileSrc(`media/${mediaId}`, 'pv') : PLACEHOLDER_URL;
 }
 
+/** 160px JPEG of a detected face (people, phase 7b). */
+export function faceUrl(faceId: string): string {
+  return isTauri() ? convertFileSrc(`face/${faceId}`, 'pv') : PLACEHOLDER_URL;
+}
+
 /** `(error)` handler for thumbnails: swap in the placeholder once. */
 export function usePlaceholder(event: Event): void {
   const img = event.target as HTMLImageElement;

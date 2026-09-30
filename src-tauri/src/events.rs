@@ -61,7 +61,15 @@ impl JobObserver for TauriJobObserver {
         }
         .emit(&self.0);
     }
+
+    fn on_people_updated(&self) {
+        let _ = PeopleUpdatedEvent.emit(&self.0);
+    }
 }
+
+/// Faces were regrouped into people (Pessoas, info panel).
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct PeopleUpdatedEvent;
 
 /// Groups, quality flags and labels of a library were recomputed ("Organizar").
 #[derive(Debug, Clone, Serialize, Type, Event)]

@@ -25,10 +25,13 @@ cargo run --release -p photovault-core --example hash_eval -- <fotos-reais>     
 cargo run --release -p photovault-core --example label_dump -- <pasta> [document|all|events] # rótulos/eventos de uma pasta
 python3 crates/photovault-core/tests/labeled/trips.py <fotos-reais> <pasta>             # biblioteca com viagens (EXIF data + GPS)
 python3 crates/photovault-core/data/build_cities.py cities1000.txt admin1CodesASCII.txt # regenera data/cities.tsv.gz (GeoNames)
-cargo run --release -p photovault-core --example ai_download -- <models>                # baixa os modelos como o app
+cargo run --release -p photovault-core --example ai_download -- <models> [content|faces] # baixa os modelos como o app
 python3 crates/photovault-core/tests/labeled/content.py <pasta>                         # 144 fotos por categoria (Wikimedia)
 cargo run --release -p photovault-core --example ai_eval -- <models> <pasta> [distração] # busca por conteúdo e cenas
 PHOTOVAULT_TEST_MODELS=<models> PHOTOVAULT_TEST_CONTENT=<pasta> cargo test --release -p photovault-core content_search_end_to_end -- --ignored
+cargo run --release -p photovault-core --example face_eval -- <models>/faces-yunet2023-sface2021 <lfw> [cache.bin] # rostos: detecção, pares, grupos (PV_SCALE=0.4: rostos pequenos)
+cargo run --release -p photovault-core --example people_bench                          # tempo do agrupamento (36 mil rostos)
+PHOTOVAULT_TEST_MODELS=<models> PHOTOVAULT_TEST_FACES=<lfw> cargo test --release -p photovault-core people_end_to_end -- --ignored
 
 npx tauri build --bundles appimage   # Linux  → depois: npm run package:portable
 npx tauri build --no-bundle          # Windows → depois: npm run package:portable
@@ -46,19 +49,20 @@ crates/photovault-core/   domínio, SEM Tauri: db, catalog (query, media, albums
                           volume, analysis (metrics, classify, bktree, grouping, store, descriptor,
                           VisionAnalyzer), review (sugestões, exemplos), trash (lixeira + operations_log),
                           events (detect: viagens/eventos), ai (clip, scenes, index: busca por
-                          conteúdo, download dos modelos)
+                          conteúdo; faces: YuNet + SFace; download dos modelos), people (rostos,
+                          cluster, nomes e correções)
 src-tauri/                camada fina: commands/, events.rs, protocol.rs (pv://), state.rs, lib.rs
 src/app/core/             ipc/ (bindings.ts gerado, ipc.ts, backend.ts), stores/ (signals), format, notify
 src/app/layout/           shell, sidebar, topbar (busca Ctrl+K), info-panel, bottom-nav, nav.ts
-src/app/features/         home, photos, timeline, favorites, albums, organize, review, trash, trips, viewer,
+src/app/features/         home, photos, timeline, favorites, albums, organize, review, trash, trips, people, viewer,
                           libraries, settings, welcome
 src/app/shared/           media-grid/ (grade virtualizada), media-tile, filter-bar, selection-bar,
                           album-picker, confirm-action, gallery-controls, media-details,
-                          media-analysis, media-review, event-card, job-status, empty-state
+                          media-analysis, media-people, media-review, event-card, job-status, empty-state
 ```
 
 - **Regra de negócio vai no core** (`photovault-core`), com teste. Os commands só adaptam para IPC.
-- **Estado do frontend fica nas stores.** Globais: `AppStore`, `LibraryStore`, `ScanStore`, `JobStore`, `SelectionStore` (foco do painel + seleção múltipla), `BrowseStore` (filtros de "Todas as fotos", persistidos por biblioteca, e busca), `AlbumStore`, `OrganizeStore` (contadores de Organizar), `EventStore` (viagens/eventos), `AiStore` (IA local), `ViewerContext`, `UiStore`. Por página: `GalleryStore` (`providers: [GalleryStore]`), que junta o filtro fixo da página ao do usuário, pagina e se atualiza sozinho. Os componentes não chamam IPC direto, exceto em casos pontuais pelo `Backend`.
+- **Estado do frontend fica nas stores.** Globais: `AppStore`, `LibraryStore`, `ScanStore`, `JobStore`, `SelectionStore` (foco do painel + seleção múltipla), `BrowseStore` (filtros de "Todas as fotos", persistidos por biblioteca, e busca), `AlbumStore`, `OrganizeStore` (contadores de Organizar), `EventStore` (viagens/eventos), `AiStore` (IA local), `PeopleStore` (pessoas), `ViewerContext`, `UiStore`. Por página: `GalleryStore` (`providers: [GalleryStore]`), que junta o filtro fixo da página ao do usuário, pagina e se atualiza sozinho. Os componentes não chamam IPC direto, exceto em casos pontuais pelo `Backend`.
 
 ## Gotchas
 
@@ -104,7 +108,11 @@ src/app/shared/           media-grid/ (grade virtualizada), media-tile, filter-b
 - **Viagens/eventos (`events`) são derivados no estágio global**, depois das sugestões. Só `suggested` é refeito; `accepted` absorve fotos novas das suas datas, `edited` nunca muda e `ignored` bloqueia sugestões com ≥ 50 % das mesmas fotos. Fotos com `date_source = 'mtime'` não entram (datas de cópia).
 - **Geocodificação = `data/cities.tsv.gz` (GeoNames CC BY 4.0) embutido**, lido por `ingestion::geo`. Ao mudar a tabela ou a escolha do lugar, troque `GEOCODER_VERSION`: os locais de todos os catálogos são recalculados uma vez (`geo::refresh_places`). Mantenha a atribuição do GeoNames no README e em Configurações → Sobre.
 - **IA local (`ai`) é opcional e global:** `ai::engine()` é `None` sem modelo (não baixado, desligado ou com erro) e todo o resto funciona igual. `ai::sync` carrega ou descarrega conforme `AiSettings.enabled` e os arquivos; é chamado na inicialização, ao salvar as configurações e depois do download.
-- **Os modelos são fixados por URL (commit) e SHA-256** em `ai::MANIFEST`. Trocar de modelo = arquivos novos no manifesto **e** `MODEL_ID` novo (embeddings de outro modelo não são comparáveis; os antigos ficam de fora e as fotos voltam à fila). O download é o único acesso à rede do app: não acrescente outro sem consentimento explícito (PRD §25).
+- **Os modelos são fixados por URL (commit) e SHA-256** em pacotes (`ai::CONTENT`, `ai::FACES`), cada um com pasta, consentimento, download e remoção próprios. Trocar de modelo = arquivos novos no manifesto **e** `MODEL_ID` novo (embeddings de outro modelo não são comparáveis; os antigos ficam de fora e as fotos voltam à fila). O download é o único acesso à rede do app: não acrescente outro sem consentimento explícito (PRD §25).
 - **Embeddings (`media_embeddings`) guardam a `thumb_version` de origem:** prévia nova = foto de volta na fila, sem gancho de invalidação. As cenas são derivadas na leitura (`ai::scenes`), nunca gravadas em `media_labels`.
 - **Busca por conteúdo entra no `resolve`** (`MediaFilter.content_hits`, fora da API e das regras de álbum) e vira `OR m.id IN json_each(...)` ao lado do FTS. Limiares em `ai::index` (`MIN_SIMILARITY`, `MAX_BELOW_BEST`) e o modelo de frase ("uma foto de …") foram escolhidos com `ai_eval`: meça antes de mudar e registre no PLANO.
 - **`ort` estático com `download-binaries`:** o build baixa o ONNX Runtime do CDN da pyke (via rustls, `ort-sys/tls-rustls`); não habilite `tls-native` (exige OpenSSL no build) nem `copy-dylibs` (DLL solta no app portátil).
+- **Pessoas (`people`) são derivadas; as decisões não.** `people::rebuild` (fila, quando não há rostos pendentes e `people_state.dirty`) refaz só os grupos sugeridos (sem nome, não ocultos, sem rosto confirmado), com ids estáveis por sobreposição. Nomes, `faces.confirmed`, `face_rejections` e ocultas sobrevivem sempre. Toda decisão chama `people::mark_dirty` e o command acorda a fila (`state.jobs.wake()`).
+- **Limiares de rostos medidos com `face_eval`** (`people::cluster::PARAMS`, `people::MIN_GROUP_SIZE`): meça no LFW (inclusive com `PV_SCALE`) antes de mudar e registre no PLANO. Misturar duas pessoas é pior que separar uma: na dúvida, mais rígido.
+- **Trocar o modelo de rostos = `FACES_MODEL_ID` novo**: vetores de outro modelo não são comparáveis; `face_scans` com outro modelo recoloca as fotos na fila, mas os rostos antigos precisam ser apagados junto (os nomes se perdem: avise o usuário).
+- **Rosto na interface só por `faceUrl(id)`** (`pv://…/face/<id>`, recorte da prévia de 1024 na hora). Pessoas são globais; listas e contagens sempre com `library_id`.

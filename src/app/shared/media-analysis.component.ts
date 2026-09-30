@@ -9,6 +9,7 @@ import { NotifyService } from '../core/notify.service';
 import { LibraryStore } from '../core/stores/library.store';
 import { OrganizeStore } from '../core/stores/organize.store';
 import { ViewerContext } from '../core/stores/viewer-context';
+import { MediaPeopleComponent } from './media-people.component';
 
 /**
  * Quality, automatic labels, groups and manual tags of one item (PRD §13, §23.1).
@@ -16,7 +17,7 @@ import { ViewerContext } from '../core/stores/viewer-context';
  */
 @Component({
   selector: 'app-media-analysis',
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, MediaPeopleComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -44,6 +45,8 @@ import { ViewerContext } from '../core/stores/viewer-context';
           }
         </div>
       }
+
+      <app-media-people [item]="item()" [dark]="dark()" />
 
       @if (a.events.length) {
         <ul class="mt-3 space-y-1.5 text-xs">
