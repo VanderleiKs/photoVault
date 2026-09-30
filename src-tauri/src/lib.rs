@@ -207,6 +207,15 @@ pub fn run() {
                 Arc::new(events::TauriJobObserver(app.handle().clone())),
             ))?;
             tauri::async_runtime::spawn(Arc::clone(&jobs).run());
+            // Linux dev builds: the ONNX Runtime fetched by `npm run ort:fetch` (the AppImage
+            // carries it in usr/lib, which the core finds next to the executable).
+            if cfg!(debug_assertions) {
+                photovault_core::ai::add_runtime_path(
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("lib")
+                        .join(photovault_core::ai::RUNTIME_LIB),
+                );
+            }
             // Local AI, if downloaded and enabled: loaded in the background (~1 s).
             tauri::async_runtime::spawn({
                 let (pool, models, jobs) = (

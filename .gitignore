@@ -10,6 +10,8 @@
 
 # Tauri
 /src-tauri/target
+# ONNX Runtime for Linux (scripts/fetch-onnxruntime.mjs)
+/src-tauri/lib/
 
 # IDE
 .vscode/

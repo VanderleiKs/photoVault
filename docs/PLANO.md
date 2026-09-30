@@ -419,6 +419,8 @@ Exemplos (2 fotos da categoria como exemplo "remover", limiar 0,70):
 
 **Pendente:** validação no app (Windows): organizar uma cópia de biblioteca, desconectar o HD no meio, retomar e desfazer.
 
+**Correção do build no Linux (pendência da 7a, 2026-09-30):** o CI (`ubuntu-22.04`) falhava no link: o ONNX Runtime estático que o `ort` baixa (pyke) usa `__isoc23_strtol*` (glibc 2.38+) e `basic_string::_M_replace_cold` (libstdc++ do GCC 13+). Nesta máquina (Zorin 18, glibc 2.39) linkava, mas o AppImage só abriria em distros com glibc 2.39. Solução: no Linux, `ort` com `load-dynamic` e o build oficial da Microsoft 1.28.2 (glibc 2.27, GLIBCXX_3.4.21), baixado por `scripts/fetch-onnxruntime.mjs` (SHA-256 fixado) e levado no AppImage em `usr/lib` (+24 MB descompactado; o executável caiu de ~77 para 52 MB). Windows continua estático. Verificado: AppImage gerado com a biblioteca dentro; `people_end_to_end` com os modelos reais passando carregando a biblioteca da Microsoft; sem ela, a IA mostra "componente da IA local ausente" e o resto funciona.
+
 ### Fase 9 — Android (≈ 6 semanas) → `v3.0`
 
 - [ ] `tauri android init`; `core::paths` para Android; features `heic`/`video-thumbs` substituídas por APIs nativas
@@ -462,6 +464,6 @@ Exemplos (2 fotos da categoria como exemplo "remover", limiar 0,70):
 ## 6. Próximo passo imediato
 
 1. Validar no Windows 11 a v2.0 (Pessoas) e a v2.1 (Organizar pastas, **numa cópia** da biblioteca: organizar, desconectar o HD no meio, retomar, desfazer).
-2. Build no Linux: o AppImage de release gera sem erro nesta máquina (2026-09-30, 100 MB); falta o log da falha (CI Ubuntu 22.04?) para investigar. Busca por "praia" (pendência da 7a).
+2. Busca por "praia" (pendência da 7a).
 3. Decidir o empacotamento da libheif (HEIC) e do ffmpeg, pendentes da Fase 2.
 4. Amadurecer as ideias da 7b (foto de exemplo, álbuns por pessoa, "somente ela") ou seguir para a **Fase 8**.

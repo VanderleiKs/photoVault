@@ -12,7 +12,8 @@
     "tauri:build": "tauri build",
     "test": "ng test --watch=false",
     "bindings": "cargo test -p photovault export_bindings",
-    "package:portable": "node scripts/package-portable.mjs"
+    "package:portable": "node scripts/package-portable.mjs",
+    "ort:fetch": "node scripts/fetch-onnxruntime.mjs"
   },
   "dependencies": {
     "@angular/cdk": "^22.2.0",
