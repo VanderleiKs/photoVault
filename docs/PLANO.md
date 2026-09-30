@@ -375,14 +375,34 @@ Exemplos (2 fotos da categoria como exemplo "remover", limiar 0,70):
 
 **Desempenho** (i7-1255U, notebook): ~35–45 ms por foto (o modelo; a prévia já existe) → ~1 h para 100 mil fotos, só na primeira vez. Memória com o modelo carregado: ~590 MB de pico. Buscar: embedding do texto ~10 ms + varredura do índice.
 
-**Pendente:** validação no app (o WebKitGTK desta máquina não renderiza nem uma página `data:`; testar no Windows). CI Windows com o `ort` estático é o primeiro build nessa plataforma.
+**Validação (2026-09-30):** teste inicial no Windows 11 ok. **Pendentes do teste:** (1) o **build no Linux falhou** (a investigar no fim da 7b); (2) **buscar "praia" não trouxe as fotos certas**: medir com fotos reais de praia (limiares `MIN_SIMILARITY`/`MAX_BELOW_BEST` e a frase "uma foto de …"), antes de mudar.
 
 **Limites:** as cenas não alimentam as heurísticas de momentâneas (fica para depois de medir); "bebê"/"piscina", que não existem no conjunto, ainda trazem 2–4 resultados; busca por conteúdo em vídeos usa só o quadro capturado.
 
-### Fase 7b — Pessoas (≈ 2 semanas) → `v2.0`
+### Fase 7b — Pessoas (≈ 2 semanas) → `v2.0` ✅ implementada (branch `fase-7b-pessoas`)
 
-- [ ] `FaceAnalyzer`: detecção, depois agrupamento, depois nomeação; tela Pessoas; olhos fechados na escolha da melhor candidata (modelos com licença que permita uso: YuNet MIT + SFace Apache 2.0, a confirmar; os do InsightFace são só para pesquisa)
-- [ ] Exemplos da Fase 5 com embeddings do CLIP (conteúdo, não só aparência)
+- [x] **Modelos** (pacote próprio, `ai::FACES`, 39 MB, consentimento separado da busca por conteúdo): YuNet 2023mar (detecção + 5 pontos, MIT, 0,2 MB) e SFace 2021dec (vetor de 128 dimensões, Apache 2.0, 38,7 MB), do OpenCV Zoo no Hugging Face, fixados por commit e SHA-256. Licenças conferidas nos arquivos `LICENSE` dos repositórios. Os do InsightFace ficaram de fora (só pesquisa). `ai::Package` generaliza o manifesto: cada pacote tem pasta, download e remoção próprios; quem já tinha baixado os 228 MB da 7a não baixa de novo
+- [x] **Inferência** (`ai::faces`): pré e pós-processamento do `FaceDetectorYN`/`alignCrop` do OpenCV (imagem encaixada em 640 × 640, BGR 0–255; células por escala 8/16/32, NMS 0,3; alinhamento por semelhança nos 5 pontos para 112 × 112). 13 ms para detectar + 19 ms por rosto (i7-1255U)
+- [x] **Fila** (`JobRunner::step_faces`): quinta etapa, depois do conteúdo; lê a prévia de 1024 px; `face_scans` guarda modelo e `thumb_version` (prévia nova = foto de volta na fila; rosto no mesmo lugar mantém a pessoa e a confirmação). Quando a fila esvazia e algo mudou (`people_state.dirty`), reagrupa
+- [x] **Agrupamento** (`people::cluster`, função pura): rostos confirmados são âncoras (média dos 3 mais parecidos ≥ 0,50 atrai os outros); o resto por "leader" (centróide ≥ 0,55) + fusão de centróides ≥ 0,60; grupo com 3 rostos ou mais vira pessoa sugerida. Ids estáveis entre reagrupamentos (maior sobreposição). Só entram rostos com ≥ 40 px, de frente (≥ 0,3) e detecção ≥ 0,8
+- [x] **Decisões** (`people`): nomear confirma o grupo; mesmo nome = mesma pessoa (junta); "Não é esta pessoa" (`face_rejections`, vale também para grupos sugeridos); "Quem é?" num rosto da foto; juntar; ocultar (confirma os rostos, então fotos novas dela ficam ocultas também); foto de capa. Pessoas globais, listas por biblioteca. Remover os modelos apaga rostos, pessoas e nomes
+- [x] **Busca e filtro:** `MediaFilter.person_id` (tela da pessoa, visualizador) e nomes na busca de sempre (`people_hits` no `resolve`, ao lado do FTS e do conteúdo; "ana" acha "Ana Souza", sem acento/maiúscula)
+- [x] **Interface:** Pessoas (nomeadas, "Sem nome", ocultas, juntar por seleção), tela da pessoa (nome editável com sugestões, fotos, "Revisar rostos" com "Não é …" em lote e "Usar como foto", "Juntar com…", ocultar), "Pessoas" no painel de informações e no visualizador (nome, "Quem é?", "Não é …"), seção no bloco IA local, "Procurando rostos · N fotos" no indicador da fila, rosto recortado por `pv://…/face/<id>`
+- [x] **Medição** (`examples/face_eval.rs` no LFW: 158 pessoas com 10–30 fotos + 600 desconhecidos, 3.574 rostos): detecção 100 %; pares ≥ 0,45: 98,2 % da mesma pessoa reconhecidos, 0,008 % de falsos. Agrupamento com os limiares escolhidos: 158 grupos para 158 pessoas, **nenhum misturado**, precisão de pares 99,9 %, recall 98,5 % (fusão 0,50 misturava 3 grupos). Com 2 rostos confirmados por pessoa, 97 % dos outros vão para a pessoa certa e 0,5 % para a errada. Rostos pequenos (LFW reduzido numa tela de 1024 × 768): 49 px → precisão 99,8 %, recall 95 %; 38 px → 99,8 % / 92 %; 29 px → 1 grupo misturado e 74 desconhecidos em grupos (por isso o mínimo de 40 px)
+- [x] **Desempenho do agrupamento** (`examples/people_bench.rs`): 36 mil rostos (500 pessoas + 16 mil desconhecidos) em 7,7 s, em segundo plano; as decisões do usuário gravam na hora
+- [x] Testes: `people::tests` (grupos, ids estáveis, nome, busca, correções, juntar, ocultar, prévia nova, remoção) e `people_end_to_end` (`#[ignore]`, modelos reais + LFW: 3 pessoas sem mistura, desconhecido fora, busca pelo nome, recorte)
+- [ ] **Olhos fechados** na escolha da melhor candidata: fica para depois. Os 5 pontos do YuNet não dizem se o olho está aberto, e não encontrei um modelo pequeno com licença livre em ONNX; medir antes de escolher
+- [ ] **Exemplos da Fase 5 com embeddings do CLIP:** adiado para junto da busca por foto de exemplo (abaixo), que usa a mesma comparação
+
+**Limites:** o LFW é de adultos, de frente e em fotos de imprensa; fotos de família (crianças crescendo, perfil, grupos com rostos pequenos) vão separar mais a mesma pessoa em grupos (resolve-se juntando ou dando o mesmo nome). Rostos com menos de 40 px na prévia aparecem na foto, mas não são agrupados. Uma pessoa só aparece com 3 fotos ou mais.
+
+**Pendente:** validação no app (Windows) e o build no Linux (pendência da 7a).
+
+**Ideias para amadurecer mais para o fim** (trazidas pelo usuário em 2026-09-30):
+
+- **Busca por uma foto de exemplo:** "fotos parecidas com esta", pelo conteúdo (CLIP, imagem × imagem). Os vetores já existem desde a 7a; junta com os exemplos da Fase 5 usando o CLIP
+- **Álbuns lógicos por pessoa:** álbum inteligente com a regra `personId` (o filtro já existe; falta a interface)
+- **"Somente ela":** fotos em que a pessoa aparece sozinha (ou só com certas pessoas), e combinações ("Ana e Bruno"); decidir se "Ana praia" deve ser E (hoje a busca junta nome **ou** conteúdo)
 
 ### Fase 8 — Organização física (≈ 2 semanas) → `v2.1`
 
@@ -430,7 +450,7 @@ Exemplos (2 fotos da categoria como exemplo "remover", limiar 0,70):
 
 ## 6. Próximo passo imediato
 
-1. Validar a v1.3 no Windows 11: baixar os modelos em Configurações → IA local, acompanhar a análise de conteúdo e buscar por conteúdo ("praia", "cachorro", "comida", "gato 2024").
-2. Mesclar a `v1.2.0` (commit `e05ae89`, que ficou fora do PR #10) antes desta branch.
+1. Validar a v2.0 no Windows 11: baixar os modelos de rostos em Configurações → IA local, ver os grupos em Pessoas, dar nomes, juntar, "Não é …", e buscar pelo nome.
+2. Investigar o build no Linux que falhou e a busca por "praia" (pendências da 7a).
 3. Decidir o empacotamento da libheif (HEIC) e do ffmpeg, pendentes da Fase 2.
-4. Iniciar a **Fase 7b** (Pessoas).
+4. Amadurecer as ideias da 7b (foto de exemplo, álbuns por pessoa, "somente ela") ou seguir para a **Fase 8**.

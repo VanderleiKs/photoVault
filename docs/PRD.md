@@ -510,9 +510,13 @@ Foto → Enviar para lixeira (confirmação) → <raiz>/.photovault-trash/<data>
 
 ## 20. Pessoas
 
-- Fase 7: detecção de rostos local ("rosto detectado"), depois agrupamento e, por fim, nomeação ("Pessoa A" vira "Maria").
-- Tudo local, e nenhuma imagem é enviada para serviços externos.
-- Enquanto a fase 7 não chega, o item de menu "Pessoas" aparece com um estado vazio explicativo.
+- Detecção de rostos local, agrupamento por pessoa e nomeação ("Sem nome" vira "Maria"). Tudo local, e nenhuma imagem é enviada para serviços externos.
+- **Consentimento próprio:** os modelos de rostos (39 MB) são um pacote separado da busca por conteúdo, baixado só quando o usuário pede (Configurações → IA local). Sem eles, "Pessoas" explica o que é e aponta para as configurações.
+- **Grupos sugeridos** aparecem em "Sem nome" quando a mesma pessoa está em 3 fotos ou mais. Rostos pequenos (menos de 40 px na prévia de 1024) ou de perfil aparecem na foto, mas não entram nos grupos.
+- **Decisões do usuário nunca são desfeitas pelo reagrupamento:** dar nome confirma os rostos do grupo; "Não é esta pessoa" tira o rosto para sempre daquela pessoa; "Quem é?" num rosto da foto coloca-o na pessoa com esse nome (ou cria); dois grupos com o mesmo nome viram um; "Juntar pessoas"; "Ocultar" tira a pessoa da lista e da busca, mas as fotos novas dela continuam indo para ela.
+- **Busca pelo nome** na busca de sempre ("Ana" encontra "Ana" e "Ana Souza", sem diferença de acento ou maiúscula), combinável com datas e filtros. Filtro por pessoa na tela da pessoa.
+- Pessoas são as mesmas em todas as bibliotecas; listas e contagens são da biblioteca ativa.
+- Remover os modelos de rostos apaga os rostos, as pessoas e os nomes (com confirmação).
 
 ---
 
@@ -521,6 +525,7 @@ Foto → Enviar para lixeira (confirmação) → <raiz>/.photovault-trash/<data>
 - Modular via `VisionAnalyzer`. O catálogo não depende de nenhum modelo específico.
 - Modelos ONNX opcionais em `models/`, baixados sob demanda **com consentimento**. O app funciona sem eles.
 - Usos: classificação de cena (chips "Paisagem 0.92"), detecção de rostos e olhos fechados, embeddings (CLIP) para busca semântica e melhor candidata por composição.
+- **Pacotes de modelos:** "conteúdo" (CLIP, 228 MB) e "rostos" (YuNet + SFace, 39 MB), cada um com download, consentimento e remoção próprios.
 - **Fase 7a (v1.3):** um modelo só, CLIP ViT-B/32 (imagem) + codificador de texto multilíngue treinado no mesmo espaço (a busca entende português). 228 MB, int8, CPU, ONNX Runtime embutido no executável. O download mostra o tamanho, a origem (Hugging Face) e as licenças antes de começar, e cada arquivo é conferido por SHA-256 fixado no código.
 - Busca por conteúdo é parte da busca normal: o texto casa com o nome/pasta/local/álbum **ou** com o conteúdo da foto; os resultados seguem a ordenação escolhida.
 - Desligar ou remover a IA volta o app ao comportamento sem ela; remover apaga os modelos e a análise de conteúdo.

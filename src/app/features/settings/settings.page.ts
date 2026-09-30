@@ -165,6 +165,9 @@ interface ThresholdField {
           <h2 class="font-semibold">Sobre</h2>
           <p class="mt-1 text-sm text-muted">PhotoVault {{ info.version }} · local-first · privacy-first</p>
           <p class="mt-2 text-xs text-muted">Nomes de lugares: GeoNames (geonames.org), licença CC BY 4.0, embutidos no app (nenhuma consulta pela internet).</p>
+          <p class="mt-1 text-xs text-muted">
+            IA local (opcional, baixada só quando você pede): CLIP ViT-B/32 (OpenAI, MIT), clip-ViT-B-32-multilingual-v1 (Apache 2.0), YuNet (MIT) e SFace (Apache 2.0) do OpenCV Zoo; motor ONNX Runtime (MIT).
+          </p>
         </section>
       }
     </div>

@@ -2,7 +2,7 @@
 //! asks (Settings → IA local). Each file goes to `<name>.part`, is checked against the
 //! pinned SHA-256 and size, and only then renamed; files already right are kept.
 
-use super::{MANIFEST, ModelFile, model_dir};
+use super::{ModelFile, Package};
 use crate::error::{Error, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -16,6 +16,8 @@ use std::sync::{Arc, Mutex};
 #[serde(rename_all = "camelCase")]
 pub struct DownloadState {
     pub running: bool,
+    /// Package being (or last) downloaded (`ai::Package::id`).
+    pub package: Option<String>,
     #[specta(type = specta_typescript::Number)]
     pub done_bytes: u64,
     #[specta(type = specta_typescript::Number)]
@@ -55,8 +57,13 @@ pub fn cancel() {
     }
 }
 
-/// Starts in a thread; `on_done` runs at the end (success, failure or cancel).
-pub fn start(models_dir: PathBuf, on_done: impl FnOnce(Result<()>) + Send + 'static) -> Result<()> {
+/// Starts in a thread; `on_done` runs at the end (success, failure or cancel). One
+/// download at a time.
+pub fn start(
+    models_dir: PathBuf,
+    package: &'static Package,
+    on_done: impl FnOnce(Result<()>) + Send + 'static,
+) -> Result<()> {
     let cancel = Arc::new(AtomicBool::new(false));
     {
         let mut shared = SHARED
@@ -70,7 +77,8 @@ pub fn start(models_dir: PathBuf, on_done: impl FnOnce(Result<()>) + Send + 'sta
         *shared = Some(Shared {
             state: DownloadState {
                 running: true,
-                total_bytes: super::total_size(),
+                package: Some(package.id.to_string()),
+                total_bytes: package.size(),
                 ..Default::default()
             },
             cancel: Arc::clone(&cancel),
@@ -79,7 +87,7 @@ pub fn start(models_dir: PathBuf, on_done: impl FnOnce(Result<()>) + Send + 'sta
     std::thread::Builder::new()
         .name("pv-model-download".into())
         .spawn(move || {
-            let result = run(&model_dir(&models_dir), &cancel);
+            let result = run(&package.dir(&models_dir), package, &cancel);
             update(|s| {
                 s.running = false;
                 s.error = result.as_ref().err().map(|e| e.to_string());
@@ -89,10 +97,10 @@ pub fn start(models_dir: PathBuf, on_done: impl FnOnce(Result<()>) + Send + 'sta
     Ok(())
 }
 
-fn run(dir: &Path, cancel: &AtomicBool) -> Result<()> {
+fn run(dir: &Path, package: &Package, cancel: &AtomicBool) -> Result<()> {
     std::fs::create_dir_all(dir)?;
     let mut before = 0;
-    for file in &MANIFEST {
+    for file in package.files {
         let dest = dir.join(file.name);
         if !already_there(&dest, file)? {
             fetch(file, &dest, cancel, before)?;

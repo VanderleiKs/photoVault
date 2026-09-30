@@ -14,6 +14,9 @@ pub enum Error {
     #[error("Álbum não encontrado.")]
     AlbumNotFound,
 
+    #[error("Pessoa não encontrada.")]
+    PersonNotFound,
+
     #[error("A pasta não existe ou não está acessível: {0}")]
     PathNotAccessible(String),
 
@@ -50,6 +53,7 @@ impl Error {
             Error::LibraryNotFound => "LIBRARY_NOT_FOUND",
             Error::MediaNotFound => "MEDIA_NOT_FOUND",
             Error::AlbumNotFound => "ALBUM_NOT_FOUND",
+            Error::PersonNotFound => "PERSON_NOT_FOUND",
             Error::PathNotAccessible(_) => "PATH_NOT_ACCESSIBLE",
             Error::InvalidInput(_) => "INVALID_INPUT",
             Error::ScanInProgress => "SCAN_IN_PROGRESS",

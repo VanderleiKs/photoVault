@@ -185,7 +185,7 @@ pub fn search(query: &str, limit: usize) -> Vec<Place> {
 }
 
 /// Lowercase without accents ("São" → "sao"), for matching typed names.
-fn fold(s: &str) -> String {
+pub(crate) fn fold(s: &str) -> String {
     s.chars()
         .flat_map(char::to_lowercase)
         .map(|c| match c {

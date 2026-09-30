@@ -1,5 +1,6 @@
 //! Pluggable visual analysis (PRD §21); the catalog never depends on a specific model.
-//! Implemented by `ai::Engine` (CLIP: scenes + embedding, phase 7a); faces in phase 7b.
+//! Implemented by `ai::Engine` (CLIP: scenes + embedding, phase 7a). Faces (phase 7b) are
+//! `ai::faces::Faces`, called by the queue directly (detection, then one vector per face).
 
 use crate::error::Result;
 

@@ -12,6 +12,7 @@ pub mod events;
 pub mod ingestion;
 pub mod jobs;
 pub mod paths;
+pub mod people;
 pub mod review;
 pub mod thumbnails;
 pub mod trash;

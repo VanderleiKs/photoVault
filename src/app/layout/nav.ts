@@ -23,8 +23,7 @@ export const MAIN_NAV: NavItem[] = [
     label: 'Pessoas',
     icon: 'pi pi-user',
     route: '/people',
-    phase: 7,
-    description: 'Reconhecimento de rostos 100% local, sem enviar fotos para fora do computador.',
+    description: 'Rostos agrupados por pessoa, 100% local: dê nomes e busque por eles.',
   },
   { label: 'Favoritos', icon: 'pi pi-heart', route: '/favorites' },
 ];

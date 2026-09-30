@@ -75,6 +75,16 @@ export const routes: Routes = [
         loadComponent: () => import('./features/trips/trips.page').then((m) => m.TripsPage),
       },
       {
+        path: 'people',
+        canActivate: [requireLibrary],
+        loadComponent: () => import('./features/people/people.page').then((m) => m.PeoplePage),
+      },
+      {
+        path: 'people/:id',
+        canActivate: [requireLibrary],
+        loadComponent: () => import('./features/people/person.page').then((m) => m.PersonPage),
+      },
+      {
         path: 'trips/:id',
         canActivate: [requireLibrary],
         loadComponent: () => import('./features/trips/event.page').then((m) => m.EventPage),

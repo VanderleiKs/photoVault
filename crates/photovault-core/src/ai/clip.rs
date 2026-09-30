@@ -29,7 +29,7 @@ pub struct Clip {
 
 /// `threads`: `None` = ONNX Runtime's default (one per physical core), which measured
 /// fastest (`ai_eval`: ~33 ms/photo against ~51 ms with 4 threads, batches of 16).
-fn session(path: &Path, threads: Option<usize>) -> Result<Session> {
+pub(super) fn session(path: &Path, threads: Option<usize>) -> Result<Session> {
     // Builder errors carry the builder back; only the message matters here.
     let ai = |e: ort::Error<_>| Error::Ai(e.to_string());
     let mut builder = Session::builder()?
@@ -109,26 +109,13 @@ impl Clip {
 }
 
 /// Resize the short side to 224 (bicubic), center crop, normalize: CLIP's preprocessing.
-/// `fast_image_resize` (SIMD): the `image` crate's bicubic took most of the time.
 fn fill(input: &mut Array4<f32>, i: usize, img: &DynamicImage) {
-    use fast_image_resize::{FilterType, ResizeAlg, ResizeOptions, Resizer, images::Image};
     let rgb = img.to_rgb8();
     let (w, h) = rgb.dimensions();
     let scale = SIDE as f32 / w.min(h).max(1) as f32;
     let nw = ((w as f32 * scale).round() as u32).max(SIDE);
     let nh = ((h as f32 * scale).round() as u32).max(SIDE);
-    let mut dst = Image::new(nw, nh, fast_image_resize::PixelType::U8x3);
-    let resized = Resizer::new()
-        .resize(
-            &rgb,
-            &mut dst,
-            &ResizeOptions::new().resize_alg(ResizeAlg::Convolution(FilterType::CatmullRom)),
-        )
-        .ok()
-        .and_then(|_| image::RgbImage::from_raw(nw, nh, dst.into_vec()))
-        .unwrap_or_else(|| {
-            image::imageops::resize(&rgb, nw, nh, image::imageops::FilterType::CatmullRom)
-        });
+    let resized = resize_rgb(&rgb, nw, nh);
     let (x0, y0) = ((nw - SIDE) / 2, (nh - SIDE) / 2);
     for y in 0..SIDE {
         for x in 0..SIDE {
@@ -139,6 +126,24 @@ fn fill(input: &mut Array4<f32>, i: usize, img: &DynamicImage) {
             }
         }
     }
+}
+
+/// Bicubic resize with `fast_image_resize` (SIMD): the `image` crate's bicubic took most
+/// of the time.
+pub(super) fn resize_rgb(rgb: &image::RgbImage, nw: u32, nh: u32) -> image::RgbImage {
+    use fast_image_resize::{FilterType, ResizeAlg, ResizeOptions, Resizer, images::Image};
+    let mut dst = Image::new(nw, nh, fast_image_resize::PixelType::U8x3);
+    Resizer::new()
+        .resize(
+            rgb,
+            &mut dst,
+            &ResizeOptions::new().resize_alg(ResizeAlg::Convolution(FilterType::CatmullRom)),
+        )
+        .ok()
+        .and_then(|_| image::RgbImage::from_raw(nw, nh, dst.into_vec()))
+        .unwrap_or_else(|| {
+            image::imageops::resize(rgb, nw, nh, image::imageops::FilterType::CatmullRom)
+        })
 }
 
 pub fn normalized(mut v: Vec<f32>) -> Vec<f32> {

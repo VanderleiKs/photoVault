@@ -31,6 +31,21 @@ import { JobStore } from '../core/stores/job.store';
             (onClick)="p.paused ? jobs.resume() : jobs.pause()"
           />
         </div>
+      } @else if (p.queued === 0 && p.facesPending > 0) {
+        <div class="flex items-center gap-1 rounded-full border border-line bg-panel py-0.5 pl-3 pr-0.5 text-xs" role="status">
+          <i [class]="p.paused ? 'pi pi-pause text-muted' : 'pi pi-user text-primary'"></i>
+          <span class="ml-1 whitespace-nowrap">{{ p.paused ? 'Busca de rostos pausada' : 'Procurando rostos' }} · {{ format(p.facesPending) }} {{ p.facesPending === 1 ? 'foto' : 'fotos' }}</span>
+          <p-button
+            [icon]="p.paused ? 'pi pi-play' : 'pi pi-pause'"
+            [text]="true"
+            [rounded]="true"
+            size="small"
+            [ariaLabel]="p.paused ? 'Retomar análise' : 'Pausar análise'"
+            [pTooltip]="p.paused ? 'Retomar análise' : 'Pausar análise (libera a CPU)'"
+            tooltipPosition="bottom"
+            (onClick)="p.paused ? jobs.resume() : jobs.pause()"
+          />
+        </div>
       } @else if (p.queued > 0) {
         <div class="flex items-center gap-1 rounded-full border border-line bg-panel py-0.5 pl-3 pr-0.5 text-xs" role="status">
           @if (p.paused) {
