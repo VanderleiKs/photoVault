@@ -198,6 +198,62 @@ pub fn load_faces(models_dir: &Path, threads: Option<usize>) -> Result<bool> {
     Ok(true)
 }
 
+/// File name of the ONNX Runtime library on Linux (Microsoft's build, loaded at run time;
+/// on Windows it is linked into the executable).
+pub const RUNTIME_LIB: &str = "libonnxruntime.so.1";
+
+static RUNTIME_PATHS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+/// Another place where `RUNTIME_LIB` may be (the app's bundle folder, a dev folder). Call
+/// before the first model loads. `ORT_DYLIB_PATH` always wins; next to the executable and
+/// `../lib` (AppImage) are always tried.
+pub fn add_runtime_path(path: PathBuf) {
+    if let Ok(mut p) = RUNTIME_PATHS.lock() {
+        p.push(path);
+    }
+}
+
+#[cfg(target_os = "linux")]
+static RUNTIME: std::sync::OnceLock<std::result::Result<PathBuf, String>> =
+    std::sync::OnceLock::new();
+
+/// Linux: load the ONNX Runtime library once (before any session). Missing = the local AI
+/// is unavailable, everything else works.
+#[cfg(target_os = "linux")]
+pub(crate) fn ensure_runtime() -> Result<()> {
+    RUNTIME
+        .get_or_init(|| {
+            let mut candidates: Vec<PathBuf> = std::env::var_os("ORT_DYLIB_PATH")
+                .map(PathBuf::from)
+                .into_iter()
+                .collect();
+            candidates.extend(RUNTIME_PATHS.lock().map(|p| p.clone()).unwrap_or_default());
+            if let Ok(exe) = std::env::current_exe()
+                && let Some(dir) = exe.parent()
+            {
+                candidates.push(dir.join(RUNTIME_LIB));
+                candidates.push(dir.join("../lib").join(RUNTIME_LIB));
+            }
+            let path = candidates
+                .into_iter()
+                .find(|p| p.is_file())
+                .ok_or_else(|| format!("componente da IA local ausente ({RUNTIME_LIB})"))?;
+            ort::init_from(&path)
+                .map_err(|e| format!("não foi possível carregar {}: {e}", path.display()))?
+                .commit();
+            tracing::info!("ONNX Runtime loaded from {}", path.display());
+            Ok(path)
+        })
+        .as_ref()
+        .map(|_| ())
+        .map_err(|e| Error::Ai(e.clone()))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn ensure_runtime() -> Result<()> {
+    Ok(())
+}
+
 static LOAD_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// Why the model couldn't be loaded last time (corrupt file, unsupported CPU…).

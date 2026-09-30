@@ -13,6 +13,7 @@ npm install                       # dependências do frontend
 npm run tauri:dev                 # dev completo: Angular (ng serve) + backend Rust
 npm test                          # Vitest (frontend)
 npm run build                     # só Angular
+npm run ort:fetch                 # Linux: baixa o ONNX Runtime da Microsoft para src-tauri/lib (automático no tauri dev/build)
 
 cargo test --workspace            # testes Rust; também regenera os bindings TS
 cargo clippy --workspace --all-targets -- -D warnings
@@ -50,11 +51,11 @@ crates/photovault-core/   domínio, SEM Tauri: db, catalog (query, media, albums
                           VisionAnalyzer), review (sugestões, exemplos), trash (lixeira + operations_log),
                           events (detect: viagens/eventos), ai (clip, scenes, index: busca por
                           conteúdo; faces: YuNet + SFace; download dos modelos), people (rostos,
-                          cluster, nomes e correções)
+                          cluster, nomes e correções), arrange (template, plano, run: organizar pastas)
 src-tauri/                camada fina: commands/, events.rs, protocol.rs (pv://), state.rs, lib.rs
 src/app/core/             ipc/ (bindings.ts gerado, ipc.ts, backend.ts), stores/ (signals), format, notify
 src/app/layout/           shell, sidebar, topbar (busca Ctrl+K), info-panel, bottom-nav, nav.ts
-src/app/features/         home, photos, timeline, favorites, albums, organize, review, trash, trips, people, viewer,
+src/app/features/         home, photos, timeline, favorites, albums, organize, review, trash, trips, people, arrange, viewer,
                           libraries, settings, welcome
 src/app/shared/           media-grid/ (grade virtualizada), media-tile, filter-bar, selection-bar,
                           album-picker, confirm-action, gallery-controls, media-details,
@@ -62,7 +63,7 @@ src/app/shared/           media-grid/ (grade virtualizada), media-tile, filter-b
 ```
 
 - **Regra de negócio vai no core** (`photovault-core`), com teste. Os commands só adaptam para IPC.
-- **Estado do frontend fica nas stores.** Globais: `AppStore`, `LibraryStore`, `ScanStore`, `JobStore`, `SelectionStore` (foco do painel + seleção múltipla), `BrowseStore` (filtros de "Todas as fotos", persistidos por biblioteca, e busca), `AlbumStore`, `OrganizeStore` (contadores de Organizar), `EventStore` (viagens/eventos), `AiStore` (IA local), `PeopleStore` (pessoas), `ViewerContext`, `UiStore`. Por página: `GalleryStore` (`providers: [GalleryStore]`), que junta o filtro fixo da página ao do usuário, pagina e se atualiza sozinho. Os componentes não chamam IPC direto, exceto em casos pontuais pelo `Backend`.
+- **Estado do frontend fica nas stores.** Globais: `AppStore`, `LibraryStore`, `ScanStore`, `JobStore`, `SelectionStore` (foco do painel + seleção múltipla), `BrowseStore` (filtros de "Todas as fotos", persistidos por biblioteca, e busca), `AlbumStore`, `OrganizeStore` (contadores de Organizar), `EventStore` (viagens/eventos), `AiStore` (IA local), `PeopleStore` (pessoas), `ArrangeStore` (organizar pastas), `ViewerContext`, `UiStore`. Por página: `GalleryStore` (`providers: [GalleryStore]`), que junta o filtro fixo da página ao do usuário, pagina e se atualiza sozinho. Os componentes não chamam IPC direto, exceto em casos pontuais pelo `Backend`.
 
 ## Gotchas
 
@@ -82,7 +83,7 @@ src/app/shared/           media-grid/ (grade virtualizada), media-tile, filter-b
 - **Miniaturas versionadas:** `thumbnailUrl(id, item.thumbVersion)`. `thumbVersion` 0 = ainda não gerada (o tile tenta mesmo assim, para aproveitar miniaturas de catálogos antigos).
 - **`captured_at` é hora local de parede** (`2025-07-12T14:32:01`, sem fuso) e `date_source` diz a origem (`exif_original` → `exif_datetime` → `file_meta` → `filename` → `mtime`).
 - **Logs:** o filtro padrão é `info,nom_exif=error`. O `nom-exif` loga cada tag em INFO e encheria os arquivos de log.
-- **Nada escreve dentro da pasta da biblioteca** (o teste `ingest_fills_metadata_thumbnails_and_place` compara o conteúdo da pasta antes e depois). `delete_library` não apaga fotos, só o índice e as miniaturas.
+- **Nada escreve dentro da pasta da biblioteca** (o teste `ingest_fills_metadata_thumbnails_and_place` compara o conteúdo da pasta antes e depois), exceto a lixeira e "Organizar pastas", sempre por ação confirmada (R3). `delete_library` não apaga fotos, só o índice e as miniaturas.
 - **Tema:** preset `PhotoVaultPreset` (Aura azul) em `app.config.ts`. Sem preset, o Optimus renderiza sem estilo. O modo escuro é a classe `.dark-mode` no `<html>`, controlada pelo `AppStore`. Tokens de cor (`bg-canvas`, `bg-panel`, `text-muted`, `bg-side`…) ficam em `src/styles.css`.
 - **Zoneless:** não há `zone.js`. Estado reativo sempre em signals; componentes `OnPush`.
 - **Menu:** itens futuros ficam em `layout/nav.ts` com `phase`, e caem na página "em breve". Não crie links quebrados.
@@ -111,8 +112,11 @@ src/app/shared/           media-grid/ (grade virtualizada), media-tile, filter-b
 - **Os modelos são fixados por URL (commit) e SHA-256** em pacotes (`ai::CONTENT`, `ai::FACES`), cada um com pasta, consentimento, download e remoção próprios. Trocar de modelo = arquivos novos no manifesto **e** `MODEL_ID` novo (embeddings de outro modelo não são comparáveis; os antigos ficam de fora e as fotos voltam à fila). O download é o único acesso à rede do app: não acrescente outro sem consentimento explícito (PRD §25).
 - **Embeddings (`media_embeddings`) guardam a `thumb_version` de origem:** prévia nova = foto de volta na fila, sem gancho de invalidação. As cenas são derivadas na leitura (`ai::scenes`), nunca gravadas em `media_labels`.
 - **Busca por conteúdo entra no `resolve`** (`MediaFilter.content_hits`, fora da API e das regras de álbum) e vira `OR m.id IN json_each(...)` ao lado do FTS. Limiares em `ai::index` (`MIN_SIMILARITY`, `MAX_BELOW_BEST`) e o modelo de frase ("uma foto de …") foram escolhidos com `ai_eval`: meça antes de mudar e registre no PLANO.
-- **`ort` estático com `download-binaries`:** o build baixa o ONNX Runtime do CDN da pyke (via rustls, `ort-sys/tls-rustls`); não habilite `tls-native` (exige OpenSSL no build) nem `copy-dylibs` (DLL solta no app portátil).
+- **ONNX Runtime por plataforma** (`[target.…]` no `Cargo.toml` do core). **Windows:** estático com `download-binaries` (CDN da pyke via rustls, `ort-sys/tls-rustls`); não habilite `tls-native` (exige OpenSSL) nem `copy-dylibs` (DLL solta no app portátil). **Linux:** `load-dynamic` com o build oficial da Microsoft (`scripts/fetch-onnxruntime.mjs`, versão e SHA-256 fixados, roda sozinho antes de `tauri dev`/`tauri build`), levado no AppImage em `usr/lib` (`bundle.linux.appimage.files`). O estático da pyke exige glibc 2.38+/GCC 13 e não linka no Ubuntu 22.04 do CI. `ai::ensure_runtime` (chamado em `clip::session`) procura `ORT_DYLIB_PATH`, `ai::add_runtime_path`, ao lado do executável e `../lib`; sem a biblioteca, a IA fica indisponível e o resto funciona. Testes `#[ignore]` com modelos no Linux: `ORT_DYLIB_PATH=src-tauri/lib/libonnxruntime.so.1`. Ao subir o `ort`, confira a versão da API do ONNX Runtime e troque `VERSION`/SHA-256 no script.
 - **Pessoas (`people`) são derivadas; as decisões não.** `people::rebuild` (fila, quando não há rostos pendentes e `people_state.dirty`) refaz só os grupos sugeridos (sem nome, não ocultos, sem rosto confirmado), com ids estáveis por sobreposição. Nomes, `faces.confirmed`, `face_rejections` e ocultas sobrevivem sempre. Toda decisão chama `people::mark_dirty` e o command acorda a fila (`state.jobs.wake()`).
 - **Limiares de rostos medidos com `face_eval`** (`people::cluster::PARAMS`, `people::MIN_GROUP_SIZE`): meça no LFW (inclusive com `PV_SCALE`) antes de mudar e registre no PLANO. Misturar duas pessoas é pior que separar uma: na dúvida, mais rígido.
 - **Trocar o modelo de rostos = `FACES_MODEL_ID` novo**: vetores de outro modelo não são comparáveis; `face_scans` com outro modelo recoloca as fotos na fila, mas os rostos antigos precisam ser apagados junto (os nomes se perdem: avise o usuário).
 - **Rosto na interface só por `faceUrl(id)`** (`pv://…/face/<id>`, recorte da prévia de 1024 na hora). Pessoas são globais; listas e contagens sempre com `library_id`.
+- **Organizar pastas (`arrange`) = plano → lote → execução.** `plan`/`preview` não tocam no disco; `create_batch` recalcula e guarda o plano (`arrange_items`); só `run::execute`/`run::undo` movem, um arquivo por vez, com `operations_log` (`move`) antes e o catálogo (`relative_path`, `filename`) na mesma transação do item. Nunca mova arquivo da biblioteca por outro caminho. `run::recover` roda na inicialização, depois de `trash::recover`.
+- **Conflito de nome ignora maiúsculas, sempre** (`arrange::on_disk`, conjuntos em minúsculas): a biblioteca pode ser aberta no Windows ou estar em exFAT. `move_file` recusa destino existente; não "resolva" isso sobrescrevendo.
+- **Durante a organização o scan fica bloqueado** (o command segura `state.scan.try_start()`): um scan no meio veria arquivos "sumindo" e "aparecendo". Disco desconectado pausa o lote (não marca falhas).

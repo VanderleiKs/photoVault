@@ -5,6 +5,7 @@
 
 pub mod ai;
 pub mod analysis;
+pub mod arrange;
 pub mod catalog;
 pub mod db;
 pub mod error;

@@ -75,6 +75,12 @@ export const ORGANIZE_NAV: NavItem[] = [
 
 export const LIBRARY_NAV: NavItem[] = [
   { label: 'Bibliotecas', icon: 'pi pi-database', route: '/libraries' },
+  {
+    label: 'Organizar pastas',
+    icon: 'pi pi-folder-open',
+    route: '/arrange',
+    description: 'Move e renomeia os arquivos por uma regra (ano, mês, evento), com prévia e desfazer.',
+  },
   { label: 'Configurações', icon: 'pi pi-cog', route: '/settings' },
 ];
 

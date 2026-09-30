@@ -625,12 +625,21 @@ Cores das categorias de "Organizar" (mobile e ícones): duplicatas vermelho, sem
 
 ## 24. Operações físicas no disco
 
-Ficam para a fase 8: mover, renomear e reorganizar. Toda operação física:
+Fase 8: mover, renomear e reorganizar. Toda operação física:
 
 1. mostra um **preview** ANTES/DEPOIS por arquivo;
 2. exige confirmação;
 3. é registrada em `operations_log` com rollback possível;
 4. aborta de forma segura se o volume for desconectado (estado consistente, com retomada).
+
+**Organizar pastas (v2.1):**
+
+- Regra por modelo de pastas e de nome (`{ano}/{mes} - {mes_nome}`, `{ano}/{evento|mes}`, `{data}_{hora}`), aplicada à biblioteca, a um álbum, a uma viagem/evento ou à seleção. Sempre dentro da pasta da biblioteca.
+- Nada é sobrescrito: um nome ocupado ganha " (2)" (comparando sem diferenciar maiúsculas). Fotos sem data confiável vão para "Sem data". Arquivos auxiliares (`.xmp`, `.aae`, `.json`) acompanham a foto.
+- Só fotos ativas; a lixeira e os ausentes não se movem. Uma foto alterada depois da prévia é pulada.
+- A execução pode ser pausada; um disco desconectado pausa sem falhar; ao reabrir o app, um movimento interrompido é concluído ou desfeito, e o lote espera a retomada.
+- "Desfazer" devolve cada arquivo ao caminho e nome de antes, em ordem inversa, e lista o que não pôde voltar.
+- Durante a organização, não há scan da biblioteca.
 
 ---
 
