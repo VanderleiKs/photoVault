@@ -173,6 +173,21 @@ export const commands = {
 	removePersonFaces: (faceIds: string[]) => typedError<null, ApiError>(__TAURI_INVOKE("remove_person_faces", { faceIds })),
 	/**  "This is Ana": returns the person's id. */
 	nameFace: (faceId: string, name: string) => typedError<string, ApiError>(__TAURI_INVOKE("name_face", { faceId, name })),
+	/**  Before → after of every file, nothing touched (Organizar pastas). */
+	previewArrange: (libraryId: string, rule: ArrangeRule, scope: ArrangeScope, limit: number) => typedError<ArrangePreview, ApiError>(__TAURI_INVOKE("preview_arrange", { libraryId, rule, scope, limit })),
+	/**  The plan, kept and waiting for the confirmation (counts for the dialog). */
+	createArrange: (libraryId: string, rule: ArrangeRule, scope: ArrangeScope) => typedError<ArrangeBatch, ApiError>(__TAURI_INVOKE("create_arrange", { libraryId, rule, scope })),
+	discardArrange: (batchId: string) => typedError<null, ApiError>(__TAURI_INVOKE("discard_arrange", { batchId })),
+	/**  Confirmed: move the files (or resume), in the background. No scan runs meanwhile. */
+	startArrange: (batchId: string) => typedError<null, ApiError>(__TAURI_INVOKE("start_arrange", { batchId })),
+	/**  Put the files back where they were (or resume undoing). */
+	undoArrange: (batchId: string) => typedError<null, ApiError>(__TAURI_INVOKE("undo_arrange", { batchId })),
+	pauseArrange: (batchId: string) => typedError<null, ApiError>(__TAURI_INVOKE("pause_arrange", { batchId })),
+	getArrangeBatch: (batchId: string) => typedError<ArrangeBatch, ApiError>(__TAURI_INVOKE("get_arrange_batch", { batchId })),
+	/**  History of a library, newest first. */
+	listArrangeBatches: (libraryId: string) => typedError<ArrangeBatch[], ApiError>(__TAURI_INVOKE("list_arrange_batches", { libraryId })),
+	/**  Files of a batch (`status`: e.g. "failed"). */
+	listArrangeItems: (batchId: string, status: string | null, offset: number, limit: number) => typedError<ArrangeItem[], ApiError>(__TAURI_INVOKE("list_arrange_items", { batchId, status, offset, limit })),
 	/**  Detect trips and events again in every library, now, with the current settings. */
 	reclassifyEvents: (options: ReclassifyOptions) => typedError<EventCounts, ApiError>(__TAURI_INVOKE("reclassify_events", { options })),
 	/**  Homes the photos point to, one per library (Settings: "Sua casa parece ser…"). */
@@ -366,6 +381,75 @@ export type AppSettings = {
 	ai?: AiSettings,
 };
 
+export type ArrangeBatch = {
+	id: string,
+	libraryId: string,
+	rule: ArrangeRule,
+	status: BatchStatus,
+	message: string | null,
+	total: number,
+	pending: number,
+	done: number,
+	failed: number,
+	skipped: number,
+	undone: number,
+	sidecars: number,
+	createdAt: string,
+	finishedAt: string | null,
+};
+
+export type ArrangeItem = {
+	seq: number,
+	mediaId: string,
+	from: string,
+	to: string,
+	status: string,
+	error: string | null,
+};
+
+export type ArrangePreview = {
+	/**  Photos in the scope. */
+	total: number,
+	/**  Photos that change place or name. */
+	moving: number,
+	/**  Already where the rule puts them. */
+	unchanged: number,
+	/**  Moving with " (2)" because the name was taken. */
+	renamed: number,
+	/**  Without a reliable date (go to "Sem data"). */
+	undated: number,
+	sidecars: number,
+	/**  The first moves (before → after), in plan order. */
+	items: PlannedMove[],
+	/**  Destination folders with the most photos arriving. */
+	folders: FolderCount[],
+};
+
+/**  How files are laid out. `None` = keep (the folder, the name). */
+export type ArrangeRule = {
+	/**  Folders, `/`-separated: "{ano}/{mes} - {mes_nome}". Relative to the library root. */
+	folders?: string | null,
+	/**  File name without the extension: "{data}_{hora}". */
+	name?: string | null,
+};
+
+/**
+ *  Which photos: a gallery filter (album, event, the whole library…) and, optionally,
+ *  only these ids (a selection).
+ */
+export type ArrangeScope = {
+	filter?: MediaFilter,
+	mediaIds?: string[] | null,
+};
+
+export type BatchStatus = 
+/**  Planned, waiting for confirmation. */
+"planned" | "running" | 
+/**  Stopped by the user or by a disconnection: can be resumed. */
+"paused" | "done" | "undoing" | "undo_paused" | "undone" | 
+/**  Planned and not confirmed. */
+"discarded";
+
 export type CameraOption = {
 	make: string | null,
 	model: string,
@@ -512,6 +596,11 @@ export type FaceStatus = {
 	scanned: number,
 	found: number,
 	pending: number,
+};
+
+export type FolderCount = {
+	path: string,
+	count: number,
 };
 
 export type GroupKind = "exact_duplicate" | "visual_duplicate" | "similar" | "sequence";
@@ -848,6 +937,17 @@ export type PlaceOption = {
 	admin1: string | null,
 	countryCode: string,
 	count: number,
+};
+
+/**  One file to move. */
+export type PlannedMove = {
+	mediaId: string,
+	from: string,
+	to: string,
+	/**  The wanted name was taken: " (2)" was added. */
+	renamed: boolean,
+	/**  Files that go with it (before, after). */
+	sidecars: ([string, string])[],
 };
 
 export type QualityFlag = "blurry" | "dark" | "overexposed" | "low_res" | 

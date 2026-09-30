@@ -320,7 +320,7 @@ pub(super) fn parse_text(text: &str) -> ParsedText {
 
 /// Smart album: the album's rule replaces the album reference (one level only). Then the
 /// text also searches the content of the photos, if the local AI is available.
-pub(super) async fn resolve(
+pub(crate) async fn resolve(
     pool: &SqlitePool,
     library_id: &str,
     filter: MediaFilter,
@@ -363,7 +363,7 @@ async fn resolve_album(pool: &SqlitePool, mut filter: MediaFilter) -> Result<Med
     }
 }
 
-pub(super) fn validate(filter: &MediaFilter) -> Result<()> {
+pub(crate) fn validate(filter: &MediaFilter) -> Result<()> {
     let invalid = |msg: &str| Err(Error::InvalidInput(msg.into()));
     if filter.month.is_some_and(|m| !(1..=12).contains(&m)) {
         return invalid("Mês inválido.");
@@ -386,7 +386,7 @@ pub(super) fn validate(filter: &MediaFilter) -> Result<()> {
 }
 
 /// Appends `WHERE …` for active media of a library matching `filter` (already resolved).
-pub(super) fn push_where(
+pub(crate) fn push_where(
     qb: &mut QueryBuilder<'_, Sqlite>,
     library_id: &str,
     filter: &MediaFilter,

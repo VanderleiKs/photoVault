@@ -53,7 +53,7 @@ PhotoVault/
 
 Sem o `portable.flag`, os dados vão para a pasta de dados do sistema. O CI gera os dois pacotes automaticamente a cada tag `v*` (`.github/workflows/release.yml`).
 
-## Estado atual (v2.0, Fase 7b)
+## Estado atual (v2.1, Fase 8)
 
 Funciona hoje:
 
@@ -70,6 +70,7 @@ Funciona hoje:
 - **IA local (opcional)**: busca pelo conteúdo das fotos, em português ("cachorro na praia", "gato 2024"), e etiquetas de cena ("Praia 71 %"). Os modelos (228 MB) são baixados só quando você pede, em Configurações → IA local; depois disso tudo roda no seu computador
 - **Pessoas (opcional)**: os rostos são agrupados por pessoa; você dá nomes, junta grupos, corrige ("Não é a Ana") e busca pelo nome. Os modelos de rostos (39 MB) têm download próprio, em Configurações → IA local, e rostos e nomes ficam só no seu computador
 - **Tags** manuais, buscáveis e filtráveis; classificação de cada foto no painel de informações
+- **Organizar pastas**: move e renomeia os arquivos por uma regra (Ano / Mês, Ano / Evento, Ano / Local ou a sua, e nome por data e hora), com prévia antes → depois de cada arquivo, confirmação, pausa (inclusive se o HD for desconectado), retomada e desfazer. Nada é sobrescrito, e os arquivos `.xmp`/`.aae`/`.json` vão junto
 - Limiares e prioridades ajustáveis em Configurações (recalcula em segundos, sem reler as fotos)
 - Várias bibliotecas, scan incremental, análise em segundo plano, modo portátil no Windows e no Linux
 

@@ -17,8 +17,8 @@ use tracing_subscriber::{EnvFilter, fmt};
 /// Commands and events exposed to the frontend (single source for the TS bindings).
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     use commands::{
-        ai, albums, events as event_commands, jobs, libraries, media, organize, people, review,
-        scan, system,
+        ai, albums, arrange, events as event_commands, jobs, libraries, media, organize, people,
+        review, scan, system,
     };
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(collect_commands![
@@ -91,6 +91,15 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             people::set_person_cover,
             people::remove_person_faces,
             people::name_face,
+            arrange::preview_arrange,
+            arrange::create_arrange,
+            arrange::discard_arrange,
+            arrange::start_arrange,
+            arrange::undo_arrange,
+            arrange::pause_arrange,
+            arrange::get_arrange_batch,
+            arrange::list_arrange_batches,
+            arrange::list_arrange_items,
             event_commands::reclassify_events,
             event_commands::get_detected_homes,
             event_commands::search_home_places,
@@ -211,7 +220,7 @@ pub fn run() {
                     }
                 }
             });
-            // Settle trash operations cut short last time, then the optional cleanup.
+            // Settle trash operations and file moves cut short last time, then the optional cleanup.
             tauri::async_runtime::spawn({
                 let (pool, thumbnails) = (database.pool.clone(), paths.thumbnails_dir.clone());
                 async move {
@@ -219,6 +228,11 @@ pub fn run() {
                         Ok(0) => {}
                         Ok(n) => tracing::info!("Settled {n} interrupted trash operations"),
                         Err(e) => tracing::warn!("Trash recovery failed: {e}"),
+                    }
+                    match photovault_core::arrange::run::recover(&pool).await {
+                        Ok(0) => {}
+                        Ok(n) => tracing::info!("Settled {n} interrupted file moves"),
+                        Err(e) => tracing::warn!("Move recovery failed: {e}"),
                     }
                     let days = photovault_core::catalog::settings::get(&pool)
                         .await

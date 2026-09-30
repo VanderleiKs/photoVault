@@ -404,9 +404,20 @@ Exemplos (2 fotos da categoria como exemplo "remover", limiar 0,70):
 - **Álbuns lógicos por pessoa:** álbum inteligente com a regra `personId` (o filtro já existe; falta a interface)
 - **"Somente ela":** fotos em que a pessoa aparece sozinha (ou só com certas pessoas), e combinações ("Ana e Bruno"); decidir se "Ana praia" deve ser E (hoje a busca junta nome **ou** conteúdo)
 
-### Fase 8 — Organização física (≈ 2 semanas) → `v2.1`
+### Fase 8 — Organização física (≈ 2 semanas) → `v2.1` ✅ implementada (branch `fase-8-organizacao`)
 
-- [ ] Mover, renomear e reorganizar por regra (ex.: `Ano/Evento/`), com preview ANTES/DEPOIS, confirmação, log, rollback e retomada após desconexão
+- [x] **Regra** (`arrange::template`, pura): pastas e nome por modelo com `{ano}`, `{mes}`, `{mes_nome}`, `{dia}`, `{data}`, `{hora}`, `{evento}` (viagem/evento aceito ou editado), `{local}`, `{camera}`, `{nome}`, `{tipo}` e alternativas (`{evento|mes}`). Pasta sem valor é pulada; nome sem valor mantém o original; sem data (ou só com o mtime, que costuma ser a data da cópia) vai para "Sem data". Nomes válidos no Windows/macOS/Linux (caracteres proibidos, pontos finais, `CON`/`NUL`/`COM1`…, 80 caracteres). Predefinições: Ano / Mês, Ano / Evento, Ano / Local, e nome "Data e hora"
+- [x] **Plano (prévia ANTES/DEPOIS)** (`arrange::plan`): só fotos ativas (nunca a lixeira nem ausentes), escopo = biblioteca, álbum, viagem/evento ou seleção. Nome ocupado (no catálogo, no disco ou por outra foto do plano) ganha " (2)"; **comparação sem diferenciar maiúsculas** mesmo no Linux (a biblioteca pode ir para Windows/exFAT); mudança só de maiúsculas conta como "já está certo". Arquivos auxiliares (`IMG_1.xmp`, `IMG_1.AAE`, `.THM`, `IMG_1.jpg.json` do Google Takeout) vão junto com o mesmo nome novo. Mostra quantos mudam, quantos já estão certos, conflitos, sem data e as pastas de destino
+- [x] **Confirmação:** o plano é recalculado ao confirmar (`create_batch`, a biblioteca pode ter mudado) e guardado (`arrange_batches`/`arrange_items`, migration 0010); a confirmação mostra os números do plano guardado, com número digitado acima de 500 (PRD §25). Uma organização em andamento por biblioteca
+- [x] **Execução** (`arrange::run`): um arquivo por vez, `operations_log` (`move`) gravado antes de mexer; `rename` que nunca sobrescreve; auxiliares depois; catálogo (caminho e nome) na mesma transação do item. Falha no catálogo = arquivo e auxiliares voltam (`rolled_back`). Falha de um arquivo não para os outros (R6); foto que mudou desde o plano é pulada. Pastas esvaziadas são removidas (só se vazias de verdade; nunca a raiz). Durante a execução, o scan fica bloqueado (mesma trava)
+- [x] **Pausa e retomada:** pausar pelo usuário; **disco desconectado = pausa** (sem marcar falhas), retomada quando voltar; queda do app: `run::recover` na inicialização termina o movimento que já chegou ao destino ou desfaz o que não chegou, e o lote fica pausado para retomar
+- [x] **Desfazer** (rollback): ordem inversa, nomes e pastas de antes; o que não puder voltar (lugar original ocupado) fica onde está e é listado
+- [x] **Interface:** Biblioteca → Organizar pastas: regra, escopo, prévia com as pastas de destino e a tabela antes → depois (300 primeiros), progresso com pausar/retomar, histórico com desfazer e detalhes dos problemas
+- [x] Testes: modelos, plano (auxiliares, sem data, conflitos com maiúsculas e arquivo alheio no disco), executar + desfazer byte a byte, desconexão no meio, queda no meio (`recover`), escopo e foto alterada, regras inválidas; e `organized_files_are_found_by_the_next_scan` (scan → organizar → scan sem ausentes/novos, favorito e miniatura preservados → desfazer → scan)
+
+**Limites:** mover entre discos diferentes não é feito (o destino é sempre dentro da biblioteca; `rename` falha com "outro disco" num ponto de montagem interno). Pastas com arquivos que não são fotos (ex.: `Thumbs.db`) não são removidas. Não reorganiza vídeos por quadro nem pessoas (`{pessoa}` fica para as ideias da 7b).
+
+**Pendente:** validação no app (Windows): organizar uma cópia de biblioteca, desconectar o HD no meio, retomar e desfazer.
 
 ### Fase 9 — Android (≈ 6 semanas) → `v3.0`
 
@@ -450,7 +461,7 @@ Exemplos (2 fotos da categoria como exemplo "remover", limiar 0,70):
 
 ## 6. Próximo passo imediato
 
-1. Validar a v2.0 no Windows 11: baixar os modelos de rostos em Configurações → IA local, ver os grupos em Pessoas, dar nomes, juntar, "Não é …", e buscar pelo nome.
-2. Investigar o build no Linux que falhou e a busca por "praia" (pendências da 7a).
+1. Validar no Windows 11 a v2.0 (Pessoas) e a v2.1 (Organizar pastas, **numa cópia** da biblioteca: organizar, desconectar o HD no meio, retomar, desfazer).
+2. Build no Linux: o AppImage de release gera sem erro nesta máquina (2026-09-30, 100 MB); falta o log da falha (CI Ubuntu 22.04?) para investigar. Busca por "praia" (pendência da 7a).
 3. Decidir o empacotamento da libheif (HEIC) e do ffmpeg, pendentes da Fase 2.
 4. Amadurecer as ideias da 7b (foto de exemplo, álbuns por pessoa, "somente ela") ou seguir para a **Fase 8**.

@@ -594,7 +594,11 @@ pub async fn recover(pool: &SqlitePool) -> Result<u32> {
     Ok(settled)
 }
 
-async fn log_start(pool: &SqlitePool, kind: &str, payload: serde_json::Value) -> Result<String> {
+pub(crate) async fn log_start(
+    pool: &SqlitePool,
+    kind: &str,
+    payload: serde_json::Value,
+) -> Result<String> {
     let id = uuid::Uuid::now_v7().to_string();
     sqlx::query(
         "INSERT INTO operations_log (id, kind, payload_json, status, created_at) VALUES (?1, ?2, ?3, 'pending', ?4)",
@@ -608,7 +612,7 @@ async fn log_start(pool: &SqlitePool, kind: &str, payload: serde_json::Value) ->
     Ok(id)
 }
 
-async fn log_finish<'e, E>(executor: E, id: &str, status: &str) -> Result<()>
+pub(crate) async fn log_finish<'e, E>(executor: E, id: &str, status: &str) -> Result<()>
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
 {
@@ -621,7 +625,7 @@ where
     Ok(())
 }
 
-async fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
+pub(crate) async fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
     if let Some(parent) = to.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
@@ -664,7 +668,7 @@ async fn free_path(pool: &SqlitePool, library_id: &str, root: &Path, rel: &str) 
 }
 
 /// "a/b/foto.jpg" + " (2)" → "a/b/foto (2).jpg"
-fn with_suffix(rel: &str, suffix: &str) -> String {
+pub(crate) fn with_suffix(rel: &str, suffix: &str) -> String {
     let (dir, name) = match rel.rsplit_once('/') {
         Some((d, n)) => (Some(d), n),
         None => (None, rel),

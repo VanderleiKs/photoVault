@@ -1180,3 +1180,81 @@ async fn people_end_to_end() {
     );
     crate::ai::unload_faces();
 }
+
+/// Organizing files keeps the catalog true: the next scan finds every photo in its new
+/// place (nothing "missing", nothing "new"), ids, favorites and thumbnails survive, and
+/// undoing brings the old layout back just as cleanly.
+#[tokio::test]
+async fn organized_files_are_found_by_the_next_scan() {
+    use crate::arrange::{self, ArrangeRule, ArrangeScope, run};
+    let w = world().await;
+    std::fs::create_dir_all(w.root.join("Celular/WhatsApp")).unwrap();
+    for (name, dest) in [
+        ("exif_full.jpg", "Celular/foto.jpg"),
+        (
+            "IMG-20231224-WA0007.jpg",
+            "Celular/WhatsApp/IMG-20231224-WA0007.jpg",
+        ),
+        ("IMG_20240315_101112.jpg", "IMG_20240315_101112.jpg"),
+    ] {
+        std::fs::copy(fixture(name), w.root.join(dest)).unwrap();
+    }
+    std::fs::write(w.root.join("Celular/foto.xmp"), "<xmp/>").unwrap();
+    w.scan().await;
+    let runner = w.runner(Arc::new(Recorder::default())).await;
+    runner.drain().await.unwrap();
+    let before = w.item("Celular/foto.jpg").await;
+    media::set_favorite(&w.pool, std::slice::from_ref(&before.id), true)
+        .await
+        .unwrap();
+
+    let rule = ArrangeRule {
+        folders: Some("{ano}/{mes} - {mes_nome}".into()),
+        name: None,
+    };
+    let batch = arrange::create_batch(&w.pool, &w.library.id, &rule, &ArrangeScope::default())
+        .await
+        .unwrap();
+    assert_eq!(batch.total, 3);
+    let done = run::execute(&w.pool, &batch.id).await.unwrap();
+    assert_eq!((done.done, done.failed), (3, 0));
+    assert!(
+        !w.root.join("Celular").exists(),
+        "emptied folders are removed"
+    );
+
+    let after = media::get(&w.pool, &before.id).await.unwrap();
+    assert_ne!(after.relative_path, before.relative_path);
+    assert!(w.root.join(&after.relative_path).is_file());
+    assert!(
+        w.root
+            .join(after.relative_path.replace(".jpg", ".xmp"))
+            .is_file()
+    );
+    assert!(after.is_favorite);
+    assert!(thumbnails::path(&w.thumbs, &after.id, thumbnails::GRID_SIZE).exists());
+
+    let rescan = w.scan().await;
+    assert_eq!(
+        (
+            rescan.new_files,
+            rescan.missing_files,
+            rescan.modified_files
+        ),
+        (0, 0, 0),
+        "{rescan:?}"
+    );
+
+    run::undo(&w.pool, &batch.id).await.unwrap();
+    assert_eq!(w.item("Celular/foto.jpg").await.id, before.id);
+    assert!(w.root.join("Celular/foto.xmp").is_file());
+    let rescan = w.scan().await;
+    assert_eq!(
+        (
+            rescan.new_files,
+            rescan.missing_files,
+            rescan.modified_files
+        ),
+        (0, 0, 0)
+    );
+}
