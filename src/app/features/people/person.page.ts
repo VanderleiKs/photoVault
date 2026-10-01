@@ -111,7 +111,8 @@ const REVIEW_LIMIT = 600;
         styleClass="w-[52rem] max-w-[95vw]"
       >
         <p class="mb-3 text-sm text-muted">
-          Marque os rostos que não são {{ p.name ?? 'desta pessoa' }}: eles saem e não voltam. Os que o PhotoVault colocou aqui sozinho aparecem primeiro.
+          Marque os rostos que não são {{ p.name ?? 'desta pessoa' }} (saem e não voltam) ou que nem são rostos, como um boneco ou um desenho.
+          Os que o PhotoVault colocou aqui sozinho aparecem primeiro.
         </p>
         @if (reviewLoading()) {
           <div class="grid grid-cols-6 gap-2">
@@ -150,6 +151,7 @@ const REVIEW_LIMIT = 600;
           }
           <span class="flex-1"></span>
           <p-button label="Fechar" severity="secondary" [text]="true" (onClick)="reviewOpen.set(false)" />
+          <p-button label="Não é um rosto" icon="pi pi-eye-slash" severity="secondary" [outlined]="true" [disabled]="!marked().size" (onClick)="ignoreMarked()" />
           <p-button
             [label]="marked().size ? 'Não é ' + (p.name ?? 'esta pessoa') + ' (' + marked().size + ')' : 'Não é ' + (p.name ?? 'esta pessoa')"
             icon="pi pi-user-minus"
@@ -294,6 +296,13 @@ export class PersonPage {
   protected async removeMarked() {
     const ids = [...this.marked()];
     if (!(await this.people.removeFaces(ids))) return;
+    this.faces.update((all) => all.filter((f) => !this.marked().has(f.id)));
+    this.marked.set(new Set());
+  }
+
+  protected async ignoreMarked() {
+    const ids = [...this.marked()];
+    if (!(await this.people.ignoreFaces(ids))) return;
     this.faces.update((all) => all.filter((f) => !this.marked().has(f.id)));
     this.marked.set(new Set());
   }

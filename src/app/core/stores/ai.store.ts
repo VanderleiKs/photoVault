@@ -82,12 +82,31 @@ export class AiStore {
     );
     if (!ok) return;
     try {
-      await unwrap(this.backend.commands.downloadAiModels(pkg));
+      await unwrap(this.backend.commands.downloadAiModels([pkg]));
       this.wasDownloading = true;
       void this.refresh();
     } catch (e) {
       this.notify.error('Não foi possível iniciar o download', e);
     }
+  }
+
+  /** First run: the welcome screen already explained and asked; download what's missing. */
+  async downloadAll(pkgs: AiPackage[]): Promise<void> {
+    const s = this.status() ?? (await this.refreshed());
+    const missing = pkgs.filter((p) => !(p === 'faces' ? s?.faces.installed : s?.installed));
+    if (!missing.length) return;
+    try {
+      await unwrap(this.backend.commands.downloadAiModels(missing));
+      this.wasDownloading = true;
+      void this.refresh();
+    } catch (e) {
+      this.notify.error('Não foi possível iniciar o download', e);
+    }
+  }
+
+  private async refreshed(): Promise<AiStatus | null> {
+    await this.refresh();
+    return this.status();
   }
 
   async cancel(): Promise<void> {
@@ -137,11 +156,17 @@ export class AiStore {
   }
 
   private downloadEnded(s: AiStatus) {
-    const faces = s.download.package === 'faces-yunet2023-sface2021';
-    if (faces ? s.faces.installed : s.installed) {
+    const wanted = s.download.packages;
+    const faces = wanted.includes('faces-yunet2023-sface2021');
+    const content = wanted.some((p) => p !== 'faces-yunet2023-sface2021');
+    if ((!faces || s.faces.installed) && (!content || s.installed)) {
       this.notify.success(
         'Modelos baixados',
-        faces ? 'A busca de rostos começa agora, em segundo plano. As pessoas aparecem em Pessoas.' : 'A análise de conteúdo começa agora, em segundo plano.',
+        faces && content
+          ? 'A análise das fotos continua em segundo plano: busca por conteúdo e, depois, os rostos em Pessoas.'
+          : faces
+            ? 'A busca de rostos começa agora, em segundo plano. As pessoas aparecem em Pessoas.'
+            : 'A análise de conteúdo começa agora, em segundo plano.',
       );
       this.organize.touch();
     } else if (s.download.error && !s.download.error.includes('cancelado')) {

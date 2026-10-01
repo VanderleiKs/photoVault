@@ -67,7 +67,7 @@ O app deve:
 
 | # | Regra |
 |---|-------|
-| R1 | Nenhuma classificação resulta em exclusão automática. |
+| R1 | Nenhuma classificação resulta em exclusão automática. Única exceção, escolhida pelo usuário (desligada por padrão): cópias exatas (bytes idênticos) podem ir sozinhas para a lixeira da biblioteca, sempre restauráveis (§15). |
 | R2 | Durante a indexação, o app **não move, não renomeia, não exclui e não escreve** nada dentro da pasta da biblioteca. |
 | R3 | Qualquer alteração física (lixeira, mover, renomear) só acontece por ação explícita e confirmada pelo usuário, e fica registrada no log de operações. |
 | R4 | Qualidade técnica e valor pessoal são dimensões separadas. Qualidade baixa **não** implica valor baixo. |
@@ -462,6 +462,7 @@ LOW_RESOLUTION · SCREENSHOT · MOMENTARY · ACCIDENTAL · LOW_INFORMATION
 - Nunca existe "Excluir automaticamente" como comportamento padrão.
 - Histórico de decisões (`decided_at`) consultável.
 
+- **Cópias exatas** (mesmo SHA-256): "Remover todas as cópias exatas" envia para a lixeira todas menos a sugerida de cada grupo, com confirmação; os álbuns e tags das cópias passam para a foto que fica; favoritas e as marcadas "Manter" ficam. Opcionalmente (Configurações → Revisão, desligado por padrão) isso acontece sozinho depois de cada análise, sempre para a lixeira da biblioteca.
 ---
 
 ## 16. Lixeira
@@ -514,7 +515,8 @@ Foto → Enviar para lixeira (confirmação) → <raiz>/.photovault-trash/<data>
 - **Consentimento próprio:** os modelos de rostos (39 MB) são um pacote separado da busca por conteúdo, baixado só quando o usuário pede (Configurações → IA local). Sem eles, "Pessoas" explica o que é e aponta para as configurações.
 - **Grupos sugeridos** aparecem em "Sem nome" quando a mesma pessoa está em 3 fotos ou mais. Rostos pequenos (menos de 40 px na prévia de 1024) ou de perfil aparecem na foto, mas não entram nos grupos.
 - **Decisões do usuário nunca são desfeitas pelo reagrupamento:** dar nome confirma os rostos do grupo; "Não é esta pessoa" tira o rosto para sempre daquela pessoa; "Quem é?" num rosto da foto coloca-o na pessoa com esse nome (ou cria); dois grupos com o mesmo nome viram um; "Juntar pessoas"; "Ocultar" tira a pessoa da lista e da busca, mas as fotos novas dela continuam indo para ela.
-- **Busca pelo nome** na busca de sempre ("Ana" encontra "Ana" e "Ana Souza", sem diferença de acento ou maiúscula), combinável com datas e filtros. Filtro por pessoa na tela da pessoa.
+- **Busca pelo nome** na busca de sempre, sem diferença de acento ou maiúscula: uma palavra igual a uma palavra do nome ("Ana", "Souza") exige a pessoa, e o resto restringe ("Ana praia", "Ana 2024", "Ana Bruno" = as duas); um nome sendo digitado ("an") acrescenta as fotos da pessoa. Filtro por pessoa na tela da pessoa.
+- **"Não é um rosto"** (boneco, desenho): o rosto some da foto e de Pessoas, para sempre.
 - Pessoas são as mesmas em todas as bibliotecas; listas e contagens são da biblioteca ativa.
 - Remover os modelos de rostos apaga os rostos, as pessoas e os nomes (com confirmação).
 

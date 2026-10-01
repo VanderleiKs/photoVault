@@ -118,6 +118,15 @@ pub async fn remove_person_faces(state: AppStateRef<'_>, face_ids: Vec<String>) 
     Ok(())
 }
 
+/// "Não é um rosto" (a doll, a pattern): hidden and never grouped.
+#[tauri::command]
+#[specta::specta]
+pub async fn ignore_faces(state: AppStateRef<'_>, face_ids: Vec<String>) -> ApiResult<()> {
+    people::ignore_faces(&state.pool, &face_ids).await?;
+    state.jobs.wake();
+    Ok(())
+}
+
 /// "This is Ana": returns the person's id.
 #[tauri::command]
 #[specta::specta]

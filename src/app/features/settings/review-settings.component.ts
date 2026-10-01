@@ -61,6 +61,16 @@ const WEIGHT_KEYS: { key: keyof ReasonWeights; reason: ReviewReason }[] = [
 
     <div class="mt-5 space-y-4 border-t border-line pt-4">
       <label class="flex items-start gap-3">
+        <p-toggleswitch [ngModel]="review().autoTrashExact" (ngModelChange)="setAutoExact($event)" ariaLabel="Remover cópias exatas automaticamente" />
+        <span class="text-sm">
+          Remover cópias exatas automaticamente
+          <span class="block text-xs text-muted">
+            Depois de cada análise, as cópias idênticas byte a byte vão para a lixeira da biblioteca, ficando a sugerida de cada grupo (com os álbuns e tags das cópias).
+            Favoritas e as que você marcou como "Manter" nunca saem. Desligado (padrão): elas só aparecem como sugestão.
+          </span>
+        </span>
+      </label>
+      <label class="flex items-start gap-3">
         <p-toggleswitch [ngModel]="review().useSystemTrash" (ngModelChange)="set({ useSystemTrash: $event })" ariaLabel="Usar a lixeira do sistema" />
         <span class="text-sm">
           Usar a lixeira do sistema
@@ -109,6 +119,24 @@ export class ReviewSettingsComponent {
 
   protected setWeight(key: keyof ReasonWeights, value: number) {
     this.set({ weights: { ...this.review().weights, [key]: value } });
+  }
+
+  protected async setAutoExact(on: boolean) {
+    if (on) {
+      const ok = await this.confirm.ask({
+        header: 'Remover cópias exatas automaticamente',
+        message: 'Enviar para a lixeira, sem perguntar, as cópias idênticas que a análise encontrar, deixando uma de cada?',
+        detail: 'Só arquivos idênticos byte a byte. Elas vão para a lixeira da biblioteca, de onde você pode restaurar. As que já existem saem na próxima análise.',
+        acceptLabel: 'Ativar',
+        icon: 'pi pi-clone',
+      });
+      if (!ok) {
+        this.draft.set({ ...this.review() });
+        queueMicrotask(() => this.draft.set(null));
+        return;
+      }
+    }
+    this.set({ autoTrashExact: on });
   }
 
   protected async setPurge(days: number | null) {

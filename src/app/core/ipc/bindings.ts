@@ -149,9 +149,9 @@ export const commands = {
 	getAiStatus: () => typedError<AiStatus, ApiError>(__TAURI_INVOKE("get_ai_status")),
 	/**
 	 *  The user agreed: download the models (the app's only network access), then load them
-	 *  and start the analysis.
+	 *  and start the analysis. Several packages (first run) go one after the other.
 	 */
-	downloadAiModels: (models: AiPackage) => typedError<null, ApiError>(__TAURI_INVOKE("download_ai_models", { models })),
+	downloadAiModels: (models: AiPackage[]) => typedError<null, ApiError>(__TAURI_INVOKE("download_ai_models", { models })),
 	cancelAiDownload: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_ai_download")),
 	/**  Delete the models and what they produced; the app goes back to working without them. */
 	removeAiModels: (models: AiPackage) => typedError<null, ApiError>(__TAURI_INVOKE("remove_ai_models", { models })),
@@ -173,6 +173,8 @@ export const commands = {
 	removePersonFaces: (faceIds: string[]) => typedError<null, ApiError>(__TAURI_INVOKE("remove_person_faces", { faceIds })),
 	/**  "This is Ana": returns the person's id. */
 	nameFace: (faceId: string, name: string) => typedError<string, ApiError>(__TAURI_INVOKE("name_face", { faceId, name })),
+	/**  "Não é um rosto" (a doll, a pattern): hidden and never grouped. */
+	ignoreFaces: (faceIds: string[]) => typedError<null, ApiError>(__TAURI_INVOKE("ignore_faces", { faceIds })),
 	/**  Before → after of every file, nothing touched (Organizar pastas). */
 	previewArrange: (libraryId: string, rule: ArrangeRule, scope: ArrangeScope, limit: number) => typedError<ArrangePreview, ApiError>(__TAURI_INVOKE("preview_arrange", { libraryId, rule, scope, limit })),
 	/**  The plan, kept and waiting for the confirmation (counts for the dialog). */
@@ -226,6 +228,13 @@ export const commands = {
 	removeExample: (exampleId: string) => typedError<null, ApiError>(__TAURI_INVOKE("remove_example", { exampleId })),
 	/**  Send photos to the trash (library trash, or the system's if configured). */
 	trashMedia: (mediaIds: string[]) => typedError<TrashResult, ApiError>(__TAURI_INVOKE("trash_media", { mediaIds })),
+	/**  Exact copies that "remove all" would send to the trash now (for the confirmation). */
+	countExactCopies: (libraryId: string) => typedError<number, ApiError>(__TAURI_INVOKE("count_exact_copies", { libraryId })),
+	/**
+	 *  Every exact copy to the trash, keeping the suggested photo of each group (its albums
+	 *  and tags go to that one).
+	 */
+	trashExactCopies: (libraryId: string) => typedError<TrashResult, ApiError>(__TAURI_INVOKE("trash_exact_copies", { libraryId })),
 	restoreMedia: (mediaIds: string[], onConflict: OnConflict) => typedError<RestoreResult, ApiError>(__TAURI_INVOKE("restore_media", { mediaIds, onConflict })),
 	/**  Delete trashed photos for good (the UI confirms twice). */
 	purgeMedia: (mediaIds: string[]) => typedError<TrashResult, ApiError>(__TAURI_INVOKE("purge_media", { mediaIds })),
@@ -478,6 +487,8 @@ export type DownloadState = {
 	running: boolean,
 	/**  Package being (or last) downloaded (`ai::Package::id`). */
 	package: string | null,
+	/**  Every package of this download (one consent can cover several). */
+	packages: string[],
 	doneBytes: number,
 	totalBytes: number,
 	/**  Last failure (network, checksum), for the settings page. */
@@ -1046,6 +1057,11 @@ export type ReviewSettings = {
 	useSystemTrash?: boolean,
 	/**  Delete items older than this from the trash on startup; 0 = never (default). */
 	autoPurgeDays?: number,
+	/**
+	 *  After each analysis, send exact copies (same bytes) to the library trash, keeping
+	 *  the suggested one of each group. Off by default (PRD R1: only when the user asks).
+	 */
+	autoTrashExact?: boolean,
 };
 
 export type ReviewStatus = "pending" | "kept" | "ignored" | "trashed";

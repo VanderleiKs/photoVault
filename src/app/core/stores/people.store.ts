@@ -123,6 +123,19 @@ export class PeopleStore {
     }
   }
 
+  /** "Não é um rosto": hidden for good, never grouped. */
+  async ignoreFaces(faceIds: string[]): Promise<boolean> {
+    try {
+      await unwrap(this.backend.commands.ignoreFaces(faceIds));
+      this.notify.success(faceIds.length === 1 ? 'Rosto removido' : 'Rostos removidos', 'Não aparecem mais nas fotos nem em Pessoas.');
+      this.touch();
+      return true;
+    } catch (e) {
+      this.notify.error('Não foi possível remover', e);
+      return false;
+    }
+  }
+
   /** "This is Ana": returns the person's id, or null. */
   async nameFace(faceId: string, name: string): Promise<string | null> {
     try {

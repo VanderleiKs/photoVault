@@ -38,6 +38,7 @@ export const DEFAULT_REVIEW: ReviewSettings = {
   exampleSimilarity: 0.7,
   useSystemTrash: false,
   autoPurgeDays: 0,
+  autoTrashExact: false,
 };
 
 /** Same values as `EventSettings::default()` in the core. */

@@ -94,6 +94,40 @@ export class MediaActions {
     }
   }
 
+  /** Every exact copy of the library to the trash, keeping the suggested one of each group. */
+  async trashExactCopies(): Promise<boolean> {
+    const library = this.libraries.activeId();
+    if (!library) return false;
+    const n = await unwrap(this.backend.commands.countExactCopies(library)).catch(() => 0);
+    if (!n) {
+      this.notify.success('Nenhuma cópia exata para remover', 'Favoritas e as que você marcou como "Manter" ficam.');
+      return false;
+    }
+    const system = this.app.settings().review?.useSystemTrash ?? false;
+    const ok = await this.confirm.ask({
+      header: 'Remover as cópias exatas',
+      message: `Enviar ${photos(n)} para a lixeira, deixando só a sugerida de cada grupo?`,
+      detail:
+        'São arquivos idênticos byte a byte à foto que fica. Os álbuns e tags das cópias passam para ela; favoritas e as que você marcou como "Manter" não saem. ' +
+        (system ? 'Vão para a lixeira do sistema.' : 'Você pode restaurá-las pela tela Lixeira.'),
+      acceptLabel: `Enviar ${photos(n)} para a lixeira`,
+      icon: 'pi pi-clone',
+      danger: true,
+      typed: n > TYPED_CONFIRM_ABOVE ? String(n) : undefined,
+    });
+    if (!ok) return false;
+    try {
+      const result = await unwrap(this.backend.commands.trashExactCopies(library));
+      if (result.done.length) this.notify.success(`${photos(result.done.length)} na lixeira`, 'Ficou uma foto de cada grupo.');
+      this.reportFailures('não puderam ir para a lixeira', result.failed);
+      this.afterFileChange();
+      return true;
+    } catch (e) {
+      this.notify.error('Não foi possível remover as cópias', e);
+      return false;
+    }
+  }
+
   /** Restore; if the original place is taken, offer to restore under another name. */
   async restore(ids: readonly string[]): Promise<boolean> {
     if (!ids.length) return false;

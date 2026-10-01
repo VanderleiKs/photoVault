@@ -1258,3 +1258,71 @@ async fn organized_files_are_found_by_the_next_scan() {
         (0, 0, 0)
     );
 }
+
+/// Exact copies: "remove them all" keeps the suggested one of each group (albums handed
+/// over, favorites never touched), and the automatic mode does it after each analysis.
+#[tokio::test]
+async fn exact_copies_go_to_the_trash_on_request_or_automatically() {
+    use crate::review::exact;
+    let w = world().await;
+    for name in ["a.jpg", "copia (1).jpg", "copia (2).jpg", "favorita.jpg"] {
+        std::fs::copy(fixture("exif_full.jpg"), w.root.join(name)).unwrap();
+    }
+    w.scan().await;
+    let runner = w.runner(Arc::new(Recorder::default())).await;
+    runner.drain().await.unwrap();
+    let copy1 = w.item("copia (1).jpg").await.id;
+    let favorite = w.item("favorita.jpg").await.id;
+    media::set_favorite(&w.pool, std::slice::from_ref(&favorite), true)
+        .await
+        .unwrap();
+    runner.drain().await.unwrap(); // a favorite changes the groups
+    let album = crate::catalog::albums::create(&w.pool, &w.library.id, "Viagem", None)
+        .await
+        .unwrap();
+    crate::catalog::albums::add_media(&w.pool, &album.id, std::slice::from_ref(&copy1))
+        .await
+        .unwrap();
+
+    let removable = exact::removable(&w.pool, &w.library.id).await.unwrap();
+    // The favorite is the suggested one (it wins the tie), so the other three may go.
+    assert_eq!(removable.len(), 3, "{removable:?}");
+    assert!(
+        removable
+            .iter()
+            .all(|(copy, keeper)| copy != &favorite && keeper == &favorite)
+    );
+
+    let result = exact::trash_all(&w.pool, &w.thumbs, &w.library.id, false)
+        .await
+        .unwrap();
+    assert_eq!((result.done.len(), result.failed.len()), (3, 0));
+    assert!(w.root.join("favorita.jpg").is_file());
+    assert!(
+        !w.root.join("a.jpg").exists(),
+        "in the library trash, restorable"
+    );
+    let in_album: Vec<String> =
+        sqlx::query_scalar("SELECT media_id FROM album_media WHERE album_id = ?1")
+            .bind(&album.id)
+            .fetch_all(&w.pool)
+            .await
+            .unwrap();
+    assert!(in_album.contains(&favorite), "the album keeps the photo");
+
+    // Automatic: a new copy arrives and goes by itself after the analysis.
+    let mut s = settings::get(&w.pool).await.unwrap();
+    s.review.auto_trash_exact = true;
+    settings::save(&w.pool, &s).await.unwrap();
+    std::fs::copy(fixture("exif_full.jpg"), w.root.join("nova copia.jpg")).unwrap();
+    w.scan().await;
+    runner.drain().await.unwrap();
+    assert!(!w.root.join("nova copia.jpg").exists());
+    assert!(w.root.join("favorita.jpg").is_file());
+    assert!(
+        exact::removable(&w.pool, &w.library.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}

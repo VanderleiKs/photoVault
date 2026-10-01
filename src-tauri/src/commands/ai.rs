@@ -91,17 +91,18 @@ pub async fn get_ai_status(state: AppStateRef<'_>) -> ApiResult<AiStatus> {
 }
 
 /// The user agreed: download the models (the app's only network access), then load them
-/// and start the analysis.
+/// and start the analysis. Several packages (first run) go one after the other.
 #[tauri::command]
 #[specta::specta]
-pub async fn download_ai_models(state: AppStateRef<'_>, models: AiPackage) -> ApiResult<()> {
+pub async fn download_ai_models(state: AppStateRef<'_>, models: Vec<AiPackage>) -> ApiResult<()> {
     let (pool, dir, jobs) = (
         state.pool.clone(),
         state.paths.models_dir.clone(),
         state.jobs.clone(),
     );
     let handle = tokio::runtime::Handle::current();
-    ai::download::start(dir.clone(), models.package(), move |result| {
+    let packages = models.into_iter().map(AiPackage::package).collect();
+    ai::download::start(dir.clone(), packages, move |result| {
         if result.is_ok() {
             handle.spawn(async move {
                 if ai::sync(&pool, &dir).await.is_ok() {

@@ -81,10 +81,16 @@ pub struct MediaFilter {
     #[serde(skip)]
     #[specta(skip)]
     pub content_hits: Option<std::sync::Arc<Vec<String>>>,
-    /// Filled by `resolve` from `text`: named people it matches ("Ana"). Same rules.
+    /// Filled by `resolve` from `text` while a name is being typed ("an" → Ana): their
+    /// photos join the usual results. Same rules as `content_hits`.
     #[serde(skip)]
     #[specta(skip)]
     pub people_hits: Option<Vec<String>>,
+    /// Filled by `resolve` from names in `text` ("Ana praia", "Ana Bruno"): photos must
+    /// show someone of each group (AND across, OR within: two "Ana"s). Same rules.
+    #[serde(skip)]
+    #[specta(skip)]
+    pub people_all: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -263,6 +269,81 @@ const MONTHS: [&[&str]; 12] = [
 /// Words that only connect others ("julho de 2025", "fotos do gramado").
 const STOP_WORDS: &[&str] = &["de", "do", "da", "dos", "das", "em", "e", "fotos", "foto"];
 
+/// Names in a search ("Ana praia 2024", "ana bruno"): each word equal to a word of a named
+/// person's name requires that person; the rest of the text stays for the usual search.
+/// Without such a word, a name being typed ("an", "ana sou": every word starts a word of
+/// the same name) only adds that person's photos to the results.
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct NameSearch {
+    pub required: Vec<Vec<String>>,
+    pub rest: String,
+    pub typing: Vec<String>,
+}
+
+pub(crate) fn split_names(text: &str, named: &[(String, String)]) -> NameSearch {
+    use crate::ingestion::geo::fold;
+    let names: Vec<(&str, Vec<String>)> = named
+        .iter()
+        .map(|(id, n)| {
+            (
+                id.as_str(),
+                fold(n).split_whitespace().map(String::from).collect(),
+            )
+        })
+        .collect();
+    let mut out = NameSearch::default();
+    // (as typed, folded if it may be part of a name being typed)
+    let mut rest: Vec<(&str, Option<String>)> = Vec::new();
+    for raw in text.split_whitespace() {
+        let word = fold(raw.trim_matches(|c: char| !c.is_alphanumeric()));
+        let is_date = (word.len() == 4
+            && word
+                .parse::<u32>()
+                .is_ok_and(|y| (1900..=2100).contains(&y)))
+            || MONTHS.iter().any(|m| m.contains(&word.as_str()));
+        if word.chars().count() < 2 || is_date || STOP_WORDS.contains(&word.as_str()) {
+            rest.push((raw, None));
+            continue;
+        }
+        let people: Vec<String> = names
+            .iter()
+            .filter(|(_, words)| words.contains(&word))
+            .map(|(id, _)| id.to_string())
+            .collect();
+        if people.is_empty() {
+            rest.push((raw, Some(word)));
+        } else if !out.required.contains(&people) {
+            out.required.push(people);
+        }
+    }
+    let starts_a_name_of = |p: &str, ids: &[String]| {
+        names.iter().any(|(id, words)| {
+            ids.iter().any(|i| i == id) && words.iter().any(|w| w.starts_with(p))
+        })
+    };
+    // "ana sou": the rest of a required person's name, still being typed.
+    let required: Vec<String> = out.required.concat();
+    rest.retain(|(_, plain)| {
+        plain
+            .as_deref()
+            .is_none_or(|p| !starts_a_name_of(p, &required))
+    });
+    out.rest = rest
+        .iter()
+        .map(|(raw, _)| *raw)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let plain: Vec<&str> = rest.iter().filter_map(|(_, p)| p.as_deref()).collect();
+    if out.required.is_empty() && !plain.is_empty() {
+        out.typing = names
+            .iter()
+            .filter(|(_, words)| plain.iter().all(|p| words.iter().any(|w| w.starts_with(p))))
+            .map(|(id, _)| id.to_string())
+            .collect();
+    }
+    out
+}
+
 pub(super) fn parse_text(text: &str) -> ParsedText {
     let mut parsed = ParsedText::default();
     let mut terms = Vec::new();
@@ -328,6 +409,17 @@ pub(crate) async fn resolve(
     let mut filter = resolve_album(pool, filter).await?;
     filter.content_hits = None;
     filter.people_hits = None;
+    filter.people_all = Vec::new();
+    if let Some(text) = filter.text.clone() {
+        let names = split_names(&text, &crate::people::names(pool).await?);
+        if !names.required.is_empty() {
+            // "Ana praia": Ana's photos, searched for the rest.
+            filter.people_all = names.required;
+            filter.text = Some(names.rest).filter(|t| !t.trim().is_empty());
+        } else if !names.typing.is_empty() {
+            filter.people_hits = Some(names.typing);
+        }
+    }
     if let Some(content) = filter
         .text
         .as_deref()
@@ -335,8 +427,6 @@ pub(crate) async fn resolve(
         .and_then(|p| p.content)
     {
         filter.content_hits = crate::ai::index::search(pool, library_id, &content).await?;
-        let people = crate::people::search(pool, &content).await?;
-        filter.people_hits = (!people.is_empty()).then_some(people);
     }
     Ok(filter)
 }
@@ -487,6 +577,11 @@ pub(crate) fn push_where(
     if let Some(sequence) = &filter.sequence_id {
         qb.push(" AND m.sequence_id = ").push_bind(sequence.clone());
     }
+    for group in &filter.people_all {
+        qb.push(" AND m.id IN (SELECT media_id FROM faces WHERE person_id IN (SELECT value FROM json_each(")
+            .push_bind(serde_json::to_string(group).unwrap_or_else(|_| "[]".into()))
+            .push(")))");
+    }
     if let Some(person) = &filter.person_id {
         qb.push(" AND m.id IN (SELECT media_id FROM faces WHERE person_id = ")
             .push_bind(person.clone())
@@ -554,6 +649,50 @@ fn push_range(qb: &mut QueryBuilder<'_, Sqlite>, start: &str, end: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_in_the_search_require_their_people() {
+        let named = [
+            ("ana-s".to_string(), "Ana Souza".to_string()),
+            ("ana-l".to_string(), "Ana Lima".to_string()),
+            ("bruno".to_string(), "Bruno".to_string()),
+        ];
+        // A first name shared by two people: either of them.
+        let s = split_names("Ana praia 2024", &named);
+        assert_eq!(
+            s.required,
+            vec![vec!["ana-s".to_string(), "ana-l".to_string()]]
+        );
+        assert_eq!(s.rest, "praia 2024");
+        // Full name: the two words narrow down to one person.
+        let s = split_names("ana souza", &named);
+        assert_eq!(s.required.len(), 2);
+        assert_eq!(s.rest, "");
+        // Two people: photos with both.
+        let s = split_names("Âna e BRUNO", &named);
+        assert_eq!(
+            s.required,
+            vec![
+                vec!["ana-s".to_string(), "ana-l".to_string()],
+                vec!["bruno".to_string()]
+            ]
+        );
+        assert_eq!(s.rest, "e");
+        // Being typed: only adds.
+        let s = split_names("an", &named);
+        assert!(s.required.is_empty());
+        assert_eq!(s.typing, ["ana-s", "ana-l"]);
+        assert_eq!(split_names("ana sou", &named).required.len(), 1);
+        assert!(split_names("praia", &named).typing.is_empty());
+        // Dates and connectors are never names.
+        assert_eq!(
+            split_names("julho de 2025", &named),
+            NameSearch {
+                rest: "julho de 2025".into(),
+                ..Default::default()
+            }
+        );
+    }
 
     #[test]
     fn parses_dates_and_terms() {

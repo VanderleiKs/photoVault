@@ -62,6 +62,17 @@ const MODES: Record<'duplicates' | 'similar', Mode> = {
           <p class="text-sm text-muted">{{ subtitle() }}</p>
         </div>
         <app-job-status />
+        @if (mode() === 'duplicates' && (organize.counts()?.exactExtra ?? 0) > 0) {
+          <p-button
+            label="Remover todas as cópias exatas"
+            icon="pi pi-trash"
+            size="small"
+            severity="danger"
+            [outlined]="true"
+            title="Envia para a lixeira as cópias idênticas, deixando a sugerida de cada grupo"
+            (onClick)="actions.trashExactCopies()"
+          />
+        }
         <p-selectbutton [options]="tabs()" optionLabel="label" optionValue="kind" [ngModel]="kind()" (ngModelChange)="kind.set($event)" [allowEmpty]="false" ariaLabel="Tipo de grupo" />
       </div>
       <p class="mt-2 max-w-3xl text-xs text-muted">{{ config().intro }}</p>
@@ -146,7 +157,7 @@ export class GroupsPage {
   private readonly backend = inject(Backend);
   private readonly notify = inject(NotifyService);
   private readonly libraries = inject(LibraryStore);
-  private readonly organize = inject(OrganizeStore);
+  protected readonly organize = inject(OrganizeStore);
   private readonly viewer = inject(ViewerContext);
   private readonly ui = inject(UiStore);
 

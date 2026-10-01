@@ -207,6 +207,9 @@ pub struct ReviewSettings {
     pub use_system_trash: bool,
     /// Delete items older than this from the trash on startup; 0 = never (default).
     pub auto_purge_days: u32,
+    /// After each analysis, send exact copies (same bytes) to the library trash, keeping
+    /// the suggested one of each group. Off by default (PRD R1: only when the user asks).
+    pub auto_trash_exact: bool,
 }
 
 impl Default for ReviewSettings {
@@ -216,6 +219,7 @@ impl Default for ReviewSettings {
             example_similarity: 0.7,
             use_system_trash: false,
             auto_purge_days: 0,
+            auto_trash_exact: false,
         }
     }
 }
