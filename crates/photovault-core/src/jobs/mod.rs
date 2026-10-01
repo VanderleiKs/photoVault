@@ -129,6 +129,12 @@ struct Session {
     started: Option<Instant>,
     grouping: bool,
     done: u32,
+    /// Per stage, for the summary logged when the queue goes idle: files read, photos
+    /// analysed, content analysed, searched for faces.
+    read: u32,
+    analyzed: u32,
+    embedded: u32,
+    faced: u32,
     current_path: Option<String>,
     last_emit: Option<Instant>,
 }
@@ -188,21 +194,37 @@ impl JobRunner {
         self.paused.load(Ordering::Acquire)
     }
 
-    /// Main loop; never returns.
+    /// Main loop; never returns. An error waits longer each time it repeats (5 s → 5 min):
+    /// a persistent one (database busy after a suspend, a disk gone) must not redo the
+    /// same heavy work in a tight loop.
     pub async fn run(self: Arc<Self>) {
+        let mut errors: u32 = 0;
         loop {
             match self.step().await {
-                Ok(true) => {}
+                Ok(true) => errors = 0,
                 Ok(false) => {
+                    errors = 0;
                     self.end_session().await;
+                    // A model that failed may load again now (after a suspend, say).
+                    if ai::retry_due() && matches!(ai::retry(&self.pool, false).await, Ok(true)) {
+                        continue;
+                    }
                     tokio::select! {
                         _ = self.wake.notified() => {}
                         _ = tokio::time::sleep(IDLE_RECHECK) => {}
                     }
                 }
                 Err(e) => {
-                    tracing::error!("Job runner error: {e}");
-                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    errors += 1;
+                    let wait = error_backoff(errors);
+                    tracing::error!(
+                        "Job runner error ({errors} in a row, next try in {wait:?}): {e}"
+                    );
+                    self.end_session().await;
+                    tokio::select! {
+                        _ = self.wake.notified() => {}
+                        _ = tokio::time::sleep(wait) => {}
+                    }
                 }
             }
         }
@@ -229,13 +251,7 @@ impl JobRunner {
     }
 
     fn cpu_workers(settings: &settings::AppSettings) -> usize {
-        match settings.cpu_concurrency {
-            0 => std::thread::available_parallelism()
-                .map(|n| n.get().saturating_sub(1))
-                .unwrap_or(1)
-                .max(1),
-            n => n as usize,
-        }
+        crate::cpu::workers(settings.cpu_concurrency)
     }
 
     async fn step_ingest(&self) -> Result<bool> {
@@ -296,6 +312,7 @@ impl JobRunner {
             {
                 let mut session = self.lock_session();
                 session.done += 1;
+                session.read += 1;
                 session.current_path = Some(job.relative_path.clone());
             }
             if self.should_emit() {
@@ -393,6 +410,7 @@ impl JobRunner {
             {
                 let mut session = self.lock_session();
                 session.done += 1;
+                session.analyzed += 1;
                 session.current_path = Some(input.relative_path.clone());
             }
             if self.should_emit() {
@@ -422,9 +440,8 @@ impl JobRunner {
         let embedded = match embedded {
             Ok(e) => e,
             Err(e) => {
-                // The model itself fails (not one photo): stop instead of retrying forever.
-                tracing::error!("Local AI disabled for this session: {e}");
-                ai::unload_content();
+                // The model itself fails (not one photo): stop, say why, retry later.
+                ai::fail_content(&e);
                 return Ok(false);
             }
         };
@@ -432,7 +449,11 @@ impl JobRunner {
             return Ok(false); // paused
         }
         ai::index::store(&self.pool, &embedded).await?;
-        self.lock_session().done += embedded.len() as u32;
+        {
+            let mut session = self.lock_session();
+            session.done += embedded.len() as u32;
+            session.embedded += embedded.len() as u32;
+        }
         if self.should_emit() {
             self.emit_progress(true).await;
         }
@@ -462,8 +483,7 @@ impl JobRunner {
         let scanned = match scanned {
             Ok(s) => s,
             Err(e) => {
-                tracing::error!("Face models disabled for this session: {e}");
-                ai::unload_faces();
+                ai::fail_faces(&e);
                 return Ok(false);
             }
         };
@@ -471,7 +491,11 @@ impl JobRunner {
             return Ok(false); // paused
         }
         people::store(&self.pool, &scanned).await?;
-        self.lock_session().done += scanned.len() as u32;
+        {
+            let mut session = self.lock_session();
+            session.done += scanned.len() as u32;
+            session.faced += scanned.len() as u32;
+        }
         if self.should_emit() {
             self.emit_progress(true).await;
         }
@@ -799,6 +823,18 @@ impl JobRunner {
     async fn end_session(&self) {
         let had_session = self.lock_session().started.is_some();
         if had_session {
+            {
+                let s = self.lock_session();
+                // One line per busy period: a log without it looks frozen for minutes.
+                tracing::info!(
+                    "Queue idle after {:?}: {} files read, {} photos analysed, {} content, {} searched for faces",
+                    s.started.map(|t| t.elapsed()).unwrap_or_default(),
+                    s.read,
+                    s.analyzed,
+                    s.embedded,
+                    s.faced
+                );
+            }
             self.emit_progress(false).await;
             *self.lock_session() = Session::default();
         }
@@ -906,6 +942,11 @@ fn embed_batch(
             }),
     );
     Ok(out)
+}
+
+/// Wait after the n-th error in a row: 5 s, 10 s, 20 s… up to 5 min.
+fn error_backoff(n: u32) -> Duration {
+    Duration::from_secs((5u64 << n.saturating_sub(1).min(6)).min(300))
 }
 
 /// Previews searched for faces per step (`step_faces`).

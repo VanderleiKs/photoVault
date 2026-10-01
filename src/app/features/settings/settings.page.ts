@@ -65,6 +65,7 @@ interface ThresholdField {
           <label class="flex flex-col gap-1.5">
             <span class="text-sm">Núcleos de CPU (0 = automático)</span>
             <p-inputnumber [ngModel]="app.settings().cpuConcurrency" (ngModelChange)="save({ cpuConcurrency: $event })" [min]="0" [max]="64" [showButtons]="true" />
+            <span class="text-[11px] text-muted">Automático usa metade do processador, para o computador continuar silencioso e usável durante a análise. Mais núcleos = análise mais rápida.</span>
           </label>
         </div>
       </section>

@@ -29,6 +29,9 @@ interface Chip {
   clear: MediaFilter | 'text';
 }
 
+/** Wait for the typing to settle before recounting the menus. */
+const OPTIONS_DELAY_MS = 300;
+
 /** Combinable filters of "Todas as fotos" (PRD §19) as selects + removable chips. */
 @Component({
   selector: 'app-filter-bar',
@@ -178,21 +181,30 @@ export class FilterBarComponent {
 
   constructor() {
     const scan = inject(ScanStore);
-    effect(() => {
+    // The counts follow the search and the other filters ("praia": 12 photos, 2019: 3).
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    effect((onCleanup) => {
       const id = this.libraries.activeId();
+      const filter = this.browse.query().filter ?? {};
       scan.lastSummary();
-      untracked(() => void this.loadOptions(id));
+      timer = setTimeout(() => untracked(() => void this.loadOptions(id, filter)), OPTIONS_DELAY_MS);
+      onCleanup(() => clearTimeout(timer));
     });
   }
 
-  private async loadOptions(libraryId: string | null) {
+  private optionsSeq = 0;
+
+  /** Each menu counts the photos of the current search, without its own choice. */
+  private async loadOptions(libraryId: string | null, filter: MediaFilter) {
     if (!libraryId || !isTauri()) return;
+    const seq = ++this.optionsSeq;
     const { commands } = this.backend;
     const [buckets, places, cameras] = await Promise.all([
-      unwrap(commands.getTimeline(libraryId, {})).catch(() => []),
-      unwrap(commands.listPlaces(libraryId)).catch(() => []),
-      unwrap(commands.listCameras(libraryId)).catch(() => []),
+      unwrap(commands.getTimeline(libraryId, { ...filter, year: null, month: null, day: null })).catch(() => []),
+      unwrap(commands.listPlaces(libraryId, filter)).catch(() => []),
+      unwrap(commands.listCameras(libraryId, filter)).catch(() => []),
     ]);
+    if (seq !== this.optionsSeq) return;
     const years = new Map<number, number>();
     for (const b of buckets) if (b.year) years.set(b.year, (years.get(b.year) ?? 0) + b.count);
     this.yearOptions.set([...years].map(([year, count]) => ({ year, count })));

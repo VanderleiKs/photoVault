@@ -178,28 +178,46 @@ pub async fn timeline(
 }
 
 /// Places with photos, most photographed first.
-pub async fn places(pool: &SqlitePool, library_id: &str) -> Result<Vec<PlaceOption>> {
-    Ok(sqlx::query_as(
+/// Places of the photos matching `filter` (its own `place_id` ignored), most first: the
+/// filter menu counts what the current search would show.
+pub async fn places(
+    pool: &SqlitePool,
+    library_id: &str,
+    filter: &MediaFilter,
+) -> Result<Vec<PlaceOption>> {
+    let filter = MediaFilter {
+        place_id: None,
+        ..filter.clone()
+    };
+    query::validate(&filter)?;
+    let filter = query::resolve(pool, library_id, filter).await?;
+    let mut qb = QueryBuilder::<Sqlite>::new(
         "SELECT p.id, p.name, p.admin1, p.country_code, COUNT(*) AS count
-         FROM media m JOIN places p ON p.id = m.place_id
-         WHERE m.library_id = ?1 AND m.status = 'active'
-         GROUP BY p.id ORDER BY count DESC, p.name",
-    )
-    .bind(library_id)
-    .fetch_all(pool)
-    .await?)
+         FROM media m JOIN places p ON p.id = m.place_id",
+    );
+    query::push_where(&mut qb, library_id, &filter);
+    qb.push(" GROUP BY p.id ORDER BY count DESC, p.name");
+    Ok(qb.build_query_as().fetch_all(pool).await?)
 }
 
-pub async fn cameras(pool: &SqlitePool, library_id: &str) -> Result<Vec<CameraOption>> {
-    Ok(sqlx::query_as(
-        "SELECT MAX(camera_make) AS make, camera_model AS model, COUNT(*) AS count
-         FROM media
-         WHERE library_id = ?1 AND status = 'active' AND camera_model IS NOT NULL
-         GROUP BY camera_model ORDER BY count DESC, camera_model",
-    )
-    .bind(library_id)
-    .fetch_all(pool)
-    .await?)
+/// Cameras of the photos matching `filter` (its own `camera` ignored).
+pub async fn cameras(
+    pool: &SqlitePool,
+    library_id: &str,
+    filter: &MediaFilter,
+) -> Result<Vec<CameraOption>> {
+    let filter = MediaFilter {
+        camera: None,
+        ..filter.clone()
+    };
+    query::validate(&filter)?;
+    let filter = query::resolve(pool, library_id, filter).await?;
+    let mut qb = QueryBuilder::<Sqlite>::new(
+        "SELECT MAX(m.camera_make) AS make, m.camera_model AS model, COUNT(*) AS count FROM media m",
+    );
+    query::push_where(&mut qb, library_id, &filter);
+    qb.push(" AND m.camera_model IS NOT NULL GROUP BY m.camera_model ORDER BY count DESC, m.camera_model");
+    Ok(qb.build_query_as().fetch_all(pool).await?)
 }
 
 #[cfg(test)]
@@ -208,6 +226,57 @@ mod tests {
     use crate::catalog::libraries;
     use crate::catalog::media::tests::{Row, insert};
     use crate::db::tests::{temp_dir, test_db};
+
+    /// The filter menus count what the current search shows, not the whole library.
+    #[tokio::test]
+    async fn menus_count_within_the_search() {
+        let (pool, dir) = test_db().await;
+        let lib = libraries::create(&pool, "A", temp_dir().to_str().unwrap())
+            .await
+            .unwrap();
+        for (id, filename, at, camera) in [
+            ("a", "praia_1.jpg", "2019-01-10T10:00:00", Some("Pixel 7")),
+            ("b", "praia_2.jpg", "2020-02-10T10:00:00", Some("Pixel 7")),
+            ("c", "casa_1.jpg", "2019-03-10T10:00:00", Some("iPhone 12")),
+            ("d", "casa_2.jpg", "2019-04-10T10:00:00", None),
+        ] {
+            insert(
+                &pool,
+                &lib.id,
+                Row {
+                    id,
+                    filename,
+                    captured_at: Some(at),
+                    camera,
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+        let search = MediaFilter {
+            text: Some("praia".into()),
+            ..Default::default()
+        };
+        let years: Vec<(u32, u32)> = timeline(&pool, &lib.id, &search)
+            .await
+            .unwrap()
+            .iter()
+            .map(|b| (b.year, b.count))
+            .collect();
+        assert_eq!(years, [(2020, 1), (2019, 1)]);
+        let cams = cameras(&pool, &lib.id, &search).await.unwrap();
+        assert_eq!(cams.len(), 1);
+        assert_eq!((cams[0].model.as_str(), cams[0].count), ("Pixel 7", 2));
+        // A menu ignores its own choice (so the other cameras stay selectable).
+        let chosen = MediaFilter {
+            camera: Some("Pixel 7".into()),
+            year: Some(2019),
+            ..Default::default()
+        };
+        let cams = cameras(&pool, &lib.id, &chosen).await.unwrap();
+        assert_eq!(cams.len(), 2, "{cams:?}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[tokio::test]
     async fn overview_and_timeline() {
@@ -273,10 +342,17 @@ mod tests {
         let t: Vec<_> = t.iter().map(|b| (b.year, b.month, b.count)).collect();
         assert_eq!(t, [(2025, 7, 2), (2025, 1, 1), (2019, 3, 1), (0, 0, 1)]);
 
-        let cams = cameras(&pool, &lib.id).await.unwrap();
+        let cams = cameras(&pool, &lib.id, &MediaFilter::default())
+            .await
+            .unwrap();
         assert_eq!(cams.len(), 1);
         assert_eq!((cams[0].model.as_str(), cams[0].count), ("Canon EOS R6", 1));
-        assert!(places(&pool, &lib.id).await.unwrap().is_empty());
+        assert!(
+            places(&pool, &lib.id, &MediaFilter::default())
+                .await
+                .unwrap()
+                .is_empty()
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 }

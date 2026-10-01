@@ -60,8 +60,8 @@ export const commands = {
 	getOverview: (libraryId: string) => typedError<LibraryOverview, ApiError>(__TAURI_INVOKE("get_overview", { libraryId })),
 	getTimeline: (libraryId: string, filter: MediaFilter) => typedError<TimelineBucket[], ApiError>(__TAURI_INVOKE("get_timeline", { libraryId, filter })),
 	/**  Filter menu options. */
-	listPlaces: (libraryId: string) => typedError<PlaceOption[], ApiError>(__TAURI_INVOKE("list_places", { libraryId })),
-	listCameras: (libraryId: string) => typedError<CameraOption[], ApiError>(__TAURI_INVOKE("list_cameras", { libraryId })),
+	listPlaces: (libraryId: string, filter: MediaFilter) => typedError<PlaceOption[], ApiError>(__TAURI_INVOKE("list_places", { libraryId, filter })),
+	listCameras: (libraryId: string, filter: MediaFilter) => typedError<CameraOption[], ApiError>(__TAURI_INVOKE("list_cameras", { libraryId, filter })),
 	listAlbums: (libraryId: string) => typedError<Album[], ApiError>(__TAURI_INVOKE("list_albums", { libraryId })),
 	/**  Smart albums worth creating (trips, favorites/best per year, screenshots…). */
 	listAlbumSuggestions: (libraryId: string) => typedError<AlbumSuggestion[], ApiError>(__TAURI_INVOKE("list_album_suggestions", { libraryId })),
@@ -153,6 +153,8 @@ export const commands = {
 	 */
 	downloadAiModels: (models: AiPackage[]) => typedError<null, ApiError>(__TAURI_INVOKE("download_ai_models", { models })),
 	cancelAiDownload: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_ai_download")),
+	/**  "Tentar de novo" after a model stopped (or failed to load). */
+	retryAi: () => typedError<boolean, ApiError>(__TAURI_INVOKE("retry_ai")),
 	/**  Delete the models and what they produced; the app goes back to working without them. */
 	removeAiModels: (models: AiPackage) => typedError<null, ApiError>(__TAURI_INVOKE("remove_ai_models", { models })),
 	/**  Pessoas: named people, then suggestions (hidden ones only when asked). */

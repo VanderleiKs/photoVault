@@ -114,6 +114,17 @@ pub async fn download_ai_models(state: AppStateRef<'_>, models: Vec<AiPackage>) 
     Ok(())
 }
 
+/// "Tentar de novo" after a model stopped (or failed to load).
+#[tauri::command]
+#[specta::specta]
+pub async fn retry_ai(state: AppStateRef<'_>) -> ApiResult<bool> {
+    let ready = ai::retry(&state.pool, true).await?;
+    if ready {
+        state.jobs.wake();
+    }
+    Ok(ready)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn cancel_ai_download() -> ApiResult<()> {

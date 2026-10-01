@@ -109,6 +109,17 @@ export class AiStore {
     return this.status();
   }
 
+  /** "Tentar de novo" after a model stopped or failed to load. */
+  async retry(): Promise<void> {
+    try {
+      const ready = await unwrap(this.backend.commands.retryAi());
+      if (ready) this.notify.success('IA local de volta', 'A análise continua de onde parou.');
+    } catch (e) {
+      this.notify.error('A IA local ainda não carregou', e);
+    }
+    await this.refresh();
+  }
+
   async cancel(): Promise<void> {
     await unwrap(this.backend.commands.cancelAiDownload()).catch(() => {});
     void this.refresh();
