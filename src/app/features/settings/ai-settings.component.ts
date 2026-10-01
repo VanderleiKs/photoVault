@@ -47,8 +47,11 @@ import { AiStore } from '../../core/stores/ai.store';
         </div>
       } @else {
         <div class="mt-4 space-y-3">
-          @if (s.error) {
-            <p class="rounded-lg bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-300">Não foi possível carregar os modelos: {{ s.error }}. Remova e baixe de novo.</p>
+          @if (s.error && !s.ready) {
+            <div class="flex flex-wrap items-center gap-3 rounded-lg bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-300">
+              <span class="min-w-0 flex-1">{{ s.error }}. O PhotoVault tenta de novo sozinho em alguns minutos; se continuar, remova e baixe os modelos outra vez.</span>
+              <p-button label="Tentar de novo" icon="pi pi-refresh" size="small" severity="danger" [outlined]="true" (onClick)="ai.retry()" />
+            </div>
           } @else if (!ai.enabled()) {
             <p class="text-sm text-muted">Desligada: a análise de conteúdo está parada e a busca procura só por nome, pasta, local e álbum.</p>
           } @else if (!s.ready) {
@@ -90,6 +93,11 @@ import { AiStore } from '../../core/stores/ai.store';
           <div class="mt-3 space-y-3">
             @if (!ai.enabled()) {
               <p class="text-sm text-muted">Desligada junto com a IA local: nenhuma foto nova é analisada. As pessoas e os nomes continuam.</p>
+            } @else if (!s.faces.ready && s.error) {
+              <div class="flex flex-wrap items-center gap-3 rounded-lg bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-300">
+                <span class="min-w-0 flex-1">{{ s.error }}. O PhotoVault tenta de novo sozinho em alguns minutos.</span>
+                <p-button label="Tentar de novo" icon="pi pi-refresh" size="small" severity="danger" [outlined]="true" (onClick)="ai.retry()" />
+              </div>
             } @else if (!s.faces.ready) {
               <p class="flex items-center gap-2 text-sm"><i class="pi pi-spin pi-spinner text-primary"></i>Carregando os modelos…</p>
             } @else if (s.faces.pending > 0) {

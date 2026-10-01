@@ -21,6 +21,9 @@ export class VideoFrameService {
   private readonly backend = inject(Backend);
   private readonly bus = inject(MediaBus);
   private running = false;
+  /** Videos whose failure couldn't even be recorded: not tried again in this session
+   *  (otherwise they would stay "pending" and be played again in a loop). */
+  private readonly skipped = new Set<string>();
   private again = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -50,7 +53,9 @@ export class VideoFrameService {
     this.running = true;
     try {
       for (;;) {
-        const ids = await unwrap(this.backend.commands.listPendingVideoFrames(BATCH));
+        const ids = (await unwrap(this.backend.commands.listPendingVideoFrames(BATCH + this.skipped.size))).filter(
+          (id) => !this.skipped.has(id),
+        );
         if (!ids.length) break;
         for (const id of ids) await this.capture(id);
       }
@@ -70,12 +75,19 @@ export class VideoFrameService {
     try {
       frame = await grabFrame(mediaUrl(id));
     } catch (e) {
-      await unwrap(this.backend.commands.failVideoFrame(id, describe(e))).catch(() => {});
+      await this.fail(id, describe(e));
       return;
     }
     const item = await unwrap(this.backend.commands.saveVideoFrame(id, frame)).catch(() => null);
     if (item) this.bus.publish([item]);
-    else await unwrap(this.backend.commands.failVideoFrame(id, 'Quadro inválido.')).catch(() => {});
+    else await this.fail(id, 'Quadro inválido.');
+  }
+
+  private async fail(id: string, reason: string) {
+    const recorded = await unwrap(this.backend.commands.failVideoFrame(id, reason))
+      .then(() => true)
+      .catch(() => false);
+    if (!recorded) this.skipped.add(id);
   }
 }
 

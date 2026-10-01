@@ -27,8 +27,9 @@ pub struct Clip {
     projection: Array2<f32>,
 }
 
-/// `threads`: `None` = ONNX Runtime's default (one per physical core), which measured
-/// fastest (`ai_eval`: ~33 ms/photo against ~51 ms with 4 threads, batches of 16).
+/// `threads`: `None` = ONNX Runtime's default (one per physical core, the fastest:
+/// `ai_eval` ~33 ms/photo against ~51 ms with 4 threads, batches of 16). The app passes
+/// half the physical cores by default (`cpu::ai_threads`): slower, but quiet.
 pub(super) fn session(path: &Path, threads: Option<usize>) -> Result<Session> {
     super::ensure_runtime()?;
     // Builder errors carry the builder back; only the message matters here.

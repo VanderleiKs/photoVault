@@ -1326,3 +1326,9 @@ async fn exact_copies_go_to_the_trash_on_request_or_automatically() {
             .is_empty()
     );
 }
+
+#[test]
+fn repeated_errors_wait_longer() {
+    let secs: Vec<u64> = (1..=9).map(|n| super::error_backoff(n).as_secs()).collect();
+    assert_eq!(secs, [5, 10, 20, 40, 80, 160, 300, 300, 300]);
+}

@@ -20,7 +20,7 @@ specta-typescript = "0.0.12"
 walkdir = "2"
 image = "0.25"
 dirs = "6"
-sysinfo = { version = "0.39", default-features = false, features = ["disk"] }
+sysinfo = { version = "0.39", default-features = false, features = ["disk", "system"] }
 nom-exif = "3.8"
 fast_image_resize = { version = "6", features = ["image"] }
 webp = "0.3"

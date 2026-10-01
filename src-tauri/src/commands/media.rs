@@ -99,18 +99,20 @@ pub async fn get_timeline(
 #[specta::specta]
 pub async fn list_places(
     library_id: String,
+    filter: MediaFilter,
     state: AppStateRef<'_>,
 ) -> ApiResult<Vec<PlaceOption>> {
-    Ok(overview::places(&state.pool, &library_id).await?)
+    Ok(overview::places(&state.pool, &library_id, &filter).await?)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn list_cameras(
     library_id: String,
+    filter: MediaFilter,
     state: AppStateRef<'_>,
 ) -> ApiResult<Vec<CameraOption>> {
-    Ok(overview::cameras(&state.pool, &library_id).await?)
+    Ok(overview::cameras(&state.pool, &library_id, &filter).await?)
 }
 
 /// Videos waiting for a thumbnail frame (captured by the WebView).

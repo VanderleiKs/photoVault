@@ -261,14 +261,83 @@ pub fn load_error() -> Option<String> {
     LOAD_ERROR.lock().ok().and_then(|e| e.clone())
 }
 
-/// Threads per inference: the analysis setting; automatic (0) = the runtime's default.
+/// A model that failed while analysing (not at load): it is unloaded and the reason shown
+/// in Settings. A suspended computer can leave the runtime unusable for a moment, so the
+/// queue tries to load it again a few times, waiting longer each time (`retry_due`).
+struct Failures {
+    count: u32,
+    retry_at: Option<std::time::Instant>,
+}
+
+static FAILURES: std::sync::Mutex<Failures> = std::sync::Mutex::new(Failures {
+    count: 0,
+    retry_at: None,
+});
+/// Automatic retries after a failure (2, 4, 8 min); then only "Tentar de novo".
+const AUTO_RETRIES: u32 = 3;
+/// Last models folder given to `sync` (for the retries).
+static MODELS_DIR: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+fn failed(what: &str, e: &Error) {
+    tracing::error!("{what} stopped: {e}");
+    if let Ok(mut l) = LOAD_ERROR.lock() {
+        *l = Some(format!("{what} parou: {e}"));
+    }
+    if let Ok(mut f) = FAILURES.lock() {
+        f.count += 1;
+        f.retry_at = (f.count <= AUTO_RETRIES).then(|| {
+            std::time::Instant::now() + std::time::Duration::from_secs(60 * (1 << f.count))
+        });
+    }
+}
+
+/// The content model failed while analysing.
+pub fn fail_content(e: &Error) {
+    unload_content();
+    failed("A análise de conteúdo", e);
+}
+
+/// The face models failed while analysing.
+pub fn fail_faces(e: &Error) {
+    unload_faces();
+    failed("A busca de rostos", e);
+}
+
+/// Time to try loading a failed model again (the queue calls `retry` when idle).
+pub fn retry_due() -> bool {
+    FAILURES
+        .lock()
+        .is_ok_and(|f| f.retry_at.is_some_and(|t| std::time::Instant::now() >= t))
+}
+
+/// Load the models again after a failure. `manual` ("Tentar de novo") also restarts the
+/// automatic retries. Returns whether anything is loaded now.
+pub async fn retry(pool: &sqlx::SqlitePool, manual: bool) -> Result<bool> {
+    if let Ok(mut f) = FAILURES.lock() {
+        if manual {
+            f.count = 0;
+        }
+        f.retry_at = None;
+    }
+    let Some(dir) = MODELS_DIR.lock().ok().and_then(|d| d.clone()) else {
+        return Ok(false);
+    };
+    let content = sync(pool, &dir).await?;
+    Ok(content || face_engine().is_some())
+}
+
+/// Threads per inference: the analysis setting (automatic = half the physical cores,
+/// `cpu::ai_threads`).
 pub fn threads(cpu_concurrency: u32) -> Option<usize> {
-    (cpu_concurrency > 0).then_some(cpu_concurrency as usize)
+    Some(crate::cpu::ai_threads(cpu_concurrency))
 }
 
 /// Make the loaded models match the settings and the files on disk: load them when
 /// enabled and installed, unload them otherwise. Returns whether the content model is ready.
 pub async fn sync(pool: &sqlx::SqlitePool, models_dir: &Path) -> Result<bool> {
+    if let Ok(mut d) = MODELS_DIR.lock() {
+        *d = Some(models_dir.to_path_buf());
+    }
     let settings = crate::catalog::settings::get(pool).await?;
     if !settings.ai.enabled {
         unload();

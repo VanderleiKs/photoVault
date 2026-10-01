@@ -79,6 +79,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ai::get_ai_status,
             ai::download_ai_models,
             ai::cancel_ai_download,
+            ai::retry_ai,
             ai::remove_ai_models,
             people::list_people,
             people::get_person,
@@ -170,7 +171,7 @@ pub fn run() {
         // nom-exif logs every tag at INFO and "GPS not found" at WARN for each file.
         .with(
             EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info,nom_exif=error")),
+                .unwrap_or_else(|_| EnvFilter::new("info,nom_exif=error,ort=warn")),
         )
         .with(fmt::layer().with_writer(std::io::stderr))
         .with(fmt::layer().with_ansi(false).with_writer(file_writer))

@@ -7,6 +7,7 @@ pub mod ai;
 pub mod analysis;
 pub mod arrange;
 pub mod catalog;
+pub mod cpu;
 pub mod db;
 pub mod error;
 pub mod events;
