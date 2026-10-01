@@ -9,7 +9,7 @@ fn main() {
         _ => &ai::CONTENT,
     };
     let (tx, rx) = std::sync::mpsc::channel();
-    ai::download::start(dir.clone(), package, move |r| tx.send(r).unwrap()).unwrap();
+    ai::download::start(dir.clone(), vec![package], move |r| tx.send(r).unwrap()).unwrap();
     let t = std::time::Instant::now();
     loop {
         if let Ok(result) = rx.recv_timeout(std::time::Duration::from_secs(5)) {

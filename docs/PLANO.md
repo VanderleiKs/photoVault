@@ -421,12 +421,25 @@ Exemplos (2 fotos da categoria como exemplo "remover", limiar 0,70):
 
 **Correção do build no Linux (pendência da 7a, 2026-09-30):** o CI (`ubuntu-22.04`) falhava no link: o ONNX Runtime estático que o `ort` baixa (pyke) usa `__isoc23_strtol*` (glibc 2.38+) e `basic_string::_M_replace_cold` (libstdc++ do GCC 13+). Nesta máquina (Zorin 18, glibc 2.39) linkava, mas o AppImage só abriria em distros com glibc 2.39. Solução: no Linux, `ort` com `load-dynamic` e o build oficial da Microsoft 1.28.2 (glibc 2.27, GLIBCXX_3.4.21), baixado por `scripts/fetch-onnxruntime.mjs` (SHA-256 fixado) e levado no AppImage em `usr/lib` (+24 MB descompactado; o executável caiu de ~77 para 52 MB). Windows continua estático. Verificado: AppImage gerado com a biblioteca dentro; `people_end_to_end` com os modelos reais passando carregando a biblioteca da Microsoft; sem ela, a IA mostra "componente da IA local ausente" e o resto funciona.
 
+### Fase 8.1 — Ajustes do teste no Windows → `v2.2` ✅ implementada (branch `fase-8.1-ajustes`)
+
+Teste do usuário (2026-10-01): Windows ok, build Linux ok. Ajustes:
+
+- [x] **Busca pelo nome** (`catalog::query::split_names`): exigia o nome inteiro; agora cada palavra da busca igual a uma palavra do nome de uma pessoa exige essa pessoa, e o resto do texto continua a busca normal **dentro** das fotos dela: "Ana praia" (Ana **e** praia), "Ana 2024", "Ana Bruno" (as duas), "souza" (sobrenome). Nome sendo digitado ("an", "ana sou") acrescenta as fotos da pessoa. Datas e conectivos nunca são nome
+- [x] **"Não é um rosto"** (boneco, desenho): `faces.ignored` (migration 0011); some da foto e de Pessoas, não agrupa, e continua ignorado se a prévia for refeita. No painel da foto (ícone no rosto) e em "Revisar rostos"
+- [x] **Cópias exatas** (`review::exact`): "Remover todas as cópias exatas" (Possíveis duplicatas) manda para a lixeira todas menos a sugerida de cada grupo, passando álbuns e tags das cópias para a que fica; favoritas e as marcadas "Manter"/"Ignorar" ficam. **Opção automática** (Configurações → Revisão, desligada por padrão, com confirmação): depois de cada análise, as cópias exatas vão para a lixeira da biblioteca (sempre reversível; exceção à R1 que o usuário escolhe)
+- [x] **Primeira execução em dois passos:** pasta das fotos (o scan começa) → "Análise inteligente": explica o download único (busca por conteúdo 228 MB, Pessoas 39 MB, os dois marcados), "Baixar e continuar" ou "Agora não"; download e análise seguem em segundo plano. O download aceita vários pacotes em sequência, com um progresso só
+- [ ] Busca por "praia" (pendência da 7a)
+
 ### Fase 9 — Android (≈ 6 semanas) → `v3.0`
 
 - [ ] `tauri android init`; `core::paths` para Android; features `heic`/`video-thumbs` substituídas por APIs nativas
 - [ ] Plugin Kotlin `AndroidMediaStoreSource` (MediaStore + permissões `READ_MEDIA_*`) implementando `MediaSource`; `relative_path` vira `source_uri`
 - [ ] Layout mobile do mockup (bottom nav, grade Organizar)
 - [ ] Futuro: sincronização ou análise do celular conectado ao desktop
+- [ ] **Primeira execução no Android** (ideia do usuário, 2026-10-01): a pasta já é a da câmera; só avisar que serão baixados "dados adicionais para analisar as fotos" (sem pedir escolha) e seguir
+- [ ] **Análise com o app fechado:** no Android, serviço em segundo plano (WorkManager, só carregando/Wi-Fi conforme preferência); no desktop, avaliar ícone na bandeja
+- [ ] **Backup na nuvem só das fotos boas** (ideia do usuário): o usuário escolhe um destino (Google Drive ou outro) e o app envia de tempos em tempos as fotos que valem a pena (não duplicatas, não baixa qualidade, não momentâneas), nunca todas. Exige consentimento explícito (R7, PRD §25) e credenciais guardadas com segurança
 
 ---
 
@@ -463,7 +476,7 @@ Exemplos (2 fotos da categoria como exemplo "remover", limiar 0,70):
 
 ## 6. Próximo passo imediato
 
-1. Validar no Windows 11 a v2.0 (Pessoas) e a v2.1 (Organizar pastas, **numa cópia** da biblioteca: organizar, desconectar o HD no meio, retomar, desfazer).
+1. Validar no Windows 11 a v2.2: busca pelo nome ("Ana", "Ana praia", "souza"), "Não é um rosto", "Remover todas as cópias exatas" e o modo automático, e a primeira execução (com `PHOTOVAULT_HOME` apontando para uma pasta vazia).
 2. Busca por "praia" (pendência da 7a).
 3. Decidir o empacotamento da libheif (HEIC) e do ffmpeg, pendentes da Fase 2.
 4. Amadurecer as ideias da 7b (foto de exemplo, álbuns por pessoa, "somente ela") ou seguir para a **Fase 8**.

@@ -3597,7 +3597,7 @@ dependencies = [
 
 [[package]]
 name = "photovault"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "photovault-core",
  "serde",
@@ -3619,7 +3619,7 @@ dependencies = [
 
 [[package]]
 name = "photovault-core"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",

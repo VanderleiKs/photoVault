@@ -6,6 +6,7 @@
 //! Rules: favorites never become candidates (R5); a photo kept or ignored for a reason is
 //! not suggested again for it; the best candidate of a group is never a candidate of it.
 
+pub mod exact;
 pub mod examples;
 
 use crate::analysis::store::mark_dirty;

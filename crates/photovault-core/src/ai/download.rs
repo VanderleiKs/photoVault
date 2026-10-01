@@ -18,6 +18,8 @@ pub struct DownloadState {
     pub running: bool,
     /// Package being (or last) downloaded (`ai::Package::id`).
     pub package: Option<String>,
+    /// Every package of this download (one consent can cover several).
+    pub packages: Vec<String>,
     #[specta(type = specta_typescript::Number)]
     pub done_bytes: u64,
     #[specta(type = specta_typescript::Number)]
@@ -58,12 +60,15 @@ pub fn cancel() {
 }
 
 /// Starts in a thread; `on_done` runs at the end (success, failure or cancel). One
-/// download at a time.
+/// download at a time; several packages go one after the other, with one progress.
 pub fn start(
     models_dir: PathBuf,
-    package: &'static Package,
+    packages: Vec<&'static Package>,
     on_done: impl FnOnce(Result<()>) + Send + 'static,
 ) -> Result<()> {
+    if packages.is_empty() {
+        return Err(Error::InvalidInput("Nada a baixar.".into()));
+    }
     let cancel = Arc::new(AtomicBool::new(false));
     {
         let mut shared = SHARED
@@ -77,8 +82,9 @@ pub fn start(
         *shared = Some(Shared {
             state: DownloadState {
                 running: true,
-                package: Some(package.id.to_string()),
-                total_bytes: package.size(),
+                package: Some(packages[0].id.to_string()),
+                packages: packages.iter().map(|p| p.id.to_string()).collect(),
+                total_bytes: packages.iter().map(|p| p.size()).sum(),
                 ..Default::default()
             },
             cancel: Arc::clone(&cancel),
@@ -87,7 +93,16 @@ pub fn start(
     std::thread::Builder::new()
         .name("pv-model-download".into())
         .spawn(move || {
-            let result = run(&package.dir(&models_dir), package, &cancel);
+            let mut before = 0;
+            let mut result = Ok(());
+            for package in &packages {
+                update(|s| s.package = Some(package.id.to_string()));
+                result = run(&package.dir(&models_dir), package, &cancel, before);
+                if result.is_err() {
+                    break;
+                }
+                before += package.size();
+            }
             update(|s| {
                 s.running = false;
                 s.error = result.as_ref().err().map(|e| e.to_string());
@@ -97,9 +112,9 @@ pub fn start(
     Ok(())
 }
 
-fn run(dir: &Path, package: &Package, cancel: &AtomicBool) -> Result<()> {
+/// `before`: bytes of the packages already done in this download.
+fn run(dir: &Path, package: &Package, cancel: &AtomicBool, mut before: u64) -> Result<()> {
     std::fs::create_dir_all(dir)?;
-    let mut before = 0;
     for file in package.files {
         let dest = dir.join(file.name);
         if !already_there(&dest, file)? {

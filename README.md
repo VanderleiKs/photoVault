@@ -53,7 +53,7 @@ PhotoVault/
 
 Sem o `portable.flag`, os dados vão para a pasta de dados do sistema. O CI gera os dois pacotes automaticamente a cada tag `v*` (`.github/workflows/release.yml`).
 
-## Estado atual (v2.1, Fase 8)
+## Estado atual (v2.2, Fase 8.1)
 
 Funciona hoje:
 
@@ -65,10 +65,11 @@ Funciona hoje:
   - fotos momentâneas (documentos, fotos acidentais) e screenshots.
 - **Revisão**: todas as sugestões priorizadas, por motivo, com Manter, Ignorar, Favoritar e Enviar para a lixeira (por foto ou em lote) e histórico com Desfazer
 - **Exemplos**: dê fotos como exemplo do que você costuma apagar (ou manter) e as parecidas aparecem na Revisão
+- **Cópias exatas**: "Remover todas" deixa só a sugerida de cada grupo; opcionalmente, isso acontece sozinho depois de cada análise
 - **Lixeira** reversível dentro da própria biblioteca (`.photovault-trash`), com restauração byte a byte, exclusão definitiva com confirmação dupla e opção de usar a lixeira do sistema
 - **Viagens e eventos** encontrados pelas datas e pela localização (ex.: "Viagem para Gramado e Canela · 10 a 12 jul 2025 · 90 fotos"): aceite, edite (título, período, fotos) ou ignore; tela do evento com destaques, cards por dia e linha do tempo; álbuns inteligentes sugeridos
 - **IA local (opcional)**: busca pelo conteúdo das fotos, em português ("cachorro na praia", "gato 2024"), e etiquetas de cena ("Praia 71 %"). Os modelos (228 MB) são baixados só quando você pede, em Configurações → IA local; depois disso tudo roda no seu computador
-- **Pessoas (opcional)**: os rostos são agrupados por pessoa; você dá nomes, junta grupos, corrige ("Não é a Ana") e busca pelo nome. Os modelos de rostos (39 MB) têm download próprio, em Configurações → IA local, e rostos e nomes ficam só no seu computador
+- **Pessoas (opcional)**: os rostos são agrupados por pessoa; você dá nomes, junta grupos, corrige ("Não é a Ana", "Não é um rosto") e busca pelo nome ("Ana", "Ana praia", "Ana Bruno"). Os modelos de rostos (39 MB) têm download próprio, em Configurações → IA local, e rostos e nomes ficam só no seu computador
 - **Tags** manuais, buscáveis e filtráveis; classificação de cada foto no painel de informações
 - **Organizar pastas**: move e renomeia os arquivos por uma regra (Ano / Mês, Ano / Evento, Ano / Local ou a sua, e nome por data e hora), com prévia antes → depois de cada arquivo, confirmação, pausa (inclusive se o HD for desconectado), retomada e desfazer. Nada é sobrescrito, e os arquivos `.xmp`/`.aae`/`.json` vão junto
 - Limiares e prioridades ajustáveis em Configurações (recalcula em segundos, sem reler as fotos)

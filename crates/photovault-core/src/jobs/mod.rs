@@ -494,8 +494,28 @@ impl JobRunner {
         let result = analysis::store::refresh_library(&self.pool, library_id, &settings).await;
         self.lock_session().grouping = false;
         result?;
+        if settings.review.auto_trash_exact {
+            self.auto_trash_exact(library_id).await;
+        }
         self.observer.on_analysis_updated(library_id);
         Ok(true)
+    }
+
+    /// The user asked for exact copies to go by themselves (library trash, reversible).
+    /// A failure is logged, never stops the queue; trashing marks the library dirty, so the
+    /// next pass regroups without them.
+    async fn auto_trash_exact(&self, library_id: &str) {
+        match crate::review::exact::trash_all(&self.pool, &self.thumbnails_dir, library_id, false)
+            .await
+        {
+            Ok(r) if !r.done.is_empty() => {
+                if let Ok(items) = media::get_many(&self.pool, &r.done).await {
+                    self.observer.on_media_updated(items, Vec::new());
+                }
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!("Automatic removal of exact copies failed: {e}"),
+        }
     }
 
     async fn next_batch(&self) -> Result<Vec<Job>> {

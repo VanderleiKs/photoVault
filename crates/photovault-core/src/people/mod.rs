@@ -102,7 +102,7 @@ pub async fn scanned_counts(pool: &SqlitePool) -> Result<(u32, u32)> {
     let (photos, faces): (i64, i64) = sqlx::query_as(
         "SELECT (SELECT COUNT(*) FROM face_scans s JOIN media m ON m.id = s.media_id
                  WHERE s.model = ?1 AND m.status = 'active'),
-                (SELECT COUNT(*) FROM faces f JOIN media m ON m.id = f.media_id WHERE m.status = 'active')",
+                (SELECT COUNT(*) FROM faces f JOIN media m ON m.id = f.media_id WHERE m.status = 'active' AND f.ignored = 0)",
     )
     .bind(FACES_MODEL_ID)
     .fetch_one(pool)
@@ -133,9 +133,9 @@ pub async fn store(pool: &SqlitePool, scanned: &[Scanned]) -> Result<()> {
     let mut tx = pool.begin().await?;
     let mut changed = false;
     for s in scanned {
-        type Old = (String, f32, f32, f32, f32, Option<String>, i64);
+        type Old = (String, f32, f32, f32, f32, Option<String>, i64, i64);
         let old: Vec<Old> = sqlx::query_as(
-            "SELECT id, x, y, w, h, person_id, confirmed FROM faces WHERE media_id = ?1",
+            "SELECT id, x, y, w, h, person_id, confirmed, ignored FROM faces WHERE media_id = ?1",
         )
         .bind(&s.media_id)
         .fetch_all(&mut *tx)
@@ -152,8 +152,8 @@ pub async fn store(pool: &SqlitePool, scanned: &[Scanned]) -> Result<()> {
                 .filter(|o| iou((o.1, o.2, o.3, o.4), (f.x, f.y, f.w, f.h)) > 0.5)
                 .max_by(|a, b| a.6.cmp(&b.6));
             sqlx::query(
-                "INSERT INTO faces (id, media_id, x, y, w, h, score, frontal, size, vector, person_id, confirmed)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                "INSERT INTO faces (id, media_id, x, y, w, h, score, frontal, size, vector, person_id, confirmed, ignored)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             )
             .bind(uuid::Uuid::now_v7().to_string())
             .bind(&s.media_id)
@@ -167,6 +167,7 @@ pub async fn store(pool: &SqlitePool, scanned: &[Scanned]) -> Result<()> {
             .bind(index::encode(&f.vector))
             .bind(kept.and_then(|o| o.5.clone()))
             .bind(kept.map(|o| o.6).unwrap_or(0))
+            .bind(kept.map(|o| o.7).unwrap_or(0))
             .execute(&mut *tx)
             .await?;
         }
@@ -242,7 +243,7 @@ pub async fn rebuild(pool: &SqlitePool) -> Result<()> {
     type Row = (String, Vec<u8>, Option<String>, i64, i64, f64, f64);
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT f.id, f.vector, f.person_id, f.confirmed, f.size, f.frontal, f.score
-         FROM faces f JOIN media m ON m.id = f.media_id WHERE m.status = 'active'
+         FROM faces f JOIN media m ON m.id = f.media_id WHERE m.status = 'active' AND f.ignored = 0
          ORDER BY f.confirmed DESC, f.size * f.frontal * f.score DESC, f.id",
     )
     .fetch_all(pool)
@@ -521,7 +522,7 @@ const FACE_COLUMNS: &str = "f.id, f.media_id, f.x, f.y, f.w, f.h, f.person_id, p
 pub async fn faces_of_media(pool: &SqlitePool, media_id: &str) -> Result<Vec<FaceInfo>> {
     let rows: Vec<FaceRow> = sqlx::query_as(&format!(
         "SELECT {FACE_COLUMNS} FROM faces f LEFT JOIN people p ON p.id = f.person_id AND p.hidden = 0
-         WHERE f.media_id = ?1 AND f.size >= ?2 ORDER BY f.x"
+         WHERE f.media_id = ?1 AND f.size >= ?2 AND f.ignored = 0 ORDER BY f.x"
     ))
     .bind(media_id)
     .bind(i64::from(MIN_GROUP_SIZE))
@@ -552,27 +553,7 @@ pub async fn faces_of_person(
     Ok(rows.into_iter().map(face_info).collect())
 }
 
-/// Named people whose name matches the search text ("ana" finds "Ana" and "Ana Souza").
-pub async fn search(pool: &SqlitePool, text: &str) -> Result<Vec<String>> {
-    let text = fold(text.trim());
-    if text.chars().count() < 2 {
-        return Ok(Vec::new());
-    }
-    let named: Vec<(String, String)> =
-        sqlx::query_as("SELECT id, name FROM people WHERE name IS NOT NULL AND hidden = 0")
-            .fetch_all(pool)
-            .await?;
-    Ok(named
-        .into_iter()
-        .filter(|(_, name)| {
-            let name = fold(name);
-            name == text || name.starts_with(&format!("{text} "))
-        })
-        .map(|(id, _)| id)
-        .collect())
-}
-
-/// Named people (for suggesting names while typing), A→Z.
+/// Named people, not hidden (suggesting names while typing; names in the search), A→Z.
 pub async fn names(pool: &SqlitePool) -> Result<Vec<(String, String)>> {
     Ok(sqlx::query_as(
         "SELECT id, name FROM people WHERE name IS NOT NULL AND hidden = 0 ORDER BY name COLLATE NOCASE",
@@ -730,6 +711,24 @@ pub async fn remove_faces(pool: &SqlitePool, face_ids: &[String]) -> Result<()> 
             .execute(&mut *tx)
             .await?;
     }
+    mark_dirty(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// "Não é um rosto" (a doll, a pattern): never shown nor grouped again, even after a new
+/// preview of the photo.
+pub async fn ignore_faces(pool: &SqlitePool, face_ids: &[String]) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    for id in face_ids {
+        sqlx::query("UPDATE faces SET ignored = 1, person_id = NULL, confirmed = 0 WHERE id = ?1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    sqlx::query("UPDATE people SET cover_face_id = NULL WHERE cover_face_id IN (SELECT id FROM faces WHERE ignored = 1)")
+        .execute(&mut *tx)
+        .await?;
     mark_dirty(&mut *tx).await?;
     tx.commit().await?;
     Ok(())

@@ -40,6 +40,15 @@ import { PeopleStore } from '../core/stores/people.store';
                   <img [src]="face(f.id)" alt="" loading="lazy" class="size-full object-cover" (error)="placeholder($event)" />
                 </button>
               }
+              <button
+                type="button"
+                class="absolute -left-1 -top-1 hidden size-5 items-center justify-center rounded-full bg-slate-700 text-white group-hover:flex focus:flex"
+                aria-label="Não é um rosto"
+                title="Não é um rosto (some daqui e não entra em Pessoas)"
+                (click)="notAFace(f)"
+              >
+                <i class="pi pi-eye-slash text-[9px]"></i>
+              </button>
             </span>
             @if (editing() === f.id) {
               <form (ngSubmit)="save(f)">
@@ -119,6 +128,10 @@ export class MediaPeopleComponent {
       return;
     }
     if (await this.people.nameFace(f.id, name)) this.editing.set(null);
+  }
+
+  protected async notAFace(f: FaceInfo) {
+    if (await this.people.ignoreFaces([f.id])) this.faces.update((all) => all.filter((x) => x.id !== f.id));
   }
 
   protected async notThem(f: FaceInfo) {

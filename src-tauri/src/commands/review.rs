@@ -148,6 +148,46 @@ pub async fn trash_media(
 ) -> ApiResult<TrashResult> {
     let system = settings::get(&state.pool).await?.review.use_system_trash;
     let result = trash::send(&state.pool, &state.paths.thumbnails_dir, &media_ids, system).await?;
+    announce(&app, &state, &result).await?;
+    Ok(result)
+}
+
+/// Exact copies that "remove all" would send to the trash now (for the confirmation).
+#[tauri::command]
+#[specta::specta]
+pub async fn count_exact_copies(library_id: String, state: AppStateRef<'_>) -> ApiResult<u32> {
+    Ok(review::exact::removable(&state.pool, &library_id)
+        .await?
+        .len() as u32)
+}
+
+/// Every exact copy to the trash, keeping the suggested photo of each group (its albums
+/// and tags go to that one).
+#[tauri::command]
+#[specta::specta]
+pub async fn trash_exact_copies(
+    library_id: String,
+    app: tauri::AppHandle,
+    state: AppStateRef<'_>,
+) -> ApiResult<TrashResult> {
+    let system = settings::get(&state.pool).await?.review.use_system_trash;
+    let result = review::exact::trash_all(
+        &state.pool,
+        &state.paths.thumbnails_dir,
+        &library_id,
+        system,
+    )
+    .await?;
+    announce(&app, &state, &result).await?;
+    Ok(result)
+}
+
+/// Tell the galleries what went to the trash, and regroup.
+async fn announce(
+    app: &tauri::AppHandle,
+    state: &AppStateRef<'_>,
+    result: &TrashResult,
+) -> ApiResult<()> {
     // Library trash: the rows stay (now `inTrash`); system trash: they are gone.
     let items = media::get_many(&state.pool, &result.done).await?;
     let gone = result
@@ -160,9 +200,9 @@ pub async fn trash_media(
         items,
         removed_ids: gone,
     }
-    .emit(&app);
+    .emit(app);
     state.jobs.wake();
-    Ok(result)
+    Ok(())
 }
 
 #[tauri::command]

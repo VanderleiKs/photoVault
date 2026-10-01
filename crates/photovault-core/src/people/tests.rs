@@ -136,15 +136,29 @@ async fn faces_become_suggested_people_that_the_user_names() {
         ..Default::default()
     };
     assert_eq!(w.photos(by_person).await, with_ana);
-    for text in ["ana", "ANA souza", "Âna"] {
+    for text in [
+        "ana",
+        "ANA souza",
+        "Âna",
+        "souza ana",
+        "Souza",
+        "an",
+        "ana sou",
+    ] {
         let by_text = MediaFilter {
             text: Some(text.into()),
             ..Default::default()
         };
         assert_eq!(w.photos(by_text).await, with_ana, "{text}");
     }
+    // A name with other words: Ana's photos that also match the rest.
+    let ana_2030 = MediaFilter {
+        text: Some("ana 2030".into()),
+        ..Default::default()
+    };
+    assert!(w.photos(ana_2030).await.is_empty());
     let nobody = MediaFilter {
-        text: Some("souza ana".into()),
+        text: Some("anx".into()),
         ..Default::default()
     };
     assert!(w.photos(nobody).await.is_empty());
@@ -211,7 +225,7 @@ async fn corrections_stick_across_regrouping() {
     // Hidden: out of the list and of the search, still grouped.
     set_hidden(&w.pool, &ana, true).await.unwrap();
     assert!(list(&w.pool, &w.lib, false).await.unwrap().is_empty());
-    assert!(search(&w.pool, "ana").await.unwrap().is_empty());
+    assert!(names(&w.pool).await.unwrap().is_empty());
     rebuild(&w.pool).await.unwrap();
     assert_eq!(list(&w.pool, &w.lib, true).await.unwrap().len(), 1);
 }
@@ -239,6 +253,38 @@ async fn a_new_preview_keeps_the_names_and_removing_the_models_forgets_everythin
     let f = w.face_of("p00").await;
     assert_eq!(f.person_id.as_deref(), Some(ana.as_str()));
     assert!(f.confirmed);
+
+    // "Não é um rosto": gone from the photo and from Ana, and it stays gone with a new preview.
+    let doll = face(0, 9, 0.55);
+    store(
+        &w.pool,
+        &[Scanned {
+            media_id: "p00".into(),
+            thumb_version: 2,
+            result: Ok(vec![face(0, 9, 0.12), doll.clone()]),
+        }],
+    )
+    .await
+    .unwrap();
+    let in_p00 = faces_of_media(&w.pool, "p00").await.unwrap();
+    assert_eq!(in_p00.len(), 2);
+    ignore_faces(&w.pool, &[in_p00[1].id.clone()])
+        .await
+        .unwrap();
+    assert_eq!(faces_of_media(&w.pool, "p00").await.unwrap().len(), 1);
+    store(
+        &w.pool,
+        &[Scanned {
+            media_id: "p00".into(),
+            thumb_version: 3,
+            result: Ok(vec![face(0, 9, 0.12), doll]),
+        }],
+    )
+    .await
+    .unwrap();
+    assert_eq!(faces_of_media(&w.pool, "p00").await.unwrap().len(), 1);
+    rebuild(&w.pool).await.unwrap();
+    assert_eq!(get(&w.pool, &w.lib, &ana).await.unwrap().photo_count, 3);
 
     // A preview that can't be read is recorded (not retried) and has no faces.
     store(
