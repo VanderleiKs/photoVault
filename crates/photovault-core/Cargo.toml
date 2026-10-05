@@ -36,6 +36,10 @@ ndarray = "0.17"
 tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
 # Model download (the only network access, on request); rustls, no OpenSSL.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
+# Photo editing (phase 9): ICC profiles to the working space (already pulled in by `image`)
+# and JPEG with EXIF/ICC segments (`image`'s encoder writes no EXIF).
+moxcms = "0.8"
+jpeg-encoder = { version = "0.7", features = ["simd"] }
 
 # Local AI (phase 7): ONNX Runtime.
 # Windows (and others): statically linked (portable: no DLL to ship), downloaded at build

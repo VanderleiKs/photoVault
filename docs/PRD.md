@@ -69,7 +69,7 @@ O app deve:
 |---|-------|
 | R1 | Nenhuma classificação resulta em exclusão automática. Única exceção, escolhida pelo usuário (desligada por padrão): cópias exatas (bytes idênticos) podem ir sozinhas para a lixeira da biblioteca, sempre restauráveis (§15). |
 | R2 | Durante a indexação, o app **não move, não renomeia, não exclui e não escreve** nada dentro da pasta da biblioteca. |
-| R3 | Qualquer alteração física (lixeira, mover, renomear) só acontece por ação explícita e confirmada pelo usuário, e fica registrada no log de operações. |
+| R3 | Qualquer alteração física (lixeira, mover, renomear) só acontece por ação explícita e confirmada pelo usuário, e fica registrada no log de operações. A edição (§29) nunca altera o original; a entrega grava cópias só fora da biblioteca. |
 | R4 | Qualidade técnica e valor pessoal são dimensões separadas. Qualidade baixa **não** implica valor baixo. |
 | R5 | Favoritas nunca aparecem como candidatas a exclusão (podem aparecer só como informação). |
 | R6 | Uma falha em um arquivo não interrompe o processamento dos demais. |
@@ -690,3 +690,37 @@ Uma funcionalidade só está pronta quando:
 ## 28. Fora de escopo da v1
 
 IA com modelos (cena, rostos, embeddings), mapa, organização física (mover/renomear), app Android, sincronização, edição de imagem, nuvem. A arquitetura (seção 5.4) deve permitir tudo isso **sem refatoração estrutural**.
+
+Edição de imagem entra a partir da v2.3 como "Melhorar fotos" (§29). Continuam fora: RAW, IA que gera pixels (remoção de ruído, ampliação, retoque de pele ou de objetos) e máscaras locais.
+
+---
+
+## 29. Melhorar fotos e entrega (v2.3+)
+
+Edição profissional **automática** em lote para quem não é fotógrafo: o usuário escolhe as fotos, um estilo e a intensidade; o app faz o resto.
+
+**Regras:**
+
+- **Não destrutiva.** O ajuste é uma "receita" guardada no catálogo. Os originais nunca mudam (R2/R3). Desfazer volta à foto original a qualquer momento, por foto ou pelo lote inteiro.
+- **Entrega = cópias JPEG numa pasta escolhida pelo usuário, fora de qualquer biblioteca e da pasta do app.** Nada é sobrescrito (" (2)", sem diferenciar maiúsculas); um arquivo interrompido nunca fica pela metade; disco desconectado pausa. Cada arquivo gravado passa pelo `operations_log`.
+- **O que se vê é o que se entrega:** a prévia e a entrega usam o mesmo motor.
+- Fora do escopo do automático: screenshots, documentos, vídeos e fotos na lixeira. Formatos: JPEG, PNG, TIFF (inclusive 16 bits) e WebP. RAW e HEIC ficam de fora.
+
+**Fluxo (Menu → Melhorar fotos):**
+
+1. Quais fotos: todas, a seleção, um álbum ou uma viagem/evento.
+2. Estilo: Natural (padrão), Vivo, Quente, Suave, Preto e branco, Cinema; um controle de intensidade.
+3. Antes/depois, "Aplicar" e "Entregar…".
+
+Ajuste fino (exposição, temperatura, contraste…) é opcional e sempre **somado** ao automático.
+
+**Como o automático decide (camadas):**
+
+1. **Correção técnica** (algoritmos próprios, sempre disponível): balanço de branco, exposição, realces e sombras, pretos e brancos, contraste, vibração protegendo a pele, nitidez de saída. Luz proposital (pôr do sol, palco) é preservada.
+2. **Contexto da IA local** (§21, se ligada): exposição e cor medidas nos rostos; tratamento por tipo de cena.
+3. **Sessão uniforme:** as fotos de um mesmo escopo ou evento são harmonizadas entre si.
+4. **Gosto do usuário** (v2.5): os ajustes finos que o próprio usuário faz viram um viés pessoal sobre o automático, guardado no catálogo e apagável.
+
+Nenhum modelo de retoque treinado com dados de uso restrito a pesquisa (ex.: MIT-Adobe FiveK, PPR10K) é usado. A IA só produz parâmetros, nunca pixels.
+
+**Entrega:** tamanho (original, 4096, 2048), qualidade, nome por modelo (`{titulo}_{seq:3}`), metadados (copiar, sem GPS ou mínimo; autor e copyright), marca d'água opcional. Perfil de cor sRGB embutido; orientação já aplicada.
