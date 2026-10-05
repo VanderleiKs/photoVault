@@ -26,6 +26,12 @@ export const MAIN_NAV: NavItem[] = [
     description: 'Rostos agrupados por pessoa, 100% local: dê nomes e busque por eles.',
   },
   { label: 'Favoritos', icon: 'pi pi-heart', route: '/favorites' },
+  {
+    label: 'Melhorar fotos',
+    icon: 'pi pi-sun',
+    route: '/enhance',
+    description: 'Correção automática de cor, exposição e sombras, como um fotógrafo faria. Os originais nunca mudam.',
+  },
 ];
 
 export const ORGANIZE_NAV: NavItem[] = [

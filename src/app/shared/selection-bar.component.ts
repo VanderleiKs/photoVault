@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import { Router } from '@angular/router';
 import { ButtonModule } from '@openng/optimus-ui/button';
 import { TooltipModule } from '@openng/optimus-ui/tooltip';
 import { formatCount } from '../core/format';
@@ -40,6 +41,7 @@ export type SelectionMode = 'default' | 'review' | 'trash';
             <p-button icon="pi pi-heart" [text]="true" [rounded]="true" size="small" ariaLabel="Favoritar" pTooltip="Favoritar" tooltipPosition="top" (onClick)="favorite(true)" />
           }
           <p-button icon="pi pi-book" [label]="mode() === 'review' ? '' : 'Adicionar ao álbum'" [text]="true" [rounded]="true" size="small" ariaLabel="Adicionar ao álbum" pTooltip="Adicionar ao álbum" tooltipPosition="top" (onClick)="picker.open(ids())" />
+          <p-button icon="pi pi-sun" [text]="true" [rounded]="true" size="small" severity="secondary" ariaLabel="Melhorar fotos" pTooltip="Melhorar: correção automática (os originais não mudam)" tooltipPosition="top" (onClick)="enhance()" />
           <p-button icon="pi pi-sparkles" [text]="true" [rounded]="true" size="small" severity="secondary" ariaLabel="Usar como exemplo do que remover" pTooltip="Usar como exemplo: sugerir fotos parecidas para remoção" tooltipPosition="top" (onClick)="actions.addExamples(ids(), 'remove')" />
           <p-button icon="pi pi-trash" label="Lixeira" [text]="true" [rounded]="true" size="small" severity="danger" pTooltip="Enviar para a lixeira" tooltipPosition="top" (onClick)="actions.trash(ids())" />
         }
@@ -61,8 +63,14 @@ export class SelectionBarComponent {
   protected readonly selection = inject(SelectionStore);
   protected readonly picker = inject(AlbumPicker);
   protected readonly actions = inject(MediaActions);
+  private readonly router = inject(Router);
 
   protected readonly ids = computed(() => [...this.selection.ids()]);
+
+  /** "Melhorar fotos" with the selection as the scope (keeps the selection). */
+  protected enhance() {
+    void this.router.navigate(['/enhance'], { queryParams: { scope: 'selection' } });
+  }
   protected readonly label = computed(() => {
     const n = this.selection.count();
     return `${formatCount(n)} ${n === 1 ? 'selecionada' : 'selecionadas'}`;

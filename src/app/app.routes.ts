@@ -75,6 +75,11 @@ export const routes: Routes = [
         loadComponent: () => import('./features/trips/trips.page').then((m) => m.TripsPage),
       },
       {
+        path: 'enhance',
+        canActivate: [requireLibrary],
+        loadComponent: () => import('./features/enhance/enhance.page').then((m) => m.EnhancePage),
+      },
+      {
         path: 'arrange',
         canActivate: [requireLibrary],
         loadComponent: () => import('./features/arrange/arrange.page').then((m) => m.ArrangePage),

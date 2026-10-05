@@ -322,3 +322,21 @@ fn fast_log2_is_close_enough_for_the_tone_masks() {
         );
     }
 }
+
+#[test]
+fn reduced_decoding_matches_the_full_one() {
+    let big = image::RgbImage::from_fn(800, 400, |x, y| {
+        Rgb([(x / 4) as u8, (y / 2) as u8, ((x + y) / 5) as u8])
+    });
+    let bytes = png(big.into());
+    let small = super::decode::decode_fit(&bytes, Some(200)).unwrap();
+    assert_eq!((small.width, small.height), (200, 100));
+    let full = decode(&bytes).unwrap().fit(200).unwrap();
+    let mean = |v: &[f32]| v.iter().sum::<f32>() / v.len() as f32;
+    assert!((mean(&small.data) - mean(&full.data)).abs() < 0.01);
+    // 16 bits keep 16 bits.
+    let deep = image::ImageBuffer::<Rgb<u16>, _>::from_fn(400, 10, |x, _| Rgb([x as u16 * 100; 3]));
+    let lin =
+        super::decode::decode_fit(&png(image::DynamicImage::ImageRgb16(deep)), Some(100)).unwrap();
+    assert_eq!(lin.width, 100);
+}

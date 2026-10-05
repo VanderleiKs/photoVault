@@ -15,9 +15,11 @@ import { ButtonModule } from '@openng/optimus-ui/button';
 import { TooltipModule } from '@openng/optimus-ui/tooltip';
 import { Backend } from '../../core/ipc/backend';
 import {
+  editPreviewUrl,
+  itemThumbnailUrl,
+  livePreviewUrl,
   mediaUrl,
   previewUrl,
-  thumbnailUrl,
   unwrap,
   type AlbumRef,
   type MediaContext,
@@ -27,7 +29,10 @@ import { NotifyService } from '../../core/notify.service';
 import { MediaActions } from '../../core/stores/media-actions.service';
 import { MediaBus } from '../../core/stores/media-bus';
 import { SelectionStore } from '../../core/stores/selection.store';
+import { isEditable } from '../../core/stores/enhance.store';
 import { ViewerContext } from '../../core/stores/viewer-context';
+import { FineTuneComponent, type RecipeChange } from '../enhance/fine-tune.component';
+import { LivePreview, REST_EDGE } from '../enhance/live-preview';
 import { AlbumPicker } from '../../shared/album-picker.component';
 import { MediaAnalysisComponent } from '../../shared/media-analysis.component';
 import { MediaDetailsComponent } from '../../shared/media-details.component';
@@ -40,11 +45,12 @@ const STRIP_RADIUS = 12;
 /** Full-screen dark viewer (PRD §23.3). Route: /viewer/:id */
 @Component({
   selector: 'app-viewer-page',
-  imports: [RouterLink, ButtonModule, TooltipModule, MediaAnalysisComponent, MediaDetailsComponent, MediaReviewComponent],
+  imports: [RouterLink, ButtonModule, TooltipModule, FineTuneComponent, MediaAnalysisComponent, MediaDetailsComponent, MediaReviewComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'flex h-full flex-col bg-[#0b0f17] text-slate-100',
     '(window:keydown)': 'onKey($event)',
+    '(window:keyup)': 'onKeyUp($event)',
   },
   template: `
     <header class="flex h-14 shrink-0 items-center gap-1 border-b border-white/5 px-3">
@@ -71,6 +77,30 @@ const STRIP_RADIUS = 12;
           tooltipPosition="bottom"
           (onClick)="toggleFavorite()"
         />
+        @if (m.edited || tuning()) {
+          <p-button
+            icon="pi pi-images"
+            [text]="!compare()"
+            [rounded]="true"
+            severity="contrast"
+            ariaLabel="Comparar com o original"
+            pTooltip="Ver o original (segure \\)"
+            tooltipPosition="bottom"
+            (onClick)="compare.set(!compare())"
+          />
+        }
+        @if (canEdit(m)) {
+          <p-button
+            icon="pi pi-sun"
+            [text]="!tuning()"
+            [rounded]="true"
+            severity="contrast"
+            ariaLabel="Melhorar"
+            pTooltip="Melhorar (E)"
+            tooltipPosition="bottom"
+            (onClick)="tuning.set(!tuning())"
+          />
+        }
         <p-button icon="pi pi-book" [text]="true" [rounded]="true" severity="contrast" ariaLabel="Adicionar ao álbum" pTooltip="Adicionar ao álbum" tooltipPosition="bottom" (onClick)="picker.open([m.id])" />
         @if (m.inTrash) {
           <p-button icon="pi pi-replay" [text]="true" [rounded]="true" severity="contrast" ariaLabel="Restaurar" pTooltip="Restaurar da lixeira" tooltipPosition="bottom" (onClick)="restoreCurrent()" />
@@ -102,9 +132,13 @@ const STRIP_RADIUS = 12;
                   class="max-h-full max-w-full select-none object-contain transition-transform duration-150"
                   [style.transform]="'scale(' + zoom() + ')'"
                   (dblclick)="zoom.set(zoom() === 1 ? 2 : 1)"
+                  (load)="onImageLoad()"
                   (error)="onImageError()"
                   draggable="false"
                 />
+                @if (compare()) {
+                  <span class="absolute left-4 top-4 rounded bg-black/60 px-2 py-1 text-xs text-white">Original</span>
+                }
               } @else {
                 <p class="text-slate-400">Pré-visualização indisponível para este formato ({{ m.extension.toUpperCase() }}).</p>
               }
@@ -152,7 +186,11 @@ const STRIP_RADIUS = 12;
         }
       </div>
 
-      @if (showDetails() && item(); as m) {
+      @if (tuning() && item(); as m) {
+        <aside class="w-80 shrink-0 overflow-y-auto border-l border-white/5 bg-[#111827] p-5">
+          <app-fine-tune [item]="m" (recipeChange)="onRecipe($event)" (closed)="tuning.set(false)" />
+        </aside>
+      } @else if (showDetails() && item(); as m) {
         <aside class="w-80 shrink-0 overflow-y-auto border-l border-white/5 bg-[#111827] p-5">
           <h2 class="mb-4 text-sm font-semibold text-white">Detalhes</h2>
           <app-media-details [item]="m" [dark]="true" />
@@ -222,7 +260,28 @@ export class ViewerPage {
   private readonly stage = signal<'preview' | 'original' | 'none'>('preview');
   private failedStages = new Set<'preview' | 'original'>();
   protected readonly original = computed(() => mediaUrl(this.id()));
+  /** Fine tuning open ("Melhorar", E). */
+  protected readonly tuning = signal(false);
+  /** Showing the original of an improved photo (\\ held or the button). */
+  protected readonly compare = signal(false);
+  /** Live preview while tuning. */
+  private readonly live = signal<LivePreview | null>(null);
+  /** Improved photo at full preview size, once loaded. */
+  private readonly editedFull = signal<string | null>(null);
+
   protected readonly src = computed(() => {
+    const m = this.item();
+    if (!m) return '';
+    if (!this.compare() && m.mediaType === 'image') {
+      const live = this.live()?.src();
+      if (this.tuning() && live) return live;
+      if (m.edited) return this.editedFull() ?? (m.editVersion > 0 ? editPreviewUrl(m.id, m.editVersion) : this.baseSrc());
+    }
+    return this.baseSrc();
+  });
+
+  /** The original: preview, then the file itself. */
+  private readonly baseSrc = computed(() => {
     const m = this.item();
     if (!m) return '';
     switch (this.stage()) {
@@ -251,6 +310,22 @@ export class ViewerPage {
         this.ctx.set({ ...c, items: c.items.map((m) => byId.get(m.id) ?? m) });
       }
     });
+    // Tuning: a live preview per photo.
+    effect(() => {
+      const id = this.item()?.id;
+      const tuning = this.tuning();
+      untracked(() =>
+        this.live.set(
+          tuning && id ? new LivePreview(id, (recipe) => unwrap(this.backend.commands.setEditDraft(id, recipe))) : null,
+        ),
+      );
+    });
+    // Improved photo: its 1024 thumbnail at once, then the sharper render.
+    effect(() => {
+      const m = this.item();
+      const tuning = this.tuning();
+      untracked(() => this.loadEdited(m, tuning));
+    });
     // Keep the current thumbnail visible in the strip.
     effect(() => {
       this.ctx();
@@ -263,6 +338,7 @@ export class ViewerPage {
 
   private async load(id: string) {
     this.zoom.set(1);
+    this.compare.set(false);
     this.videoError.set(false);
     this.failed.set(false);
     try {
@@ -296,6 +372,31 @@ export class ViewerPage {
       if (this.id() === item.id && !this.failedStages.has('original')) this.stage.set('original');
     };
     full.src = mediaUrl(item.id);
+  }
+
+  private loadEdited(m: MediaItem | null, tuning: boolean) {
+    this.editedFull.set(null);
+    if (!m?.edited || tuning || m.mediaType !== 'image') return;
+    // Never cached by the backend: a fresh `v` after tuning shows the saved recipe.
+    const url = livePreviewUrl(m.id, { edge: REST_EDGE, version: Date.now() });
+    const full = new Image();
+    full.decoding = 'async';
+    full.onload = () => {
+      if (this.item()?.id === m.id && !this.tuning()) this.editedFull.set(url);
+    };
+    full.src = url;
+  }
+
+  protected canEdit(m: MediaItem): boolean {
+    return m.mediaType === 'image' && !m.inTrash && isEditable(m.extension);
+  }
+
+  protected onRecipe(change: RecipeChange) {
+    this.live()?.update(change.recipe, change.resting);
+  }
+
+  protected onImageLoad() {
+    if (this.tuning()) this.live()?.loaded();
   }
 
   protected go(id: string | null | undefined) {
@@ -335,7 +436,7 @@ export class ViewerPage {
   }
 
   protected thumb(m: MediaItem) {
-    return thumbnailUrl(m.id, m.thumbVersion);
+    return itemThumbnailUrl(m);
   }
 
   protected zoomBy(direction: 1 | -1) {
@@ -352,11 +453,21 @@ export class ViewerPage {
 
   /** Original undecodable (HEIC/TIFF) → preview; preview missing → original; else none. */
   protected onImageError() {
+    if (this.src() !== this.baseSrc()) {
+      // A live/edited render failed: release the preview loop, show the original.
+      this.live()?.loaded();
+      this.compare.set(true);
+      return;
+    }
     const stage = this.stage();
     if (stage === 'none') return;
     this.failedStages.add(stage);
     const other = stage === 'preview' ? 'original' : 'preview';
     this.stage.set(this.failedStages.has(other) ? 'none' : other);
+  }
+
+  protected onKeyUp(event: KeyboardEvent) {
+    if (event.key === '\\') this.compare.set(false);
   }
 
   protected onKey(event: KeyboardEvent) {
@@ -392,6 +503,15 @@ export class ViewerPage {
         break;
       case 'Delete':
         void this.trashCurrent();
+        break;
+      case 'e':
+      case 'E': {
+        const m = this.item();
+        if (m && this.canEdit(m)) this.tuning.update((v) => !v);
+        break;
+      }
+      case '\\':
+        if (this.item()?.edited || this.tuning()) this.compare.set(true);
         break;
       default:
         return;

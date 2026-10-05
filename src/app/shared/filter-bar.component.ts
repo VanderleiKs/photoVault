@@ -67,6 +67,15 @@ const OPTIONS_DELAY_MS = 300;
         [attr.aria-pressed]="!!filter().favorite"
         (onClick)="browse.patch({ favorite: filter().favorite ? null : true })"
       />
+      <p-button
+        icon="pi pi-sun"
+        label="Melhoradas"
+        size="small"
+        [outlined]="!filter().edited"
+        severity="secondary"
+        [attr.aria-pressed]="!!filter().edited"
+        (onClick)="browse.patch({ edited: filter().edited ? null : true })"
+      />
       @if (years().length) {
         <p-select [options]="years()" optionLabel="label" optionValue="value" [ngModel]="filter().year ?? null" (ngModelChange)="setYear($event)" placeholder="Ano" [showClear]="true" size="small" styleClass="w-32" ariaLabel="Ano" />
         <p-select [options]="months" optionLabel="label" optionValue="value" [ngModel]="filter().month ?? null" (ngModelChange)="browse.patch({ month: $event, day: null })" placeholder="Mês" [showClear]="true" size="small" styleClass="w-36" ariaLabel="Mês" />
@@ -161,6 +170,7 @@ export class FilterBarComponent {
     if (text) chips.push({ label: `Busca: "${text}"`, clear: 'text' });
     if (f.mediaType) chips.push({ label: f.mediaType === 'image' ? 'Só fotos' : 'Só vídeos', clear: { mediaType: null } });
     if (f.favorite) chips.push({ label: 'Favoritas', clear: { favorite: null } });
+    if (f.edited) chips.push({ label: 'Melhoradas', clear: { edited: null } });
     if (f.year && f.month && f.day) {
       chips.push({ label: `${f.day} de ${MONTH_NAMES[f.month - 1].toLowerCase()} de ${f.year}`, clear: { day: null } });
     } else {

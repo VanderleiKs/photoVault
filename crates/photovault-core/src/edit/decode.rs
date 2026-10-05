@@ -2,7 +2,7 @@
 
 use std::io::Cursor;
 
-use fast_image_resize::{FilterType, PixelType, ResizeAlg, ResizeOptions, Resizer};
+use fast_image_resize::{FilterType, IntoImageView, PixelType, ResizeAlg, ResizeOptions, Resizer};
 use image::{DynamicImage, ImageDecoder, ImageReader, Rgb32FImage};
 
 use super::color::{self, DecodeLut};
@@ -94,6 +94,13 @@ impl Linear {
 /// transparency over white and converts to linear light. 16-bit sources keep their
 /// precision (nothing goes through 8 bits).
 pub fn decode(bytes: &[u8]) -> Result<Linear, String> {
+    decode_fit(bytes, None)
+}
+
+/// Same as [`decode`], reduced to fit in `edge` first (in the file's own encoding, 8 or
+/// 16 bits): for previews and thumbnails a 19 MP photo never exists as ~230 MB of
+/// floats. The delivery decodes at full size and resizes in linear light.
+pub fn decode_fit(bytes: &[u8], edge: Option<u32>) -> Result<Linear, String> {
     let reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .map_err(|e| e.to_string())?;
@@ -103,6 +110,11 @@ pub fn decode(bytes: &[u8]) -> Result<Linear, String> {
     let mut img = DynamicImage::from_decoder(decoder).map_err(|e| e.to_string())?;
     if let Some(orientation) = orientation {
         img.apply_orientation(orientation);
+    }
+    if let Some(edge) = edge
+        && img.width().max(img.height()) > edge
+    {
+        img = shrink(img, edge)?;
     }
     let (width, height) = (img.width(), img.height());
 
@@ -136,4 +148,49 @@ pub fn decode(bytes: &[u8]) -> Result<Linear, String> {
         height,
         data,
     })
+}
+
+/// Lanczos3 to fit in `edge`, as 8- or 16-bit RGB(A) depending on the source.
+fn shrink(img: DynamicImage, edge: u32) -> Result<DynamicImage, String> {
+    let deep = img.color().bytes_per_pixel() / img.color().channel_count() > 1;
+    let alpha = img.color().has_alpha();
+    let img = match (deep, alpha) {
+        (false, false) => DynamicImage::ImageRgb8(img.into_rgb8()),
+        (false, true) => DynamicImage::ImageRgba8(img.into_rgba8()),
+        (true, false) => DynamicImage::ImageRgb16(img.into_rgb16()),
+        (true, true) => DynamicImage::ImageRgba16(img.into_rgba16()),
+    };
+    let (w, h) = (img.width(), img.height());
+    let scale = edge as f64 / w.max(h) as f64;
+    let dw = ((w as f64 * scale).round() as u32).max(1);
+    let dh = ((h as f64 * scale).round() as u32).max(1);
+    let pixel_type = img.pixel_type().ok_or("formato de pixel não suportado")?;
+    let mut dst = fast_image_resize::images::Image::new(dw, dh, pixel_type);
+    Resizer::new()
+        .resize(
+            &img,
+            &mut dst,
+            &ResizeOptions::new().resize_alg(ResizeAlg::Convolution(FilterType::Lanczos3)),
+        )
+        .map_err(|e| e.to_string())?;
+    let bytes = dst.into_vec();
+    let words = || {
+        bytes
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| u16::from_ne_bytes(*b))
+            .collect::<Vec<u16>>()
+    };
+    let out = match (deep, alpha) {
+        (false, false) => image::RgbImage::from_raw(dw, dh, bytes).map(DynamicImage::ImageRgb8),
+        (false, true) => image::RgbaImage::from_raw(dw, dh, bytes).map(DynamicImage::ImageRgba8),
+        (true, false) => {
+            image::ImageBuffer::from_raw(dw, dh, words()).map(DynamicImage::ImageRgb16)
+        }
+        (true, true) => {
+            image::ImageBuffer::from_raw(dw, dh, words()).map(DynamicImage::ImageRgba16)
+        }
+    };
+    out.ok_or_else(|| "falha ao redimensionar".to_string())
 }

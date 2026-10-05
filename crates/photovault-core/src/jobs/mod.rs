@@ -11,6 +11,7 @@ mod gate;
 use crate::ai;
 use crate::analysis::{self, store::AnalyzeInput};
 use crate::catalog::{MediaItem, MediaType, media, settings};
+use crate::edit;
 use crate::error::Result;
 use crate::ingestion::geo;
 use crate::ingestion::metadata::format_capture;
@@ -135,6 +136,7 @@ struct Session {
     analyzed: u32,
     embedded: u32,
     faced: u32,
+    edited: u32,
     current_path: Option<String>,
     last_emit: Option<Instant>,
 }
@@ -244,6 +246,7 @@ impl JobRunner {
             return Ok(false);
         }
         Ok(self.step_ingest().await?
+            || self.step_edit_thumbs().await?
             || self.step_analyze().await?
             || self.step_groups().await?
             || self.step_embed().await?
@@ -327,6 +330,66 @@ impl JobRunner {
     }
 
     /// Pixel analysis of items that already have a preview (local disk only).
+    /// Edited thumbnails (phase 9) behind their recipe: right after new files, before
+    /// the analysis (the user is waiting to see the result). One photo at a time, each
+    /// rendered on the CPU share; decoded reduced, so memory stays small. Libraries
+    /// whose disk is gone wait.
+    async fn step_edit_thumbs(&self) -> Result<bool> {
+        let pending: Vec<_> = edit::store::pending_thumbs(&self.pool, 64)
+            .await?
+            .into_iter()
+            .filter(|p| Path::new(&p.root).is_dir())
+            .take(8)
+            .collect();
+        if pending.is_empty() {
+            return Ok(false);
+        }
+        let threads = Self::cpu_workers(&settings::get(&self.pool).await?);
+        self.lock_session().started.get_or_insert_with(Instant::now);
+        let mut updated = Vec::new();
+        for p in pending {
+            if self.is_paused() {
+                break;
+            }
+            let recipe = match edit::EditRecipe::from_json(&p.recipe_json) {
+                Ok(r) => r,
+                Err(e) => {
+                    edit::store::thumb_failed(&self.pool, &p.media_id, p.revision, &e.to_string())
+                        .await?;
+                    continue;
+                }
+            };
+            let cached = edit::store::cached_auto(p.auto_json.as_deref(), p.sha256.as_deref());
+            let (dir, id) = (self.thumbnails_dir.clone(), p.media_id.clone());
+            let file = Path::new(&p.root).join(&p.relative_path);
+            let result = tokio::task::spawn_blocking(move || {
+                edit::thumbs::render(&dir, &id, &file, &recipe, cached, threads)
+            })
+            .await
+            .unwrap_or_else(|e| Err(format!("Falha interna: {e}")));
+            match result {
+                Ok(computed) => {
+                    let auto = computed.map(|values| edit::store::AutoCache {
+                        sha256: p.sha256.clone(),
+                        values,
+                    });
+                    edit::store::thumb_done(&self.pool, &p.media_id, p.revision, auto).await?;
+                    updated.push(p.media_id.clone());
+                }
+                Err(e) => {
+                    tracing::warn!("Edited thumbnail of {} failed: {e}", p.relative_path);
+                    edit::store::thumb_failed(&self.pool, &p.media_id, p.revision, &e).await?;
+                }
+            }
+            let mut session = self.lock_session();
+            session.edited += 1;
+            session.current_path = Some(p.relative_path.clone());
+        }
+        let mut removed = Vec::new();
+        self.flush(&mut updated, &mut removed).await;
+        Ok(true)
+    }
+
     async fn step_analyze(&self) -> Result<bool> {
         let batch: Vec<(String, AnalyzeInput)> = sqlx::query_as::<_, AnalyzeRow>(
             "SELECT j.id AS job_id, m.id AS media_id, m.library_id, m.filename, m.relative_path,
@@ -827,12 +890,13 @@ impl JobRunner {
                 let s = self.lock_session();
                 // One line per busy period: a log without it looks frozen for minutes.
                 tracing::info!(
-                    "Queue idle after {:?}: {} files read, {} photos analysed, {} content, {} searched for faces",
+                    "Queue idle after {:?}: {} files read, {} photos analysed, {} content, {} searched for faces, {} edited thumbnails",
                     s.started.map(|t| t.elapsed()).unwrap_or_default(),
                     s.read,
                     s.analyzed,
                     s.embedded,
-                    s.faced
+                    s.faced,
+                    s.edited
                 );
             }
             self.emit_progress(false).await;

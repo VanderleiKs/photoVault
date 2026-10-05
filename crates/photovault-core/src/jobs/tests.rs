@@ -1332,3 +1332,126 @@ fn repeated_errors_wait_longer() {
     let secs: Vec<u64> = (1..=9).map(|n| super::error_backoff(n).as_secs()).collect();
     assert_eq!(secs, [5, 10, 20, 40, 80, 160, 300, 300, 300]);
 }
+
+#[tokio::test]
+async fn enhance_renders_edited_thumbnails_and_undoes_without_touching_the_library() {
+    use crate::arrange::ArrangeScope;
+    use crate::edit::{self, AutoOptions, EditRecipe};
+
+    let w = world().await;
+    copy("exif_full.jpg", &w.root.join("a.jpg"));
+    copy("similar_a.jpg", &w.root.join("b.jpg"));
+    std::fs::write(w.root.join("clip.mp4"), vec![0u8; 4096]).unwrap();
+    let original = snapshot(&w.root);
+    w.scan().await;
+    let runner = w.runner(Arc::new(Recorder::default())).await;
+    runner.drain().await.unwrap();
+    let (a, b) = (w.item("a.jpg").await, w.item("b.jpg").await);
+    let analysis_thumb = std::fs::read(thumbnails::path(&w.thumbs, &a.id, 1024)).unwrap();
+    let lib = &w.library.id;
+    let all = ArrangeScope::default();
+
+    let summary = edit::store::summarize(&w.pool, lib, &all, 10)
+        .await
+        .unwrap();
+    assert_eq!(
+        (summary.editable, summary.excluded, summary.edited),
+        (2, 1, 0)
+    );
+    assert_eq!(summary.sample.len(), 2);
+
+    // Apply: recipes saved, edited thumbnails rendered by the queue.
+    let batch = edit::store::apply(&w.pool, lib, &all, &AutoOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(batch.count, 2);
+    runner.drain().await.unwrap();
+    for item in [&a, &b] {
+        let now = media::get(&w.pool, &item.id).await.unwrap();
+        assert!(now.edited && now.edit_version == 1, "{now:?}");
+        for size in thumbnails::SIZES {
+            assert!(thumbnails::edit_path(&w.thumbs, &item.id, size).exists());
+        }
+    }
+    // The automatic values were computed once and kept.
+    assert!(
+        edit::store::auto_values(&w.pool, &a.id)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    // The analysis thumbnails never change because of an edit.
+    assert_eq!(
+        std::fs::read(thumbnails::path(&w.thumbs, &a.id, 1024)).unwrap(),
+        analysis_thumb
+    );
+
+    // Fine tuning: new revision, re-rendered.
+    let mut recipe = edit::store::get(&w.pool, &a.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .recipe;
+    recipe.adjust.exposure = 0.5;
+    assert_eq!(
+        edit::store::save(&w.pool, &a.id, &recipe)
+            .await
+            .unwrap()
+            .revision,
+        2
+    );
+    runner.drain().await.unwrap();
+    assert_eq!(media::get(&w.pool, &a.id).await.unwrap().edit_version, 2);
+    // Videos can't be edited.
+    let clip = w.item("clip.mp4").await;
+    assert!(
+        edit::store::save(&w.pool, &clip.id, &EditRecipe::default())
+            .await
+            .is_err()
+    );
+
+    // Undo the batch: back to no edit at all, edited thumbnails gone.
+    assert_eq!(
+        edit::store::undo_batch(&w.pool, &w.thumbs, &batch.id)
+            .await
+            .unwrap(),
+        2
+    );
+    for item in [&a, &b] {
+        assert!(!media::get(&w.pool, &item.id).await.unwrap().edited);
+        assert!(!thumbnails::edit_path(&w.thumbs, &item.id, 256).exists());
+    }
+
+    // Applying over an edited photo keeps its fine tuning; reset removes the edit.
+    edit::store::save(&w.pool, &a.id, &recipe).await.unwrap();
+    let selection = ArrangeScope {
+        media_ids: Some(vec![a.id.clone()]),
+        ..Default::default()
+    };
+    let soft = AutoOptions {
+        intensity: 0.5,
+        ..AutoOptions::default()
+    };
+    edit::store::apply(&w.pool, lib, &selection, &soft)
+        .await
+        .unwrap();
+    let kept = edit::store::get(&w.pool, &a.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .recipe;
+    assert_eq!((kept.adjust.exposure, kept.auto.intensity), (0.5, 0.5));
+    assert_eq!(
+        edit::store::reset(&w.pool, &w.thumbs, std::slice::from_ref(&a.id))
+            .await
+            .unwrap(),
+        1
+    );
+    assert!(edit::store::get(&w.pool, &a.id).await.unwrap().is_none());
+
+    assert_eq!(
+        snapshot(&w.root),
+        original,
+        "nothing written in the library"
+    );
+}

@@ -147,7 +147,7 @@ fn make_thumbnails(img: DynamicImage) -> Result<(Thumbnails, DynamicImage), Stri
 }
 
 /// Downscale to fit in `edge`×`edge` keeping the aspect ratio (never upscales).
-fn fit(img: &DynamicImage, edge: u32) -> Result<DynamicImage, String> {
+pub(crate) fn fit(img: &DynamicImage, edge: u32) -> Result<DynamicImage, String> {
     let (w, h) = (img.width(), img.height());
     if w <= edge && h <= edge {
         return Ok(img.clone());
@@ -177,7 +177,7 @@ fn fit(img: &DynamicImage, edge: u32) -> Result<DynamicImage, String> {
     out.ok_or_else(|| "falha ao redimensionar".to_string())
 }
 
-fn encode_webp(img: &DynamicImage) -> Result<Vec<u8>, String> {
+pub(crate) fn encode_webp(img: &DynamicImage) -> Result<Vec<u8>, String> {
     let encoder = webp::Encoder::from_image(img).map_err(str::to_string)?;
     let mut config = webp::WebPConfig::new().map_err(|()| "configuração WebP inválida")?;
     config.quality = WEBP_QUALITY;

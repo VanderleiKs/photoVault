@@ -5,7 +5,7 @@ import { ButtonModule } from '@openng/optimus-ui/button';
 import { SkeletonModule } from '@openng/optimus-ui/skeleton';
 import { formatCount } from '../../core/format';
 import { Backend } from '../../core/ipc/backend';
-import { previewUrl, thumbnailUrl, unwrap, type LibraryOverview, type MediaFilter, type MediaItem, type MediaSort } from '../../core/ipc/ipc';
+import { previewUrl, itemThumbnailUrl, unwrap, type LibraryOverview, type MediaFilter, type MediaItem, type MediaSort } from '../../core/ipc/ipc';
 import { NotifyService } from '../../core/notify.service';
 import { BrowseStore } from '../../core/stores/browse.store';
 import { GalleryStore } from '../../core/stores/gallery.store';
@@ -199,7 +199,7 @@ export class HomePage {
   }
 
   protected thumb(item: MediaItem) {
-    return thumbnailUrl(item.id, item.thumbVersion);
+    return itemThumbnailUrl(item);
   }
 
   protected open(item: MediaItem) {

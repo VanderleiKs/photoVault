@@ -10,6 +10,9 @@ pub mod color;
 pub mod decode;
 pub mod encode;
 pub mod pipeline;
+pub mod session;
+pub mod store;
+pub mod thumbs;
 
 #[cfg(test)]
 mod tests;

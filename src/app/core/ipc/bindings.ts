@@ -109,6 +109,8 @@ export const commands = {
 	eventId?: string | null,
 	/**  Photos where this person appears (phase 7b). */
 	personId?: string | null,
+	/**  `true` = improved photos only ("Melhoradas", phase 9); `false` = not improved. */
+	edited?: boolean | null,
 } | null) => typedError<Album, ApiError>(__TAURI_INVOKE("create_album", { libraryId, name, rule })),
 	renameAlbum: (albumId: string, name: string) => typedError<Album, ApiError>(__TAURI_INVOKE("rename_album", { albumId, name })),
 	updateAlbumRule: (albumId: string, rule: MediaFilter) => typedError<Album, ApiError>(__TAURI_INVOKE("update_album_rule", { albumId, rule })),
@@ -192,6 +194,32 @@ export const commands = {
 	listArrangeBatches: (libraryId: string) => typedError<ArrangeBatch[], ApiError>(__TAURI_INVOKE("list_arrange_batches", { libraryId })),
 	/**  Files of a batch (`status`: e.g. "failed"). */
 	listArrangeItems: (batchId: string, status: string | null, offset: number, limit: number) => typedError<ArrangeItem[], ApiError>(__TAURI_INVOKE("list_arrange_items", { batchId, status, offset, limit })),
+	/**  Photos the improvement would touch in a scope, and a sample for before/after. */
+	summarizeEnhance: (libraryId: string, scope: ArrangeScope, sample: number) => typedError<EnhanceSummary, ApiError>(__TAURI_INVOKE("summarize_enhance", { libraryId, scope, sample })),
+	/**
+	 *  "Aplicar": saves the automatic improvement on every photo of the scope (nothing is
+	 *  written to the files); the edited thumbnails follow in the background.
+	 */
+	applyEnhance: (libraryId: string, scope: ArrangeScope, auto: AutoOptions) => typedError<EditBatch, ApiError>(__TAURI_INVOKE("apply_enhance", { libraryId, scope, auto })),
+	/**  Everything of a batch back as it was before it. */
+	undoEnhance: (batchId: string) => typedError<number, ApiError>(__TAURI_INVOKE("undo_enhance", { batchId })),
+	listEnhanceBatches: (libraryId: string) => typedError<EditBatch[], ApiError>(__TAURI_INVOKE("list_enhance_batches", { libraryId })),
+	getEdit: (mediaId: string) => typedError<{
+	mediaId: string,
+	recipe: EditRecipe,
+	revision: number,
+	/**  Revision of the edited thumbnails (0 = not rendered yet). */
+	editVersion: number,
+} | null, ApiError>(__TAURI_INVOKE("get_edit", { mediaId })),
+	/**  Decodes the photo for the live preview (the editor opened it). */
+	openEdit: (mediaId: string) => typedError<null, ApiError>(__TAURI_INVOKE("open_edit", { mediaId })),
+	/**  The recipe being tried; returns the version for the preview URL (`?v=`). */
+	setEditDraft: (mediaId: string, recipe: EditRecipe) => typedError<number, ApiError>(__TAURI_INVOKE("set_edit_draft", { mediaId, recipe })),
+	closeEdit: (mediaId: string) => typedError<null, ApiError>(__TAURI_INVOKE("close_edit", { mediaId })),
+	/**  Fine tuning of one photo. */
+	saveEdit: (mediaId: string, recipe: EditRecipe) => typedError<MediaEdit, ApiError>(__TAURI_INVOKE("save_edit", { mediaId, recipe })),
+	/**  Back to the original (the edits are removed). */
+	resetEdits: (mediaIds: string[]) => typedError<number, ApiError>(__TAURI_INVOKE("reset_edits", { mediaIds })),
 	/**  Detect trips and events again in every library, now, with the current settings. */
 	reclassifyEvents: (options: ReclassifyOptions) => typedError<EventCounts, ApiError>(__TAURI_INVOKE("reclassify_events", { options })),
 	/**  Homes the photos point to, one per library (Settings: "Sua casa parece ser…"). */
@@ -269,6 +297,24 @@ export const events = {
 };
 
 /* Types */
+/**
+ *  Fine tuning, always added on top of the automatic values. 0 = unchanged.
+ *  `exposure` in EV (−5..5); the rest −100..100.
+ */
+export type Adjust = {
+	exposure?: number | null,
+	contrast?: number | null,
+	highlights?: number | null,
+	shadows?: number | null,
+	whites?: number | null,
+	blacks?: number | null,
+	temperature?: number | null,
+	tint?: number | null,
+	vibrance?: number | null,
+	saturation?: number | null,
+	sharpen?: number | null,
+};
+
 /**  Which set of models: "content" (search and scenes) or "faces" (people). */
 export type AiPackage = "content" | "faces";
 
@@ -453,6 +499,14 @@ export type ArrangeScope = {
 	mediaIds?: string[] | null,
 };
 
+/**  The one-click part: an automatic correction plus a style, scaled by the intensity. */
+export type AutoOptions = {
+	enabled?: boolean,
+	style?: Style,
+	/**  0..=1 (the "Intensidade" control). */
+	intensity?: number | null,
+};
+
 export type BatchStatus = 
 /**  Planned, waiting for confirmation. */
 "planned" | "running" | 
@@ -495,6 +549,35 @@ export type DownloadState = {
 	totalBytes: number,
 	/**  Last failure (network, checksum), for the settings page. */
 	error: string | null,
+};
+
+export type EditBatch = {
+	id: string,
+	libraryId: string,
+	auto: AutoOptions,
+	count: number,
+	/**  "applied" | "undone". */
+	status: string,
+	createdAt: string,
+};
+
+export type EditRecipe = {
+	version?: number,
+	auto?: AutoOptions,
+	adjust?: Adjust,
+	geometry?: Geometry,
+};
+
+/**  What "Melhorar fotos" would touch in a scope. */
+export type EnhanceSummary = {
+	/**  Photos that will be improved. */
+	editable: number,
+	/**  Left out: videos, screenshots, documents, formats the editor can't read. */
+	excluded: number,
+	/**  Of `editable`, already edited (their fine tuning is kept). */
+	edited: number,
+	/**  A few of `editable`, newest first, for the before/after grid. */
+	sample: string[],
 };
 
 /**  After a reclassification, in the library (ignored events not counted). */
@@ -614,6 +697,11 @@ export type FaceStatus = {
 export type FolderCount = {
 	path: string,
 	count: number,
+};
+
+export type Geometry = {
+	/**  `[x, y, w, h]`, fractions of the upright image. `None` = whole image. */
+	crop?: [(number | null), (number | null), (number | null), (number | null)] | null,
 };
 
 export type GroupKind = "exact_duplicate" | "visual_duplicate" | "similar" | "sequence";
@@ -762,6 +850,15 @@ export type MediaCount = {
 	videos: number,
 };
 
+/**  The edit of one photo. */
+export type MediaEdit = {
+	mediaId: string,
+	recipe: EditRecipe,
+	revision: number,
+	/**  Revision of the edited thumbnails (0 = not rendered yet). */
+	editVersion: number,
+};
+
 /**  Every field is optional; unset fields don't restrict. All set fields combine with AND. */
 export type MediaFilter = {
 	mediaType?: MediaType | null,
@@ -805,6 +902,8 @@ export type MediaFilter = {
 	eventId?: string | null,
 	/**  Photos where this person appears (phase 7b). */
 	personId?: string | null,
+	/**  `true` = improved photos only ("Melhoradas", phase 9); `false` = not improved. */
+	edited?: boolean | null,
 };
 
 export type MediaGroup = {
@@ -853,6 +952,10 @@ export type MediaItem = {
 	inTrash: boolean,
 	/**  Priority (1–1000) of its pending review suggestions; `None` = nothing to review. */
 	reviewPriority: number | null,
+	/**  Has an edit (phase 9, "Melhorar fotos"). */
+	edited: boolean,
+	/**  Version of the edited thumbnails (`editThumbnailUrl`); 0 = not rendered yet. */
+	editVersion: number,
 };
 
 /**  One page of the gallery. Pass `next_cursor` back to get the following page. */
@@ -1117,6 +1220,8 @@ export type SceneScore = {
 	/**  0–1: share among the scenes. */
 	score: number | null,
 };
+
+export type Style = "natural";
 
 export type TagCount = {
 	tag: string,

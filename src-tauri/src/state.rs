@@ -1,4 +1,5 @@
 use photovault_core::db::SqlitePool;
+use photovault_core::edit::session::Sessions;
 use photovault_core::ingestion::ScanControl;
 use photovault_core::jobs::JobRunner;
 use photovault_core::paths::AppPaths;
@@ -12,6 +13,8 @@ pub struct AppState {
     pub scan: Arc<ScanControl>,
     /// Background ingest pipeline (EXIF, thumbnails, hashes).
     pub jobs: Arc<JobRunner>,
+    /// Photos decoded for the live preview of "Melhorar fotos" (and their drafts).
+    pub edit: Arc<Sessions>,
     /// Library currently being scanned (lets a reloaded UI resume showing progress).
     pub scanning_library: Mutex<Option<String>>,
     /// v0.x catalog archived on this start, reported once to the UI.

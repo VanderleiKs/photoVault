@@ -4,6 +4,7 @@
 pub mod ai;
 pub mod albums;
 pub mod arrange;
+pub mod edit;
 pub mod events;
 pub mod jobs;
 pub mod libraries;

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
 import { formatDuration } from '../core/format';
-import { thumbnailUrl, type MediaItem } from '../core/ipc/ipc';
+import { editThumbnailUrl, thumbnailUrl, type MediaItem } from '../core/ipc/ipc';
 import { JobStore } from '../core/stores/job.store';
 
 /**
@@ -32,7 +32,7 @@ import { JobStore } from '../core/stores/job.store';
           loading="lazy"
           decoding="async"
           draggable="false"
-          (error)="failedSrc.set(src())"
+          (error)="onError()"
           class="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
           [class.scale-90]="checked()"
           [class.rounded-lg]="checked()"
@@ -56,7 +56,7 @@ import { JobStore } from '../core/stores/job.store';
           loading="lazy"
           decoding="async"
           draggable="false"
-          (error)="failedSrc.set(src())"
+          (error)="onError()"
           class="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
           [class.scale-90]="checked()"
           [class.rounded-lg]="checked()"
@@ -68,6 +68,12 @@ import { JobStore } from '../core/stores/job.store';
       }
       <span class="absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white">
         <i class="pi pi-video text-[10px]"></i>{{ duration() ?? 'Vídeo' }}
+      </span>
+    }
+
+    @if (item().edited) {
+      <span class="pointer-events-none absolute bottom-1.5 right-1.5 flex size-5 items-center justify-center rounded-full bg-black/55 text-white" title="Melhorada">
+        <i class="pi pi-sun text-[10px]"></i>
       </span>
     }
 
@@ -121,7 +127,20 @@ export class MediaTileComponent {
   readonly favorite = output<void>();
 
   protected readonly jobs = inject(JobStore);
-  protected readonly src = computed(() => thumbnailUrl(this.item().id, this.item().thumbVersion));
+  /** The improved look once rendered (falls back to the original if it fails to load). */
+  protected readonly src = computed(() => {
+    const m = this.item();
+    const edited = m.editVersion > 0 ? editThumbnailUrl(m.id, m.editVersion) : null;
+    return edited && this.failedEdit() !== edited ? edited : thumbnailUrl(m.id, m.thumbVersion);
+  });
+  /** Improved thumbnail that failed to load: the original is shown instead. */
+  private readonly failedEdit = signal<string | null>(null);
+
+  protected onError(): void {
+    const src = this.src();
+    if (src.includes('edit-thumb')) this.failedEdit.set(src);
+    else this.failedSrc.set(src);
+  }
   protected readonly checkClass = computed(() => {
     if (this.checked()) return 'border-primary bg-primary text-white opacity-100';
     const base = 'border-white/90 bg-black/20 text-transparent hover:text-white/80';

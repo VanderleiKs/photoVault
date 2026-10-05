@@ -17,8 +17,8 @@ use tracing_subscriber::{EnvFilter, fmt};
 /// Commands and events exposed to the frontend (single source for the TS bindings).
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     use commands::{
-        ai, albums, arrange, events as event_commands, jobs, libraries, media, organize, people,
-        review, scan, system,
+        ai, albums, arrange, edit, events as event_commands, jobs, libraries, media, organize,
+        people, review, scan, system,
     };
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(collect_commands![
@@ -102,6 +102,16 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             arrange::get_arrange_batch,
             arrange::list_arrange_batches,
             arrange::list_arrange_items,
+            edit::summarize_enhance,
+            edit::apply_enhance,
+            edit::undo_enhance,
+            edit::list_enhance_batches,
+            edit::get_edit,
+            edit::open_edit,
+            edit::set_edit_draft,
+            edit::close_edit,
+            edit::save_edit,
+            edit::reset_edits,
             event_commands::reclassify_events,
             event_commands::get_detected_homes,
             event_commands::search_home_places,
@@ -266,6 +276,7 @@ pub fn run() {
                 paths: paths.clone(),
                 scan: Default::default(),
                 jobs,
+                edit: Default::default(),
                 scanning_library: Mutex::new(None),
                 archived_legacy_catalog: database.archived_legacy_catalog,
             }));
