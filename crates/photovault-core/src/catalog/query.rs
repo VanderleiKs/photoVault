@@ -76,6 +76,9 @@ pub struct MediaFilter {
     /// Photos where this person appears (phase 7b).
     #[specta(optional)]
     pub person_id: Option<String>,
+    /// `true` = improved photos only ("Melhoradas", phase 9); `false` = not improved.
+    #[specta(optional)]
+    pub edited: Option<bool>,
     /// Filled by `resolve` from `text` when the local AI is available: photos whose
     /// content matches (phase 7a). Never part of the API or of a smart album's rule.
     #[serde(skip)]
@@ -133,7 +136,8 @@ impl MediaFilter {
             review_reason,
             trashed,
             event_id,
-            person_id
+            person_id,
+            edited
         );
         self
     }
@@ -495,6 +499,11 @@ pub(crate) fn push_where(
     if filter.favorite == Some(true) {
         qb.push(" AND m.is_favorite = 1");
     }
+    match filter.edited {
+        Some(true) => qb.push(" AND m.id IN (SELECT media_id FROM media_edits)"),
+        Some(false) => qb.push(" AND m.id NOT IN (SELECT media_id FROM media_edits)"),
+        None => qb,
+    };
     if let Some(place) = filter.place_id {
         qb.push(" AND m.place_id = ").push_bind(i64::from(place));
     }

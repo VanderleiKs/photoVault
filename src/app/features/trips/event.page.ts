@@ -8,7 +8,7 @@ import { InputTextModule } from '@openng/optimus-ui/inputtext';
 import { SkeletonModule } from '@openng/optimus-ui/skeleton';
 import { formatCount, formatDayShort, formatPeriod } from '../../core/format';
 import { Backend } from '../../core/ipc/backend';
-import { previewUrl, thumbnailUrl, unwrap, type EventDay, type EventSummary, type MediaFilter, type MediaItem } from '../../core/ipc/ipc';
+import { previewUrl, itemThumbnailUrl, unwrap, type EventDay, type EventSummary, type MediaFilter, type MediaItem } from '../../core/ipc/ipc';
 import { NotifyService } from '../../core/notify.service';
 import { AlbumStore } from '../../core/stores/album.store';
 import { EventStore } from '../../core/stores/event.store';
@@ -300,7 +300,7 @@ export class EventPage {
   }
 
   protected thumb(item: MediaItem) {
-    return thumbnailUrl(item.id, item.thumbVersion);
+    return itemThumbnailUrl(item);
   }
 
   protected preview(item: MediaItem) {

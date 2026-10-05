@@ -86,6 +86,7 @@ Verificação feita nesta análise: o `npm install --legacy-peer-deps && ng buil
 | 006 | **Lixeira dentro da raiz da biblioteca** (`.photovault-trash`) | `rename` atômico no mesmo volume |
 | 007 | **Portátil = zip (Windows) + AppImage (Linux)**, sem instaladores | requisito do produto |
 | 008 | **Migrations: recomeçar do zero** (`0001_init.sql` novo) | não há usuários com dados; o schema atual é insuficiente. O `catalog.db` antigo é descartado com aviso. |
+| 009 | **Edição não destrutiva com motor único no Rust** (`edit::pipeline::render` para prévia e entrega); a IA e o automático só produzem parâmetros; miniaturas editadas em `thumbnails/edit/`, separadas das de análise | prévia = entrega por construção; mudar a cor de uma foto não pode refazer pHash, CLIP e rostos nem mudar duplicatas. *Modelos de retoque (Image-Adaptive 3D LUT, AdaInt) ficam de fora: pesos treinados no FiveK/PPR10K, só pesquisa (mesmo critério do InsightFace na 7b).* |
 
 ---
 
@@ -434,7 +435,46 @@ Teste do usuário (2026-10-01): Windows ok, build Linux ok. Ajustes:
 - [x] **Análise mais leve por padrão** (decisão do usuário, 2026-10-01): o log do teste mostrou que não houve loop (nenhum erro; ingestão + qualidade 17 min, conteúdo ~4 min, rostos ~2 min, para 4.273 fotos), mas com o processador inteiro: ventoinha no máximo por ~20 min. Agora "automático" usa metade: leitura/análise com metade dos núcleos lógicos (antes: todos menos um) e a IA com metade dos núcleos físicos (antes: todos) (`cpu::workers`/`cpu::ai_threads`). Valor manual em Configurações → Análise continua valendo. Também: o log resume cada período de trabalho ("Queue idle after …") e o ONNX Runtime só registra avisos (`ort=warn`)
 - [ ] Busca por "praia" (pendência da 7a)
 
-### Fase 9 — Android (≈ 6 semanas) → `v3.0`
+### Fase 9 — Melhorar fotos: edição profissional automática em lote (≈ 8 semanas) → `v2.3`–`v2.5`
+
+Pedido do usuário (2026-10-05): tratar todas as fotos (ou as selecionadas) com qualidade de entrega de fotógrafo, como no Lightroom, mas **automático**, sem nada difícil para um leigo. Decisões: não destrutivo (receita no catálogo) + entrega de cópias JPEG; automático primeiro, ajuste fino opcional; estilos; sem RAW. Requisitos no PRD §29; decisão de arquitetura no ADR 009.
+
+**Licenças (conferidas em 2026-10-05):** o código do [Image-Adaptive-3DLUT](https://github.com/HuiZeng/Image-Adaptive-3DLUT) e do [AdaInt](https://github.com/ImCharlesY/AdaInt) é Apache 2.0, mas os pesos foram treinados no MIT-Adobe FiveK (licença Adobe: "solely for research", proíbe uso "directed toward commercial advantage") e no PPR10K ("non-commercial research purposes only", inclusive "derived data"). Ficam de fora. A "inteligência" vem de algoritmos próprios + modelos já liberados (YuNet, SFace, CLIP) + o gosto do próprio usuário.
+
+#### Fase 9a — Motor, correção automática e "Melhorar fotos" (≈ 3 semanas) → `v2.3`
+
+- [x] **Motor** (`edit/`): decodificação com orientação e ICC (`moxcms`; cores fora do sRGB são recortadas pela transformação, como num navegador) para RGB linear f32 (8 e 16 bits); `pipeline::render` em faixas com `cpu::workers`; ops WB, exposição, níveis, realces/sombras locais (grade de 128 células, igual em qualquer tamanho), contraste (curva S assada na tabela sRGB), vibração/saturação, nitidez, recorte e resize; saída sRGB com recorte que preserva o matiz e dithering abaixo de meio nível (receita neutra = original byte a byte). JPEG pelo `jpeg-encoder` (prévia 4:2:0 q88; entrega 4:4:4 com ICC sRGB)
+  - **Medições** (`edit_bench`, 2026-10-05, 12 núcleos lógicos, 6 threads, máquina com outra carga): prévia (render + JPEG) com o proxy já em memória: **1024 ≈ 30 ms, 1600 ≈ 73 ms** (19 MP); abrir uma foto de 19 MP ≈ 0,7 s (decodificação 0,49 s + proxy 0,2 s; a meta de 0,4 s fica para a sessão com pré-carregamento dos vizinhos); entrega em tamanho original ≈ 1,1 s (19 MP) e 4,5 s (75 MP). O render escala com as threads (1600: 165 → 77 → 45 ms com 1, 3 e 6)
+- [x] **Receita** (`EditRecipe`, `RECIPE_VERSION`): `auto` (ligado, estilo, intensidade), `adjust` (ajuste fino, somado ao automático), `geometry` (recorte); receita de um app mais novo = só leitura (`from_json`). Valores automáticos em `auto_json` com `AUTO_VERSION` e SHA-256 do arquivo (`store::cached_auto`)
+- [~] **Correção técnica automática** (`edit::auto`): AWB shades-of-grey (p=6) com força 0,8 e limite de 15°, exposição por média geométrica com peso central e proteção dos realces (±2 EV), pretos/brancos por percentis, sombras/realces pela fração de pixels escuros/claros. Testes sintéticos passando (cast de 1,35/0,7 → < 35 % do ângulo; deslocamentos de EV seguidos com erro < 0,1). **Falta:** calibrar com o `edit_eval` em fotos reais
+- [x] **Dados** (migration 0012): `media_edits` (receita, `revision`, `thumb_revision`, `thumb_error`), `media_edit_history` (receita anterior a cada mudança, 20 por foto) e `edit_batches` (cada "Aplicar", desfeito como um todo). *Mudança do plano:* as tabelas da entrega e do gosto entram nas migrations da 9b/9c, junto com o código que as usa (migration é imutável; criar tabela sem uso arriscava um schema errado). `MediaItem.edited`/`editVersion` (`LEFT JOIN media_edits`; `query_bench` sem regressão: mesma faixa do commit anterior, com variação de ±50 % entre rodadas nesta máquina) e `MediaFilter.edited` ("Melhoradas", em `filters_combine`)
+- [x] **Escopo** (`store::summarize`/`apply`): só fotos ativas em JPEG, PNG, TIFF, WebP ou BMP; vídeos, screenshots, documentos e HEIC ficam de fora. Aplicar sobre uma foto já melhorada troca só a parte automática (o ajuste fino fica). Desfazer o lote volta cada foto à receita anterior (ou ao original)
+- [x] **Miniaturas editadas** em `thumbnails/edit/` (`step_edit_thumbs`, logo depois da ingestão e antes da análise, uma foto por vez com o render em `cpu::workers` threads, sem `mark_dirty`). A foto é decodificada já reduzida (`decode::decode_fit`, Lanczos em 8/16 bits): uma de 19 MP não vira ~230 MB de f32. Falha fica em `thumb_error` (não repete até a receita mudar); disco desconectado espera. Teste `enhance_renders_edited_thumbnails_and_undoes_without_touching_the_library`: miniaturas de análise idênticas byte a byte e pasta da biblioteca intacta
+- [x] **Prévia ao vivo:** `pv://…/edit/<id>?e=&v=&before=1` (e `s=`/`i=` para experimentar um estilo na grade antes/depois), renderizada pelas `edit::session::Sessions` (fotos decodificadas em memória, até 256 MB, a mais antiga sai primeiro; rascunho com versão). No front, `LivePreview`: uma renderização por vez e a receita mais recente vence (1024 enquanto arrasta, 1600 ao soltar)
+- [x] **Interface:** Menu → Melhorar fotos (escopo, estilo Natural + intensidade, grade antes/depois com 12 fotos — segurar mostra o original —, confirmação com número digitado acima de 500, histórico com Desfazer); "Melhorar" na barra de seleção; no visualizador **E** abre o ajuste fino ao vivo (luz, cor, nitidez, intensidade; salva sozinho; "Voltar ao original") e **\\** compara com o original; selo ☀ e filtro "Melhoradas". Ícone ☀ (`pi-sun`) para Melhorar: ✨ já é "Usar como exemplo"
+- [~] **Avaliação:** `examples/edit_bench.rs` feito. **Falta:** `examples/edit_eval.rs` + `tests/labeled/edit.py` (desvios de cor e EV conhecidos gerados de fotos neutras)
+
+**Pendente:** validação no app (Linux e Windows): melhorar uma viagem, comparar, ajuste fino, desfazer; latência real da prévia no WebKitGTK/WebView2.
+
+**Aceite:** receita neutra = original (≤ 1 nível); pasta da biblioteca intacta; miniaturas de análise idênticas; WB erro angular mediano < 3°; |ΔEV| mediano < 0,25; < 80 ms por mudança na prévia.
+
+#### Fase 9b — Contexto, sessão, estilos e entrega (≈ 3 semanas) → `v2.4`
+
+- [ ] **Contexto da IA** (se ligada): exposição e WB medidos nos rostos, pele protegida; perfil por cena (paisagem, retrato, noite, pôr do sol, neve/praia, comida)
+- [ ] **Sessão uniforme:** harmonização de exposição e cor pela mediana do escopo ou de cada evento
+- [ ] **Estilos:** Natural, Vivo, Quente, Suave, Preto e branco, Cinema (parâmetros + LUTs geradas em código)
+- [ ] **Entrega** (`edit::export`): plano → lote → execução no molde do `arrange`; destino fora das bibliotecas e da pasta do app; `operations_log` (`export`), marcador `create_new` + `.pvtmp` + `rename`; `export::run::recover`; pausa por desconexão ou disco cheio; JPEG (`jpeg-encoder`) com ICC sRGB e EXIF ajustado (spike `little_exif` × ajustador próprio); nomes `{titulo}_{seq:3}`; marca d'água
+
+**Aceite:** dispersão da sessão −60% no `edit_eval`; rosto subexposto corrigido em ≥ 90% de um conjunto rotulado; pôr do sol/noite "neutralizados" < 10%; entrega nunca sobrescreve nem deixa arquivo parcial; prévia × entrega ΔE < 0,5; ≥ 3 fotos/s em 2048.
+
+#### Fase 9c — "Aprende o seu gosto" e ajuste fino avançado (≈ 2 semanas) → `v2.5`
+
+- [ ] **Gosto do usuário** (`edit::auto::taste`, tabela `edit_taste`): diferença entre o automático e o ajuste fino salvo, por grupo de cena; viés = mediana robusta com decaimento, só com ≥ 5 exemplos; "Esquecer meu gosto" em Configurações
+- [ ] **Ajuste fino avançado:** curva, HSL, importar LUT `.cube`, recorte por proporção e endireitar; lupa 1:1
+
+**Aceite:** deixando uma foto de fora, o viés aproxima do ajuste final do usuário ≥ 30% melhor que o automático puro; tudo funciona com a IA desligada.
+
+### Fase 10 — Android (≈ 6 semanas) → `v3.0`
 
 - [ ] `tauri android init`; `core::paths` para Android; features `heic`/`video-thumbs` substituídas por APIs nativas
 - [ ] Plugin Kotlin `AndroidMediaStoreSource` (MediaStore + permissões `READ_MEDIA_*`) implementando `MediaSource`; `relative_path` vira `source_uri`
@@ -459,7 +499,8 @@ Teste do usuário (2026-10-01): Windows ok, build Linux ok. Ajustes:
 | 6 Eventos | 2 sem | 15 sem | v1.1 |
 | 7 IA | 4 sem | 19 sem | v2.0 |
 | 8 Org. física | 2 sem | 21 sem | v2.1 |
-| 9 Android | 6 sem | 27 sem | v3.0 |
+| 9 Melhorar fotos | 8 sem | 29 sem | v2.3–v2.5 |
+| 10 Android | 6 sem | 35 sem | v3.0 |
 
 ---
 
@@ -474,6 +515,10 @@ Teste do usuário (2026-10-01): Windows ok, build Linux ok. Ajustes:
 | SQLite em HD externo desconectado durante a escrita | WAL + checkpoint ao fechar; o catálogo fica na pasta do app; aviso ao detectar o volume ausente |
 | Heurísticas de momentâneas com muitos falsos positivos | só sugerem (nunca agem), limiares ajustáveis, conjunto rotulado para calibrar |
 | Optimus UI v2 é recente (bugs, ex.: `p-card` ignora `max-width`) | encapsular em componentes `shared/` para trocar ou corrigir num único ponto |
+| Automático "corrigindo" luz proposital (pôr do sol, palco) | força limitada, contexto de cena, métrica de falso positivo no `edit_eval` |
+| Prévia da edição lenta no WebKitGTK | proxy em memória, prévia de 1024 durante a troca; medir em Linux e Windows na 9a |
+| Memória na edição (24 MP em f32 ≈ 288 MB) | geometria/resize primeiro, uma foto por vez na entrega, LRU de proxies com teto |
+| EXIF corrompido ao gravar a entrega | spike na 9b; fixtures de iPhone, Canon e Sony |
 
 ---
 
@@ -482,4 +527,5 @@ Teste do usuário (2026-10-01): Windows ok, build Linux ok. Ajustes:
 1. Validar no Windows 11 a v2.2: busca pelo nome ("Ana", "Ana praia", "souza"), "Não é um rosto", "Remover todas as cópias exatas" e o modo automático, e a primeira execução (com `PHOTOVAULT_HOME` apontando para uma pasta vazia).
 2. Busca por "praia" (pendência da 7a).
 3. Decidir o empacotamento da libheif (HEIC) e do ffmpeg, pendentes da Fase 2.
-4. Amadurecer as ideias da 7b (foto de exemplo, álbuns por pessoa, "somente ela") ou seguir para a **Fase 8**.
+4. Amadurecer as ideias da 7b (foto de exemplo, álbuns por pessoa, "somente ela").
+5. **Fase 9a** (branch `fase-9-melhorar-fotos`): motor de edição, correção automática e a página "Melhorar fotos".

@@ -9,6 +9,7 @@ pub mod arrange;
 pub mod catalog;
 pub mod cpu;
 pub mod db;
+pub mod edit;
 pub mod error;
 pub mod events;
 pub mod ingestion;

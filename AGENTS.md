@@ -51,11 +51,12 @@ crates/photovault-core/   domínio, SEM Tauri: db, catalog (query, media, albums
                           VisionAnalyzer), review (sugestões, exemplos), trash (lixeira + operations_log),
                           events (detect: viagens/eventos), ai (clip, scenes, index: busca por
                           conteúdo; faces: YuNet + SFace; download dos modelos), people (rostos,
-                          cluster, nomes e correções), arrange (template, plano, run: organizar pastas)
+                          cluster, nomes e correções), arrange (template, plano, run: organizar pastas),
+                          edit (Melhorar fotos: color, decode, pipeline, auto, encode, session, store, thumbs)
 src-tauri/                camada fina: commands/, events.rs, protocol.rs (pv://), state.rs, lib.rs
 src/app/core/             ipc/ (bindings.ts gerado, ipc.ts, backend.ts), stores/ (signals), format, notify
 src/app/layout/           shell, sidebar, topbar (busca Ctrl+K), info-panel, bottom-nav, nav.ts
-src/app/features/         home, photos, timeline, favorites, albums, organize, review, trash, trips, people, arrange, viewer,
+src/app/features/         home, photos, timeline, favorites, albums, organize, review, trash, trips, people, arrange, enhance, viewer,
                           libraries, settings, welcome
 src/app/shared/           media-grid/ (grade virtualizada), media-tile, filter-bar, selection-bar,
                           album-picker, confirm-action, gallery-controls, media-details,
@@ -63,7 +64,7 @@ src/app/shared/           media-grid/ (grade virtualizada), media-tile, filter-b
 ```
 
 - **Regra de negócio vai no core** (`photovault-core`), com teste. Os commands só adaptam para IPC.
-- **Estado do frontend fica nas stores.** Globais: `AppStore`, `LibraryStore`, `ScanStore`, `JobStore`, `SelectionStore` (foco do painel + seleção múltipla), `BrowseStore` (filtros de "Todas as fotos", persistidos por biblioteca, e busca), `AlbumStore`, `OrganizeStore` (contadores de Organizar), `EventStore` (viagens/eventos), `AiStore` (IA local), `PeopleStore` (pessoas), `ArrangeStore` (organizar pastas), `ViewerContext`, `UiStore`. Por página: `GalleryStore` (`providers: [GalleryStore]`), que junta o filtro fixo da página ao do usuário, pagina e se atualiza sozinho. Os componentes não chamam IPC direto, exceto em casos pontuais pelo `Backend`.
+- **Estado do frontend fica nas stores.** Globais: `AppStore`, `LibraryStore`, `ScanStore`, `JobStore`, `SelectionStore` (foco do painel + seleção múltipla), `BrowseStore` (filtros de "Todas as fotos", persistidos por biblioteca, e busca), `AlbumStore`, `OrganizeStore` (contadores de Organizar), `EventStore` (viagens/eventos), `AiStore` (IA local), `PeopleStore` (pessoas), `ArrangeStore` (organizar pastas), `EnhanceStore` (melhorar fotos), `ViewerContext`, `UiStore`. Por página: `GalleryStore` (`providers: [GalleryStore]`), que junta o filtro fixo da página ao do usuário, pagina e se atualiza sozinho. Os componentes não chamam IPC direto, exceto em casos pontuais pelo `Backend`.
 
 ## Gotchas
 
@@ -125,3 +126,7 @@ src/app/shared/           media-grid/ (grade virtualizada), media-tile, filter-b
 - **Organizar pastas (`arrange`) = plano → lote → execução.** `plan`/`preview` não tocam no disco; `create_batch` recalcula e guarda o plano (`arrange_items`); só `run::execute`/`run::undo` movem, um arquivo por vez, com `operations_log` (`move`) antes e o catálogo (`relative_path`, `filename`) na mesma transação do item. Nunca mova arquivo da biblioteca por outro caminho. `run::recover` roda na inicialização, depois de `trash::recover`.
 - **Conflito de nome ignora maiúsculas, sempre** (`arrange::on_disk`, conjuntos em minúsculas): a biblioteca pode ser aberta no Windows ou estar em exFAT. `move_file` recusa destino existente; não "resolva" isso sobrescrevendo.
 - **Durante a organização o scan fica bloqueado** (o command segura `state.scan.try_start()`): um scan no meio veria arquivos "sumindo" e "aparecendo". Disco desconectado pausa o lote (não marca falhas).
+- **Melhorar fotos (`edit`) é não destrutivo** (ADR 009): a edição é uma receita em `media_edits`; o arquivo original nunca é escrito. Um único motor (`edit::pipeline::render`) serve prévia, miniaturas melhoradas e (9b) entrega: não crie outro caminho de render. O automático e a IA só produzem parâmetros, nunca pixels.
+- **Miniaturas melhoradas ficam em `thumbnails/edit/`** (`thumbnails::edit_path`, `pv://…/edit-thumb`, `edit-preview`); as de análise nunca mudam por causa de uma edição (senão pHash, CLIP e rostos refariam e as duplicatas mudariam). No front, use `itemThumbnailUrl(item)` onde a foto é mostrada (não na Revisão, que julga o original).
+- **Receitas:** mudou o significado de um campo de `EditRecipe` → `RECIPE_VERSION` novo (receita mais nova que o app = só leitura). Mudou o algoritmo de `edit::auto` → `AUTO_VERSION` novo (os valores guardados são recalculados, o ajuste fino fica) e meça com `edit_bench`/`edit_eval` antes, registrando no PLANO. Toda mudança de receita passa por `edit::store` (`save`/`apply`/`reset`/`undo_batch`), que grava o histórico e incrementa `revision` (a fila re-renderiza).
+- **Prévia ao vivo** por `pv://…/edit/<id>` (nunca em cache) a partir de `state.edit` (`Sessions`, decodifica reduzido e guarda até 256 MB). Decodificar a foto inteira em f32 só na entrega; prévia e miniatura usam `decode::decode_fit`.

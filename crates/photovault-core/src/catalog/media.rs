@@ -61,6 +61,10 @@ pub struct MediaItem {
     pub in_trash: bool,
     /// Priority (1–1000) of its pending review suggestions; `None` = nothing to review.
     pub review_priority: Option<u32>,
+    /// Has an edit (phase 9, "Melhorar fotos").
+    pub edited: bool,
+    /// Version of the edited thumbnails (`editThumbnailUrl`); 0 = not rendered yet.
+    pub edit_version: u32,
 }
 
 #[derive(sqlx::FromRow)]
@@ -94,6 +98,8 @@ struct MediaRow {
     indexed_at: String,
     in_trash: bool,
     review_priority: Option<i64>,
+    edited: bool,
+    edit_version: i64,
 }
 
 impl From<MediaRow> for MediaItem {
@@ -129,6 +135,8 @@ impl From<MediaRow> for MediaItem {
             indexed_at: r.indexed_at,
             in_trash: r.in_trash,
             review_priority: small(r.review_priority),
+            edited: r.edited,
+            edit_version: small(Some(r.edit_version)).unwrap_or(0),
         }
     }
 }
@@ -161,14 +169,16 @@ pub struct MediaContext {
     pub index: u32,
 }
 
-/// Columns of `MediaRow`, selected `FROM media m LEFT JOIN places p`.
+/// Columns of `MediaRow`, selected `FROM media m LEFT JOIN places p LEFT JOIN media_edits me`.
 const COLUMNS: &str = "m.id, m.library_id, m.relative_path, m.filename, m.extension, m.media_type, \
      m.file_size, m.width, m.height, m.duration_ms, m.captured_at, m.date_source, \
      m.camera_make, m.camera_model, m.lens, m.iso, m.aperture, m.shutter, m.focal_length, \
      m.gps_lat, m.gps_lon, p.name AS place_name, p.admin1 AS place_admin1, \
      p.country_code AS place_country, m.is_favorite, m.thumb_version, m.indexed_at, \
-     m.status = 'trashed' AS in_trash, m.review_priority";
-const FROM: &str = "FROM media m LEFT JOIN places p ON p.id = m.place_id";
+     m.status = 'trashed' AS in_trash, m.review_priority, me.media_id IS NOT NULL AS edited, \
+     COALESCE(me.thumb_revision, 0) AS edit_version";
+const FROM: &str = "FROM media m LEFT JOIN places p ON p.id = m.place_id \
+     LEFT JOIN media_edits me ON me.media_id = m.id";
 
 const MAX_PAGE: u32 = 500;
 const MAX_RADIUS: u32 = 50;
@@ -702,7 +712,32 @@ pub(crate) mod tests {
                 },
                 vec!["a"],
             ),
+            (
+                MediaFilter {
+                    edited: Some(true),
+                    ..Default::default()
+                },
+                vec!["b", "d"],
+            ),
+            (
+                MediaFilter {
+                    edited: Some(false),
+                    media_type: Some(MediaType::Image),
+                    year: Some(2025),
+                    ..Default::default()
+                },
+                vec!["a"],
+            ),
         ];
+        sqlx::query(
+            "INSERT INTO media_edits (media_id, recipe_json, recipe_version, revision, thumb_revision, updated_at)
+             VALUES ('b', '{}', 1, 2, 2, 'now'), ('d', '{}', 1, 1, 0, 'now')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let b = get(&pool, "b").await.unwrap();
+        assert!(b.edited && b.edit_version == 2);
         for (filter, ids) in cases {
             assert_eq!(
                 all_ids(&pool, &lib, &by(filter.clone()), 2).await,

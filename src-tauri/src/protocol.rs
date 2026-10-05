@@ -4,13 +4,19 @@
 //! - `pv://localhost/preview/<media-id>` → 1024px WebP (viewer fallback for HEIC/TIFF)
 //! - `pv://localhost/media/<media-id>` → original file (images and videos, with `Range`)
 //! - `pv://localhost/face/<face-id>` → 160px JPEG of a face, cut from the preview
+//! - `pv://localhost/edit-thumb/<media-id>` / `edit-preview/<media-id>` → edited
+//!   thumbnails (256 / 1024 WebP, "Melhorar fotos")
+//! - `pv://localhost/edit/<media-id>?e=<edge>&before=1&s=<style>&i=<intensity>` → live
+//!   preview (JPEG): the editor's draft, else the saved edit; with `s`/`i`, that
+//!   automatic improvement instead (before/after grid). Never cached.
 //!
 //! Files are resolved **only by catalog id**; paths coming from the frontend are
 //! never trusted. On Windows/Android the WebView uses `http://pv.localhost/...`,
 //! which is what `convertFileSrc(path, 'pv')` produces on the frontend.
 
 use crate::state::AppState;
-use photovault_core::catalog::media;
+use photovault_core::catalog::{media, settings};
+use photovault_core::edit::{self, session::PreviewRequest};
 use photovault_core::thumbnails;
 use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
@@ -27,8 +33,9 @@ const MAX_CHUNK: u64 = 4 * 1024 * 1024;
 pub async fn handle(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     let state = app.state::<Arc<AppState>>();
     let decoded = percent_decode(request.uri().path());
-    // `?v=<thumbVersion>` only busts the WebView cache; it arrives encoded in the path.
-    let path = decoded.split('?').next().unwrap_or_default();
+    // The query arrives encoded in the path: `?v=` only busts the WebView cache; the
+    // live preview reads its parameters.
+    let (path, query) = decoded.split_once('?').unwrap_or((&decoded, ""));
     let range = request
         .headers()
         .get(header::RANGE)
@@ -39,6 +46,11 @@ pub async fn handle(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec
         Some(("preview", id)) => serve_thumbnail(&state, id, thumbnails::PREVIEW_SIZE).await,
         Some(("media", id)) => serve_media(&state, id, range).await,
         Some(("face", id)) => serve_face(&state, id).await,
+        Some(("edit-thumb", id)) => serve_edit_thumbnail(&state, id, thumbnails::GRID_SIZE).await,
+        Some(("edit-preview", id)) => {
+            serve_edit_thumbnail(&state, id, thumbnails::PREVIEW_SIZE).await
+        }
+        Some(("edit", id)) => serve_edit_preview(&state, id, query).await,
         _ => Err(StatusCode::NOT_FOUND),
     };
 
@@ -57,6 +69,66 @@ async fn serve_thumbnail(state: &AppState, id: &str, size: u32) -> Served {
     let path = thumbnails::path(&state.paths.thumbnails_dir, &id, size);
     let bytes = tokio::fs::read(&path).await.map_err(io_status)?;
     ok(bytes, "image/webp")
+}
+
+async fn serve_edit_thumbnail(state: &AppState, id: &str, size: u32) -> Served {
+    let id = parse_id(id)?;
+    let path = thumbnails::edit_path(&state.paths.thumbnails_dir, &id, size);
+    let bytes = tokio::fs::read(&path).await.map_err(io_status)?;
+    ok(bytes, "image/webp")
+}
+
+async fn serve_edit_preview(state: &AppState, id: &str, query: &str) -> Served {
+    let id = parse_id(id)?;
+    let param = |key: &str| {
+        query
+            .split('&')
+            .filter_map(|kv| kv.split_once('='))
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| v)
+    };
+    let mut req = PreviewRequest {
+        edge: param("e").and_then(|e| e.parse().ok()).unwrap_or(1024),
+        before: param("before") == Some("1"),
+        recipe: None,
+    };
+    if let Some(intensity) = param("i").and_then(|i| i.parse::<f32>().ok()) {
+        // Trying an automatic improvement: the photo's own fine tuning stays.
+        let mut recipe = edit::store::get(&state.pool, &id)
+            .await
+            .ok()
+            .flatten()
+            .map(|e| e.recipe)
+            .unwrap_or_default();
+        recipe.auto = edit::AutoOptions {
+            enabled: true,
+            style: param("s")
+                .and_then(|s| serde_json::from_value(serde_json::Value::String(s.into())).ok())
+                .unwrap_or_default(),
+            intensity: intensity.clamp(0.0, 1.0),
+        };
+        req.recipe = Some(recipe);
+    }
+    let threads = settings::get(&state.pool)
+        .await
+        .map(|s| photovault_core::cpu::workers(s.cpu_concurrency))
+        .unwrap_or(2);
+    let bytes = state
+        .edit
+        .preview(&state.pool, &id, req, threads)
+        .await
+        .map_err(|e| match e {
+            photovault_core::Error::MediaNotFound => StatusCode::NOT_FOUND,
+            other => {
+                tracing::warn!("Edit preview of {id} failed: {other}");
+                StatusCode::UNPROCESSABLE_ENTITY
+            }
+        })?;
+    let mut response = ok(bytes, "image/jpeg")?;
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
 }
 
 async fn serve_face(state: &AppState, id: &str) -> Served {
